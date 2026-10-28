@@ -1,0 +1,766 @@
+import json
+import math
+
+# Home base: Grace Cathedral, San Francisco, CA
+HOME = {
+    "name": "Grace Cathedral, San Francisco",
+    "lat": 37.7919,
+    "lng": -122.4137
+}
+
+def calc_distance_and_drive(lat, lng):
+    # Haversine distance in miles
+    R = 3958.8  # Earth radius in miles
+    phi1, phi2 = math.radians(HOME["lat"]), math.radians(lat)
+    dphi = math.radians(lat - HOME["lat"])
+    dlambda = math.radians(lng - HOME["lng"])
+    a = math.sin(dphi / 2.0)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2.0)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    dist_straight = R * c
+    
+    # Real road distance estimate (factor 1.25x - 1.45x depending on terrain)
+    # Estimate driving time (average 45-55 mph highway, slower for coastal/mountain winding)
+    road_dist = round(dist_straight * 1.3, 1)
+    if road_dist < 15:
+        drive_mins = int(road_dist * 3.0)  # SF city traffic
+    elif road_dist < 40:
+        drive_mins = int(road_dist * 1.8)
+    elif road_dist < 100:
+        drive_mins = int(road_dist * 1.4)
+    else:
+        drive_mins = int(road_dist * 1.2)
+    
+    hrs = drive_mins // 60
+    mins = drive_mins % 60
+    drive_time_str = f"{hrs}h {mins:02d}m" if hrs > 0 else f"{mins} mins"
+    return round(dist_straight, 1), road_dist, drive_time_str
+
+campgrounds_raw = [
+    # 1. Bay Area Immediate & Marin
+    {
+        "id": "rob_hill",
+        "name": "Rob Hill Campground",
+        "region": "San Francisco",
+        "agency": "Presidio Trust / NPS",
+        "lat": 37.7963, "lng": -122.4746,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "Opens in February for entire season (Apr-Oct) at 9:00 AM PT via Recreation.gov",
+        "num_sites": 4,
+        "site_types": "Group / Tent camping (up to 30 people each)",
+        "nightly_fee": "$135 - $175 / group site",
+        "rating_public": 4.6,
+        "rating_hikes": 4.7,
+        "nearby_hikes_attractions": "Presidio Promenade, Battery Godfrey, Immigrant Point, Coastal Trail to Baker Beach",
+        "description": "The only public campground in San Francisco! Perched in a cypress grove overlooking Baker Beach and Pacific ocean."
+    },
+    {
+        "id": "kirby_cove",
+        "name": "Kirby Cove Campground",
+        "region": "Marin / SF Bay",
+        "agency": "National Park Service (GGNRA)",
+        "lat": 37.8286, "lng": -122.4939,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "3 months rolling at 7:00 AM PT on Recreation.gov (extremely competitive)",
+        "num_sites": 5,
+        "site_types": "Walk-in tent sites (1 day-use group site)",
+        "nightly_fee": "$40",
+        "rating_public": 4.9,
+        "rating_hikes": 4.8,
+        "nearby_hikes_attractions": "Golden Gate Bridge bluff views, Hawk Hill, Coastal Trail, Black Sands Beach",
+        "description": "Unrivaled view directly facing the Golden Gate Bridge and SF skyline from a sheltered beach cove."
+    },
+    {
+        "id": "bicentennial",
+        "name": "Bicentennial Campground",
+        "region": "Marin / SF Bay",
+        "agency": "National Park Service (GGNRA)",
+        "lat": 37.8291, "lng": -122.5292,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "3 months rolling at 7:00 AM PT on Recreation.gov",
+        "num_sites": 3,
+        "site_types": "Walk-in tent sites (100-200m from car)",
+        "nightly_fee": "$35",
+        "rating_public": 4.5,
+        "rating_hikes": 4.7,
+        "nearby_hikes_attractions": "Rodeo Lagoon, Point Bonita Lighthouse, Battery Mendell, Coastal Trail",
+        "description": "Marin Headlands ocean vistas, easiest walk-in camp in the Headlands near historic batteries."
+    },
+    {
+        "id": "hawkcamp_haypress",
+        "name": "Haypress & Hawkcamp Backcountry",
+        "region": "Marin / SF Bay",
+        "agency": "National Park Service (GGNRA)",
+        "lat": 37.8465, "lng": -122.5342,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "3 months rolling at 7:00 AM PT on Recreation.gov",
+        "num_sites": 8,
+        "site_types": "Hike-in backcountry (0.75 to 3 miles hike)",
+        "nightly_fee": "$30",
+        "rating_public": 4.7,
+        "rating_hikes": 4.9,
+        "nearby_hikes_attractions": "Tennessee Valley Trail, Miwok Trail, Coastal Trail, Bobcat Trail",
+        "description": "True secluded backcountry camping under 15 miles from SF; hawk watching and serene Marin ridges."
+    },
+    {
+        "id": "pantoll_bootjack",
+        "name": "Pantoll & Bootjack Campgrounds",
+        "region": "Marin / SF Bay",
+        "agency": "California State Parks (Mt. Tamalpais SP)",
+        "lat": 37.9048, "lng": -122.6041,
+        "reservation_type": "First-Come, First-Served",
+        "reservation_window": "100% First-Come, First-Served (Arrive Thursday evening or Friday morning early by 8 AM)",
+        "num_sites": 31,
+        "site_types": "Walk-in tent sites",
+        "nightly_fee": "$25",
+        "rating_public": 4.7,
+        "rating_hikes": 5.0,
+        "nearby_hikes_attractions": "Dipsea Trail, Steep Ravine Trail, Matt Davis Trail, Stinson Beach, Cataract Falls",
+        "description": "The crown jewel trail hub of Mt. Tamalpais. Direct trailhead access to Dipsea & Steep Ravine Redwood cascades."
+    },
+    {
+        "id": "steep_ravine",
+        "name": "Steep Ravine Cabins & Environmental Campsites",
+        "region": "Marin / SF Bay",
+        "agency": "California State Parks (Mt. Tamalpais SP)",
+        "lat": 37.8988, "lng": -122.6394,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia (sells out in under 2 seconds)",
+        "num_sites": 17,
+        "site_types": "10 rustic oceanfront wood cabins + 7 primitive walk-in tent sites",
+        "nightly_fee": "$100 (cabin) / $25 (tent)",
+        "rating_public": 4.9,
+        "rating_hikes": 5.0,
+        "nearby_hikes_attractions": "Rocky Point tidepools, Dipsea Trail, Stinson Beach, Steep Ravine redwoods",
+        "description": "Perched on rugged Pacific cliffs with wood stoves and crashing surf. Northern California's most coveted coastal stay."
+    },
+    {
+        "id": "samuel_p_taylor",
+        "name": "Samuel P. Taylor State Park",
+        "region": "Marin / SF Bay",
+        "agency": "California State Parks",
+        "lat": 38.0163, "lng": -122.7291,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia",
+        "num_sites": 60,
+        "site_types": "Standard drive-in, tent, RV/trailer (no hookups), plus Madrone cabins",
+        "nightly_fee": "$35 ($100 cabins)",
+        "rating_public": 4.6,
+        "rating_hikes": 4.7,
+        "nearby_hikes_attractions": "Cross Marin Bike Trail, Barnabe Mountain, Pioneer Redwood Tree Trail, Lagunitas Creek salmon run",
+        "description": "Lush old-growth redwood grove along Lagunitas Creek. Paved car-free path connects directly to West Marin."
+    },
+    {
+        "id": "angel_island",
+        "name": "Angel Island State Park Campsites",
+        "region": "Marin / SF Bay",
+        "agency": "California State Parks",
+        "lat": 37.8609, "lng": -122.4326,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia",
+        "num_sites": 11,
+        "site_types": "Walk-in / Hike-in primitive sites (Ridge, Sunrise, East Bay, Kayak camp)",
+        "nightly_fee": "$30",
+        "rating_public": 4.8,
+        "rating_hikes": 4.8,
+        "nearby_hikes_attractions": "Mt. Caroline Livermore peak, Perimeter Trail, Immigration Station, 360-degree Bay panorama",
+        "description": "Island camping in the center of SF Bay. Uninterrupted night views of city lights and Golden Gate."
+    },
+    {
+        "id": "pt_reyes_backcountry",
+        "name": "Point Reyes National Seashore (Wildcat, Coast, Glen, Sky)",
+        "region": "Marin / SF Bay",
+        "agency": "National Park Service",
+        "lat": 38.0210, "lng": -122.8422,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "3 months rolling at 7:00 AM PT on Recreation.gov",
+        "num_sites": 48,
+        "site_types": "Backcountry hike-in / bike-in campsites",
+        "nightly_fee": "$30",
+        "rating_public": 4.9,
+        "rating_hikes": 5.0,
+        "nearby_hikes_attractions": "Alamere Falls (tidefall waterfall), Tomales Point Tule Elk Reserve, Chimney Rock, Arch Rock",
+        "description": "Wild Pacific wilderness. Wildcat camp sits directly behind coastal dunes 1 mile from tidefall waterfall Alamere Falls."
+    },
+
+    # 2. East Bay & South Bay
+    {
+        "id": "anthony_chabot",
+        "name": "Anthony Chabot Regional Park",
+        "region": "East Bay",
+        "agency": "East Bay Regional Park District (EBRPD)",
+        "lat": 37.7471, "lng": -122.1082,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "12 weeks (84 days) rolling in advance on EBRPD / ReserveAmerica",
+        "num_sites": 75,
+        "site_types": "Drive-in tent, RV hookup sites, hike-in backpack sites",
+        "nightly_fee": "$25 - $45",
+        "rating_public": 4.4,
+        "rating_hikes": 4.4,
+        "nearby_hikes_attractions": "Lake Chabot loop trail, Honker Bay, Skyline National Recreation Trail, Redwood Regional Park",
+        "description": "Wooded hills above Lake Chabot with eucalyptus and pine; excellent quick getaway from SF and Oakland."
+    },
+    {
+        "id": "mount_diablo",
+        "name": "Mount Diablo State Park (Juniper & Live Oak)",
+        "region": "East Bay",
+        "agency": "California State Parks",
+        "lat": 37.8767, "lng": -121.9312,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia",
+        "num_sites": 50,
+        "site_types": "Standard drive-in tent & small RV sites",
+        "nightly_fee": "$30",
+        "rating_public": 4.6,
+        "rating_hikes": 4.7,
+        "nearby_hikes_attractions": "Mount Diablo Summit (3,849 ft, 40-county view), Rock City, Sentinel Rock, Grand Loop Trail",
+        "description": "High elevation perch with sunset views over SF Bay and sunrise over the Sierra Nevada crest."
+    },
+    {
+        "id": "del_valle",
+        "name": "Del Valle Regional Park",
+        "region": "East Bay",
+        "agency": "East Bay Regional Park District (EBRPD)",
+        "lat": 37.6163, "lng": -121.6974,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "12 weeks (84 days) rolling on EBRPD portal",
+        "num_sites": 150,
+        "site_types": "Tent, RV with water/sewer/electric, group sites",
+        "nightly_fee": "$25 - $45",
+        "rating_public": 4.5,
+        "rating_hikes": 4.6,
+        "nearby_hikes_attractions": "5-mile reservoir kayak/paddle, Ohlone Wilderness Trail trailhead, Rose Peak (3,817 ft)",
+        "description": "Surrounded by oak-covered hills with a 5-mile long lake for swimming, boating, and deep wilderness backpacking."
+    },
+
+    # 3. Coast, Half Moon Bay & Santa Cruz Mountains
+    {
+        "id": "half_moon_bay",
+        "name": "Half Moon Bay State Beach (Francis Beach)",
+        "region": "Half Moon Bay / Coast",
+        "agency": "California State Parks",
+        "lat": 37.4578, "lng": -122.4431,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia",
+        "num_sites": 52,
+        "site_types": "Tent, RV hookup & electric sites, hike-and-bike",
+        "nightly_fee": "$35 - $65",
+        "rating_public": 4.5,
+        "rating_hikes": 4.5,
+        "nearby_hikes_attractions": "Coastside Trail (paved bluff path), Mavericks surf break, Pillar Point Harbor, Purisima Creek",
+        "description": "Right on the coastal bluffs above Francis Beach with crashing waves, beachcombing, and paved biking."
+    },
+    {
+        "id": "memorial_park",
+        "name": "Memorial Park Campground",
+        "region": "Peninsula / Santa Cruz Mtns",
+        "agency": "San Mateo County Parks",
+        "lat": 37.2741, "lng": -122.2891,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "180 days (6 months) in advance on San Mateo County Parks reservation system",
+        "num_sites": 158,
+        "site_types": "Tent and RV sites along creek",
+        "nightly_fee": "$35 - $45",
+        "rating_public": 4.7,
+        "rating_hikes": 4.7,
+        "nearby_hikes_attractions": "Pescadero Creek swimming holes, Mount Ellen Trail, Pomponio Creek, Pescadero Marsh",
+        "description": "Beloved century-old park surrounded by towering coast redwoods and swimming holes in Pescadero Creek."
+    },
+    {
+        "id": "butano_sp",
+        "name": "Butano State Park (Ben Ries Campground)",
+        "region": "Coast / Santa Cruz Mtns",
+        "agency": "California State Parks",
+        "lat": 37.2023, "lng": -122.3392,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia",
+        "num_sites": 39,
+        "site_types": "Drive-in tent sites, walk-in sites, backpack trail camp",
+        "nightly_fee": "$35",
+        "rating_public": 4.7,
+        "rating_hikes": 4.8,
+        "nearby_hikes_attractions": "Ano Nuevo State Park (elephant seals), Candelabra Tree, Goat Hill Trail, Jackson Flats",
+        "description": "A secluded redwood canyon sanctuary cloaked in coastal fog and moss, tucked away near Pescadero."
+    },
+    {
+        "id": "portola_redwoods",
+        "name": "Portola Redwoods State Park",
+        "region": "Peninsula / Santa Cruz Mtns",
+        "agency": "California State Parks",
+        "lat": 37.2536, "lng": -122.2181,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia",
+        "num_sites": 53,
+        "site_types": "Standard drive-in, walk-in, and backpack camp",
+        "nightly_fee": "$35",
+        "rating_public": 4.7,
+        "rating_hikes": 4.9,
+        "nearby_hikes_attractions": "Peters Creek Old Growth Grove, Tip Toe Falls, Slate Creek Trail, Iverson Trail",
+        "description": "Deep, quiet, rugged redwood canyon with giant trees, ferns, and one of the finest ancient groves in the Bay."
+    },
+    {
+        "id": "big_basin",
+        "name": "Big Basin Redwoods State Park (Sempervirens / Blooms)",
+        "region": "Santa Cruz Mountains",
+        "agency": "California State Parks",
+        "lat": 37.1723, "lng": -122.2218,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "60-day rolling window on ReserveCalifornia (limited reopening post-CZU fire)",
+        "num_sites": 45,
+        "site_types": "Drive-in & walk-in tent sites",
+        "nightly_fee": "$35",
+        "rating_public": 4.8,
+        "rating_hikes": 5.0,
+        "nearby_hikes_attractions": "Redwood Loop, Berry Creek Falls trail reconstruction, Skyline-to-the-Sea trail, Waddell Creek",
+        "description": "California's oldest state park (1902). Resilient ancient redwoods rebounding with green sprouts."
+    },
+    {
+        "id": "henry_cowell",
+        "name": "Henry Cowell Redwoods State Park",
+        "region": "Santa Cruz Mountains",
+        "agency": "California State Parks",
+        "lat": 37.0426, "lng": -122.0583,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia",
+        "num_sites": 107,
+        "site_types": "Drive-in tent, RV (no hookups)",
+        "nightly_fee": "$35",
+        "rating_public": 4.7,
+        "rating_hikes": 4.8,
+        "nearby_hikes_attractions": "Old Growth Redwood Grove, Garden of Eden swimming hole, Roaring Camp steam train, Fall Creek unit",
+        "description": "Ancient 275-foot redwoods, sandy pine ridges, and freshwater river swimming in the San Lorenzo River."
+    },
+    {
+        "id": "new_brighton",
+        "name": "New Brighton State Beach",
+        "region": "Monterey Bay Coast",
+        "agency": "California State Parks",
+        "lat": 36.9806, "lng": -121.9312,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia",
+        "num_sites": 111,
+        "site_types": "Beach bluff tent & RV sites (premium oceanfront hookups)",
+        "nightly_fee": "$35 - $60",
+        "rating_public": 4.6,
+        "rating_hikes": 4.4,
+        "nearby_hikes_attractions": "Capitola Village, Forest of Nisene Marks State Park, Monterey Bay coastal bluff trails",
+        "description": "Forested bluff campsites looking out across the entire crescent of Monterey Bay; dolphins and otters often visible."
+    },
+
+    # 4. Sonoma & Napa Valley / Russian River / Mendocino Coast
+    {
+        "id": "sugarloaf_ridge",
+        "name": "Sugarloaf Ridge State Park",
+        "region": "Sonoma / Napa",
+        "agency": "California State Parks / Sonoma Ecology Ctr",
+        "lat": 38.4379, "lng": -122.5137,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia",
+        "num_sites": 47,
+        "site_types": "Drive-in tent, small RV, plus luxury glamping tents",
+        "nightly_fee": "$35 ($120 glamping)",
+        "rating_public": 4.7,
+        "rating_hikes": 4.9,
+        "nearby_hikes_attractions": "Bald Mountain summit (view Sierra & SF on clear days), Sonoma Creek Falls, Ferguson Observatory",
+        "description": "Sonoma Valley gem with dark skies, public observatory stargazing, waterfalls, and steep panoramic climbs."
+    },
+    {
+        "id": "bothe_napa",
+        "name": "Bothe-Napa Valley State Park",
+        "region": "Sonoma / Napa",
+        "agency": "California State Parks / Napa County Reg Parks",
+        "lat": 38.5368, "lng": -122.5298,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia",
+        "num_sites": 50,
+        "site_types": "Drive-in tent, RV, historic cabins & yurts",
+        "nightly_fee": "$35 ($75 yurts)",
+        "rating_public": 4.6,
+        "rating_hikes": 4.6,
+        "nearby_hikes_attractions": "Ritchey Creek Trail, Coyote Peak, Bale Grist Mill State Historic Park, Napa Valley Vine Trail",
+        "description": "Camp nestled among redwoods and maple in the heart of Napa wine country; spring-fed swimming pool in summer."
+    },
+    {
+        "id": "sonoma_coast_bodega",
+        "name": "Sonoma Coast State Park (Bodega Dunes & Wright's Beach)",
+        "region": "Sonoma / Napa / Coast",
+        "agency": "California State Parks",
+        "lat": 38.3533, "lng": -123.0567,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia (Wright's Beach oceanfront sells in seconds)",
+        "num_sites": 125,
+        "site_types": "Drive-in tent & RV sites (Wright's Beach: 27 beachfront sites)",
+        "nightly_fee": "$35 - $45",
+        "rating_public": 4.7,
+        "rating_hikes": 4.8,
+        "nearby_hikes_attractions": "Kortum Trail (bluff hike to Blind Beach), Goat Rock (harbor seal colony), Bodega Head whale watching",
+        "description": "Dramatic open Pacific coastline. Wright's Beach campsites are steps from the ocean waves."
+    },
+    {
+        "id": "salt_point",
+        "name": "Salt Point State Park (Gerstle Cove & Woodside)",
+        "region": "Sonoma / Coast",
+        "agency": "California State Parks",
+        "lat": 38.5663, "lng": -123.3294,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia",
+        "num_sites": 109,
+        "site_types": "Drive-in ocean/forest sites, walk-in sites",
+        "nightly_fee": "$35",
+        "rating_public": 4.8,
+        "rating_hikes": 4.9,
+        "nearby_hikes_attractions": "Tafoni sandstone formations, Pygmy Forest, Gerstle Cove Marine Reserve, Fisk Mill Cove",
+        "description": "Spectacular sandstone coastline sculpted with tafoni pockets, dense bishop pine forests, and abalone/scuba diving."
+    },
+    {
+        "id": "austin_creek",
+        "name": "Austin Creek State Recreation Area (Bullfrog Pond)",
+        "region": "Sonoma / Russian River",
+        "agency": "California State Parks / Stewards of Coast & Redwoods",
+        "lat": 38.5447, "lng": -123.0189,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "Rolling on Hipcamp / Stewards of Coast & Redwoods portal",
+        "num_sites": 24,
+        "site_types": "Drive-in primitive tent & backpack trail camps",
+        "nightly_fee": "$35",
+        "rating_public": 4.7,
+        "rating_hikes": 4.8,
+        "nearby_hikes_attractions": "Armstrong Redwoods State Natural Reserve, Gilliam Creek, East Ridge Trail, Russian River paddling",
+        "description": "Perched high above Guerneville and Armstrong Redwoods; rugged oak savanna, rolling ridges, and serene starry skies."
+    },
+    {
+        "id": "lake_sonoma",
+        "name": "Lake Sonoma Recreation Area",
+        "region": "Sonoma / Russian River",
+        "agency": "US Army Corps of Engineers",
+        "lat": 38.7183, "lng": -122.9981,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 7:00 AM PT on Recreation.gov",
+        "num_sites": 115,
+        "site_types": "Drive-in campsites at Warm Springs + 15 primitive Boat-In/Hike-In wilderness camps",
+        "nightly_fee": "$20 - $35",
+        "rating_public": 4.5,
+        "rating_hikes": 4.5,
+        "nearby_hikes_attractions": "Lake Sonoma Marina, Little Flat trail, Warm Springs Dam, Dry Creek Valley wineries",
+        "description": "Warm water lake tucked into Sonoma hills; unique boat-in boat camping along 50 miles of winding shoreline."
+    },
+    {
+        "id": "hendy_woods",
+        "name": "Hendy Woods State Park",
+        "region": "Mendocino / Anderson Valley",
+        "agency": "California State Parks",
+        "lat": 39.0722, "lng": -123.4731,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia",
+        "num_sites": 92,
+        "site_types": "Drive-in tent & RV sites, cabins",
+        "nightly_fee": "$35 ($75 cabins)",
+        "rating_public": 4.8,
+        "rating_hikes": 4.8,
+        "nearby_hikes_attractions": "Big Hendy Old Growth Redwood Grove (1,000-year-old trees), Navarro River swimming, Anderson Valley Pinot Noir",
+        "description": "Less crowded old-growth redwood sanctuary in Anderson Valley along the gentle Navarro River."
+    },
+    {
+        "id": "russian_gulch",
+        "name": "Russian Gulch & Van Damme State Parks",
+        "region": "Mendocino Coast",
+        "agency": "California State Parks",
+        "lat": 39.3292, "lng": -123.8056,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia",
+        "num_sites": 105,
+        "site_types": "Standard drive-in, walk-in, RV sites",
+        "nightly_fee": "$35 - $45",
+        "rating_public": 4.9,
+        "rating_hikes": 5.0,
+        "nearby_hikes_attractions": "Devil's Punchbowl sea chasm, Russian Gulch 36-ft Waterfall Trail, Fern Canyon, Frederick W. Panhorst Bridge",
+        "description": "Mendocino coastal paradise: a towering sea-bridge, dramatic blowholes, lush fern canyons, and ocean headlands."
+    },
+
+    # 5. Monterey Bay, Big Sur & Central Coast
+    {
+        "id": "pfeiffer_big_sur",
+        "name": "Pfeiffer Big Sur State Park",
+        "region": "Monterey Bay & Big Sur",
+        "agency": "California State Parks",
+        "lat": 36.2486, "lng": -121.7825,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia (very high demand)",
+        "num_sites": 189,
+        "site_types": "Drive-in tent, RV (no hookups), walk-in riverside sites",
+        "nightly_fee": "$35 - $50",
+        "rating_public": 4.8,
+        "rating_hikes": 5.0,
+        "nearby_hikes_attractions": "Buzzard's Roost Trail, Big Sur River Gorge, Pfeiffer Falls, Valley View Trail, Pfeiffer Beach purple sands",
+        "description": "The quintessential Big Sur experience along the redwood-canopied Big Sur River with natural river swimming holes."
+    },
+    {
+        "id": "julia_pfeiffer_burns",
+        "name": "Julia Pfeiffer Burns State Park",
+        "region": "Monterey Bay & Big Sur",
+        "agency": "California State Parks",
+        "lat": 36.1601, "lng": -121.6728,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia (only 2 walk-in sites!)",
+        "num_sites": 2,
+        "site_types": "Environmental walk-in tent sites",
+        "nightly_fee": "$30",
+        "rating_public": 5.0,
+        "rating_hikes": 5.0,
+        "nearby_hikes_attractions": "McWay Falls (80-ft waterfall into turquoise Pacific cove), Ewoldsen Trail, Partington Cove",
+        "description": "Legendary cliff-edge campsites perched directly over the Pacific near McWay Falls. Pure coastal magic."
+    },
+    {
+        "id": "kirk_creek",
+        "name": "Kirk Creek Campground",
+        "region": "Monterey Bay & Big Sur",
+        "agency": "US Forest Service (Los Padres NF)",
+        "lat": 35.9897, "lng": -121.4939,
+        "reservation_type": "Paid Reservation + FCFS",
+        "reservation_window": "6 months rolling at 7:00 AM PT on Recreation.gov + several First-Come First-Served sites",
+        "num_sites": 33,
+        "site_types": "Drive-in bluff tent & RV sites",
+        "nightly_fee": "$45",
+        "rating_public": 4.9,
+        "rating_hikes": 5.0,
+        "nearby_hikes_attractions": "Vicente Flat Trail (into Ventana Wilderness), Sand Dollar Beach, Mill Creek cove",
+        "description": "Every campsite has an unobstructed, panoramic view of the Pacific Ocean from an open coastal bluff."
+    },
+    {
+        "id": "plaskett_creek",
+        "name": "Plaskett Creek Campground",
+        "region": "Monterey Bay & Big Sur",
+        "agency": "US Forest Service (Los Padres NF)",
+        "lat": 35.9189, "lng": -121.4683,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 7:00 AM PT on Recreation.gov",
+        "num_sites": 44,
+        "site_types": "Drive-in tent & RV sites in Monterey pine grove",
+        "nightly_fee": "$45",
+        "rating_public": 4.7,
+        "rating_hikes": 4.8,
+        "nearby_hikes_attractions": "Sand Dollar Beach (largest sandy beach in Big Sur), Jade Cove, Willow Creek",
+        "description": "Park-like grassy setting under giant Monterey pines just across Highway 1 from Sand Dollar Beach."
+    },
+    {
+        "id": "prewitt_ridge",
+        "name": "Prewitt Ridge & Nacimiento (Dispersed BLM / USFS)",
+        "region": "Monterey Bay & Big Sur",
+        "agency": "US Forest Service / BLM",
+        "lat": 35.9708, "lng": -121.4475,
+        "reservation_type": "Dispersed / Free FCFS",
+        "reservation_window": "No reservations - 100% Free Dispersed Camping (High clearance AWD/4WD recommended, bring all water)",
+        "num_sites": 25,
+        "site_types": "Primitive dispersed rim campsites",
+        "nightly_fee": "Free ($0)",
+        "rating_public": 4.8,
+        "rating_hikes": 4.7,
+        "nearby_hikes_attractions": "Prewitt Loop Trail, Ventana Wilderness, 3,200-ft cliff drop overlooking marine fog bank",
+        "description": "High-altitude coastal ridge camping 3,200 feet directly above the Pacific Ocean. Sleep above the clouds with jaw-dropping sunsets."
+    },
+    {
+        "id": "pinnacles_np",
+        "name": "Pinnacles National Park Campground",
+        "region": "Central Coast / Pinnacles",
+        "agency": "National Park Service",
+        "lat": 36.4886, "lng": -121.1444,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 7:00 AM PT on Recreation.gov",
+        "num_sites": 134,
+        "site_types": "Tent, RV with electrical hookups, tent cabins, group sites",
+        "nightly_fee": "$40 - $55",
+        "rating_public": 4.6,
+        "rating_hikes": 4.9,
+        "nearby_hikes_attractions": "High Peaks Trail (carved rock steps into volcanic spires), Bear Gulch Cave (talus cave), Condor viewing",
+        "description": "Only campground in California's newest National Park; home to soaring California Condors, talus caves, and swimming pool."
+    },
+
+    # 6. Shasta-Cascade, Trinity Alps & Northern California
+    {
+        "id": "castle_crags",
+        "name": "Castle Crags State Park",
+        "region": "Shasta / Trinity / Cascade",
+        "agency": "California State Parks",
+        "lat": 41.1578, "lng": -122.3236,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia (some FCFS sites off-season)",
+        "num_sites": 76,
+        "site_types": "Drive-in tent & RV sites (no hookups)",
+        "nightly_fee": "$35",
+        "rating_public": 4.7,
+        "rating_hikes": 5.0,
+        "nearby_hikes_attractions": "Crags Trail to Castle Dome (6,000-ft granite spires), Pacific Crest Trail (PCT), Upper Sacramento River trout fishing",
+        "description": "Dramatic 6,000-foot granite spires looming above pine forests with jaw-dropping views of snow-capped Mt. Shasta."
+    },
+    {
+        "id": "lake_shasta_antlers",
+        "name": "Lake Shasta (Antlers & Bailey Cove Campgrounds)",
+        "region": "Shasta / Trinity / Cascade",
+        "agency": "US Forest Service (Shasta-Trinity NF)",
+        "lat": 40.9022, "lng": -122.4219,
+        "reservation_type": "Paid Reservation + FCFS",
+        "reservation_window": "6 months rolling at 7:00 AM PT on Recreation.gov",
+        "num_sites": 110,
+        "site_types": "Drive-in tent, RV sites, lakefront boat slips",
+        "nightly_fee": "$28 - $36",
+        "rating_public": 4.6,
+        "rating_hikes": 4.5,
+        "nearby_hikes_attractions": "Lake Shasta Caverns, Bailey Cove Trail, Shasta Dam, water skiing and houseboating",
+        "description": "Warm water reservoir recreation surrounded by forested mountain inlets with great swimming and boat access."
+    },
+    {
+        "id": "whiskeytown_nra",
+        "name": "Whiskeytown National Rec Area (Oak Bottom)",
+        "region": "Shasta / Trinity / Cascade",
+        "agency": "National Park Service",
+        "lat": 40.6128, "lng": -122.5694,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 7:00 AM PT on Recreation.gov",
+        "num_sites": 122,
+        "site_types": "Walk-in tent sites on lakeshore + RV dry sites",
+        "nightly_fee": "$25 - $30",
+        "rating_public": 4.7,
+        "rating_hikes": 4.8,
+        "nearby_hikes_attractions": "Whiskeytown Falls (220-ft cascade), Crystal Creek Falls, kayak tours, Mt. Shasta vistas",
+        "description": "Crystal-clear mountain lake ringed by pine forests and multi-tier waterfalls; walk-in tent sites right on the sandy shore."
+    },
+    {
+        "id": "trinity_lake_hayward",
+        "name": "Trinity Lake (Hayward Flat & Tannery Gulch)",
+        "region": "Shasta / Trinity / Cascade",
+        "agency": "US Forest Service (Shasta-Trinity NF)",
+        "lat": 40.8931, "lng": -122.7842,
+        "reservation_type": "Paid Reservation + FCFS",
+        "reservation_window": "6 months rolling at 7:00 AM PT on Recreation.gov",
+        "num_sites": 185,
+        "site_types": "Tent and RV campsites in pine forest near lake",
+        "nightly_fee": "$25 - $32",
+        "rating_public": 4.6,
+        "rating_hikes": 4.7,
+        "nearby_hikes_attractions": "Trinity Alps Wilderness trailheads, Trinity River fly fishing, Bowerman Ridge, lake boating",
+        "description": "Peaceful, uncrowded alternative to Shasta tucked into deep conifer forest under the rugged Trinity Alps."
+    },
+    {
+        "id": "trinity_alps_bridge_camp",
+        "name": "Trinity Alps (Bridge Camp & Big Flat Trailheads / Lewiston BLM)",
+        "region": "Shasta / Trinity / Cascade",
+        "agency": "US Forest Service / BLM",
+        "lat": 40.9167, "lng": -122.9583,
+        "reservation_type": "First-Come, First-Served / Free Wilderness Permit",
+        "reservation_window": "FCFS trailhead camping ($10-$15 or free) + Self-issued Free Wilderness Backpacking Permit at ranger station",
+        "num_sites": 35,
+        "site_types": "Primitive trailhead campsites & infinite backcountry wilderness camping",
+        "nightly_fee": "$0 - $15",
+        "rating_public": 4.9,
+        "rating_hikes": 5.0,
+        "nearby_hikes_attractions": "Canyon Creek Lakes (alpine granite wonderland), Caribou Basin, Stuart Fork Trail to Emerald & Sapphire Lakes",
+        "description": "The Switzerland of California. Glacial cirques, jagged granite ridges, and azure alpine tarns with uncrowded solitude."
+    },
+    {
+        "id": "burney_falls",
+        "name": "McArthur-Burney Falls Memorial State Park",
+        "region": "Shasta / Trinity / Cascade",
+        "agency": "California State Parks",
+        "lat": 41.0117, "lng": -121.6514,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia",
+        "num_sites": 121,
+        "site_types": "Drive-in tent & RV sites, 24 rustic cabins",
+        "nightly_fee": "$35 ($105 cabins)",
+        "rating_public": 4.8,
+        "rating_hikes": 4.8,
+        "nearby_hikes_attractions": "129-foot Burney Falls ('Eighth Wonder of the World'), Lake Britton swim beach, Pacific Crest Trail",
+        "description": "Roaring 129-foot spring-fed waterfall gushing 100 million gallons of cold water daily from volcanic basalt underground springs."
+    },
+    {
+        "id": "lassen_manzanita",
+        "name": "Lassen Volcanic National Park (Manzanita Lake)",
+        "region": "Shasta / Trinity / Cascade",
+        "agency": "National Park Service",
+        "lat": 40.5342, "lng": -121.5647,
+        "reservation_type": "Paid Reservation + FCFS",
+        "reservation_window": "6 months rolling at 7:00 AM PT on Recreation.gov + Loop C/D walk-ins",
+        "num_sites": 179,
+        "site_types": "Tent, RV (no hookups), 20 rustic camping cabins",
+        "nightly_fee": "$26 ($75 cabins)",
+        "rating_public": 4.8,
+        "rating_hikes": 5.0,
+        "nearby_hikes_attractions": "Lassen Peak summit (10,457 ft), Bumpass Hell hydrothermal boardwalk, Manzanita Lake loop, Cinder Cone",
+        "description": "All four volcano types represented! Reflective alpine lake with kayak rentals looking directly at Lassen Peak."
+    },
+
+    # 7. High Sierra Extensions (Classic SF favorites)
+    {
+        "id": "yosemite_pines",
+        "name": "Yosemite Valley (Upper / Lower / North Pines & Camp 4)",
+        "region": "Sierra Nevada",
+        "agency": "National Park Service",
+        "lat": 37.7425, "lng": -119.5719,
+        "reservation_type": "Paid Reservation (or Camp 4 Daily Lottery)",
+        "reservation_window": "Released on the 15th of each month at 7:00 AM PT for 5 months ahead on Recreation.gov; Camp 4 via 1-day advance lottery",
+        "num_sites": 450,
+        "site_types": "Drive-in tent, RV, historic walk-in (Camp 4 climbers camp)",
+        "nightly_fee": "$36 ($10/person Camp 4)",
+        "rating_public": 4.9,
+        "rating_hikes": 5.0,
+        "nearby_hikes_attractions": "Mist Trail (Vernal & Nevada Falls), Half Dome cables, Yosemite Falls, El Capitan, Glacier Point",
+        "description": "The cathedral of American wilderness. Giant granite walls rising 3,000+ feet directly from the pine valley floor."
+    },
+    {
+        "id": "calaveras_big_trees",
+        "name": "Calaveras Big Trees State Park",
+        "region": "Sierra Nevada",
+        "agency": "California State Parks",
+        "lat": 38.2778, "lng": -120.3117,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia",
+        "num_sites": 129,
+        "site_types": "Drive-in tent & RV sites, cabins",
+        "nightly_fee": "$35",
+        "rating_public": 4.8,
+        "rating_hikes": 4.8,
+        "nearby_hikes_attractions": "North Grove Giant Sequoias, South Grove Trail, Stanislaus River swimming at Beaver Creek",
+        "description": "Home to ancient Giant Sequoias (Sequoiadendron giganteum) up to 3,000 years old along the crystal Stanislaus River."
+    },
+    {
+        "id": "lake_tahoe_emerald_bay",
+        "name": "Lake Tahoe (Emerald Bay & D.L. Bliss State Parks)",
+        "region": "Sierra Nevada",
+        "agency": "California State Parks",
+        "lat": 38.9558, "lng": -120.1036,
+        "reservation_type": "Paid Reservation",
+        "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia",
+        "num_sites": 165,
+        "site_types": "Drive-in tent & RV sites, boat-in camp at Emerald Bay",
+        "nightly_fee": "$35 - $45",
+        "rating_public": 4.9,
+        "rating_hikes": 5.0,
+        "nearby_hikes_attractions": "Rubicon Trail, Vikingsholm Castle, Eagle Rock & Eagle Falls, Desolation Wilderness trailhead",
+        "description": "Cobalt-blue waters of Lake Tahoe, granite boulder coves, and the famed Rubicon Trail hugging the shoreline cliffs."
+    }
+]
+
+# Process and augment
+campgrounds = []
+for item in campgrounds_raw:
+    dist_straight, dist_road, drive_time = calc_distance_and_drive(item["lat"], item["lng"])
+    item["distance_straight_miles"] = dist_straight
+    item["distance_road_miles"] = dist_road
+    item["drive_time_from_grace"] = drive_time
+    # Composite score (10 pt scale): 50% public rating (rescaled to 10) + 50% hike rating (rescaled to 10)
+    composite_score = round(((item["rating_public"] + item["rating_hikes"]) / 2.0) * 2.0, 1)
+    item["composite_score_out_of_10"] = composite_score
+    campgrounds.append(item)
+
+# Sort by road distance
+campgrounds.sort(key=lambda x: x["distance_road_miles"])
+
+data_payload = {
+    "home_point": HOME,
+    "total_campgrounds": len(campgrounds),
+    "campgrounds": campgrounds
+}
+
+with open("campgrounds_data.json", "w") as f:
+    json.dump(data_payload, f, indent=2)
+
+print(f"Successfully generated campgrounds_data.json with {len(campgrounds)} curated campgrounds.")
