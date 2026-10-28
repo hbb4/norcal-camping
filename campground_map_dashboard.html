@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NorCal & Bay Area Campground Intelligence Map</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    .map-container {
+      position: relative;
+      background: radial-gradient(circle at 50% 50%, #1e293b 0%, #0f172a 100%);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+    }
+    .ring-line {
+      stroke: rgba(148, 163, 184, 0.22);
+      stroke-dasharray: 4, 4;
+      fill: none;
+    }
+    .ring-label {
+      fill: #94a3b8;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .cg-marker {
+      cursor: pointer;
+      transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.2s ease;
+    }
+    .cg-marker:hover {
+      transform: scale(1.45);
+      filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.8));
+    }
+    .active-marker {
+      stroke: #ffffff !important;
+      stroke-width: 3px !important;
+      transform: scale(1.6);
+      filter: drop-shadow(0 0 12px #38bdf8) !important;
+    }
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.5);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.8);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 md:p-8">
+  <div class="max-w-7xl mx-auto space-y-6">
+
+    <!-- Header Section -->
+    <header class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-6">
+      <div>
+        <div class="flex items-center gap-3">
+          <span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+            SF Outdoor Operations
+          </span>
+          <span class="text-xs text-slate-400">Home Anchor: <strong>Grace Cathedral (Nob Hill, SF)</strong></span>
+        </div>
+        <h1 class="text-3xl font-extrabold tracking-tight text-white mt-1">
+          California Campgrounds & Wilderness Explorer
+        </h1>
+        <p class="text-sm text-slate-400 mt-1">
+          Visualizing 43 premier campgrounds across the Greater Bay Area, North Coast, Sonoma/Napa, Big Sur, Shasta-Cascade, and Sierra Nevada.
+        </p>
+      </div>
+
+      <!-- Quick Metrics -->
+      <div class="flex items-center gap-3">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-center">
+          <span class="block text-2xl font-bold text-white" id="stat-total">43</span>
+          <span class="text-[11px] text-slate-400 uppercase tracking-wider">Campgrounds</span>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-center">
+          <span class="block text-2xl font-bold text-amber-400">8 AM</span>
+          <span class="text-[11px] text-slate-400 uppercase tracking-wider">State Parks Drop</span>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-center">
+          <span class="block text-2xl font-bold text-sky-400">7 AM</span>
+          <span class="text-[11px] text-slate-400 uppercase tracking-wider">NPS/USFS Drop</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Controls & Filters Bar -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-900/90 border border-slate-800 p-4 rounded-xl">
+      <!-- Search -->
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-1">Search Campground or Trail</label>
+        <input 
+          id="search-input" 
+          type="text" 
+          placeholder="e.g. Alamere, Big Sur, FCFS..." 
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+          oninput="applyFilters()"
+        >
+      </div>
+
+      <!-- Region Filter -->
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-1">Region Focus</label>
+        <select 
+          id="region-filter" 
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
+          onchange="applyFilters()"
+        >
+          <option value="ALL">All Regions (NorCal Overview)</option>
+          <option value="San Francisco">San Francisco & Immediate</option>
+          <option value="Marin / SF Bay">Marin & Point Reyes</option>
+          <option value="East Bay">East Bay Regional Parks</option>
+          <option value="Half Moon Bay / Coast">Half Moon Bay & Coast</option>
+          <option value="Santa Cruz Mountains">Santa Cruz Redwoods</option>
+          <option value="Sonoma / Napa">Sonoma & Napa Valley</option>
+          <option value="Monterey Bay & Big Sur">Monterey Bay & Big Sur</option>
+          <option value="Shasta / Trinity / Cascade">Shasta-Cascade & Trinity Alps</option>
+          <option value="Sierra Nevada">Sierra Nevada & Tahoe / Yosemite</option>
+        </select>
+      </div>
+
+      <!-- Reservation Rule Filter -->
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-1">Reservation Rule</label>
+        <select 
+          id="rule-filter" 
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
+          onchange="applyFilters()"
+        >
+          <option value="ALL">All Reservation Types</option>
+          <option value="Paid Reservation">Paid Reservation (ReserveCal / Rec.gov)</option>
+          <option value="First-Come">First-Come First-Served (FCFS)</option>
+          <option value="Dispersed">Dispersed / Free Wilderness ($0)</option>
+        </select>
+      </div>
+
+      <!-- Agency Filter -->
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-1">Managing Agency</label>
+        <select 
+          id="agency-filter" 
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
+          onchange="applyFilters()"
+        >
+          <option value="ALL">All Agencies</option>
+          <option value="National Park Service">National Park Service (NPS)</option>
+          <option value="California State Parks">California State Parks</option>
+          <option value="US Forest Service">US Forest Service (USFS) / BLM</option>
+          <option value="Regional">Regional & County Parks (EBRPD, San Mateo)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Map & Detail Panel Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      
+      <!-- Interactive SVG Map (8 cols on large screens) -->
+      <div class="lg:col-span-8 map-container p-2 relative">
+        <!-- Floating Map Legend -->
+        <div class="absolute top-4 left-4 z-10 bg-slate-900/85 backdrop-blur-md border border-slate-700/60 rounded-xl p-3 text-xs shadow-lg space-y-1.5">
+          <div class="font-bold text-white text-[13px] border-b border-slate-700 pb-1 flex items-center justify-between gap-4">
+            <span>Map Legend</span>
+            <span class="text-[11px] font-normal text-slate-400">Click dot for details</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-3.5 h-3.5 rounded-full bg-rose-500 inline-block ring-2 ring-rose-400/40"></span>
+            <span class="text-slate-300">Grace Cathedral (Home Base)</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-emerald-400 inline-block"></span>
+            <span class="text-slate-300">California State Parks (ReserveCal)</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-sky-400 inline-block"></span>
+            <span class="text-slate-300">National Parks / Rec Areas (Rec.gov)</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-amber-400 inline-block"></span>
+            <span class="text-slate-300">USFS / BLM / Dispersed / Free</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-purple-400 inline-block"></span>
+            <span class="text-slate-300">Regional / County Parks</span>
+          </div>
+          <div class="pt-1 text-[11px] text-slate-400 border-t border-slate-800">
+            Rings = 25mi, 50mi, 100mi, 200mi radius
+          </div>
+        </div>
+
+        <!-- SVG Visual Canvas -->
+        <svg id="ca-map" viewBox="0 0 960 800" class="w-full h-auto select-none">
+          <!-- Coastline Background Shading -->
+          <!-- Pacific Ocean -->
+          <path d="M 0,0 L 260,0 L 285,100 L 290,190 L 320,310 L 335,340 L 350,380 L 380,480 L 410,540 L 450,620 L 510,700 L 590,800 L 0,800 Z" fill="#091322" opacity="0.6"/>
+          
+          <!-- Distance Rings from Grace Cathedral -->
+          <!-- 25 Miles Straight (~50px at scale) -->
+          <circle cx="353.1" cy="491.4" r="45" class="ring-line"/>
+          <text x="400.1" y="483.4" class="ring-label">25 mi</text>
+
+          <!-- 50 Miles Straight (~90px at scale) -->
+          <circle cx="353.1" cy="491.4" r="90" class="ring-line"/>
+          <text x="445.1" y="483.4" class="ring-label">50 mi</text>
+
+          <!-- 100 Miles Straight (~180px at scale) -->
+          <circle cx="353.1" cy="491.4" r="180" class="ring-line"/>
+          <text x="535.1" y="483.4" class="ring-label">100 mi</text>
+
+          <!-- 200 Miles Straight (~360px at scale) -->
+          <circle cx="353.1" cy="491.4" r="360" class="ring-line"/>
+          <text x="715.1" y="483.4" class="ring-label">200 mi</text>
+
+          <!-- Stylized Geographic Landmarks / Labels -->
+          <g opacity="0.4" font-size="11" fill="#64748b" font-weight="600" text-anchor="middle">
+            <text x="540" y="80">MT. SHASTA & CASCADE CREST</text>
+            <text x="360" y="140">TRINITY ALPS WILDERNESS</text>
+            <text x="750" y="270">LASSEN VOLCANIC</text>
+            <text x="720" y="440">LAKE TAHOE</text>
+            <text x="780" y="560">YOSEMITE & SIERRA</text>
+            <text x="180" y="320">PACIFIC OCEAN</text>
+            <text x="320" y="380">POINT REYES</text>
+            <text x="490" y="580">BIG SUR COAST</text>
+            <text x="590" y="520">PINNACLES</text>
+          </g>
+
+          <!-- Home Base Marker (Grace Cathedral) -->
+          <g transform="translate(353.1, 491.4)">
+            <!-- Pulsing outer circle -->
+            <circle r="12" fill="none" stroke="#f43f5e" stroke-width="2" opacity="0.6">
+              <animate attributeName="r" values="8;18;8" dur="3s" repeatCount="indefinite"/>
+              <animate attributeName="opacity" values="0.8;0;0.8" dur="3s" repeatCount="indefinite"/>
+            </circle>
+            <circle r="7" fill="#f43f5e" stroke="#ffffff" stroke-width="2"/>
+            <text x="12" y="4" fill="#f43f5e" font-size="12" font-weight="bold">Grace Cathedral (SF)</text>
+          </g>
+
+          <!-- Campground Markers Dynamic Container -->
+          <g id="campground-markers"></g>
+        </svg>
+      </div>
+
+      <!-- Detail Card & Inspector Panel (4 cols on large screens) -->
+      <div class="lg:col-span-4 space-y-4">
+        <!-- Selected Card Detail -->
+        <div id="detail-card" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+          <div class="flex items-start justify-between gap-2 border-b border-slate-800 pb-3">
+            <div>
+              <span id="card-region" class="px-2 py-0.5 text-[11px] font-semibold rounded bg-sky-500/20 text-sky-400 border border-sky-500/30">
+                Region
+              </span>
+              <h2 id="card-title" class="text-xl font-bold text-white mt-1.5 leading-snug">
+                Click any campground on map
+              </h2>
+              <p id="card-agency" class="text-xs text-slate-400">Managing Agency</p>
+            </div>
+            <div class="text-right">
+              <div class="bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-2.5 py-1 text-center">
+                <span id="card-score" class="text-lg font-black text-emerald-400">9.8</span>
+                <span class="block text-[9px] uppercase tracking-wider text-slate-400">Score / 10</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Stats Grid -->
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div class="bg-slate-800/60 rounded-lg p-2.5 border border-slate-800">
+              <span class="block text-slate-400 text-[10px] uppercase">Drive from Grace Cath.</span>
+              <span id="card-drive" class="font-semibold text-white text-sm">45 mins (21 mi)</span>
+            </div>
+            <div class="bg-slate-800/60 rounded-lg p-2.5 border border-slate-800">
+              <span class="block text-slate-400 text-[10px] uppercase">Capacity</span>
+              <span id="card-capacity" class="font-semibold text-white text-sm">31 campsites</span>
+            </div>
+          </div>
+
+          <!-- Reservation Intelligence Callout -->
+          <div class="bg-amber-950/30 border border-amber-600/40 rounded-xl p-3.5 space-y-1.5">
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+              <h3 class="text-xs font-bold text-amber-300 uppercase tracking-wider" id="card-rule-title">Reservation Rule & Window</h3>
+            </div>
+            <p class="text-xs text-amber-100/90 leading-relaxed" id="card-window">
+              Select a campground to see exact release dates and booking system (ReserveCalifornia, Recreation.gov, or FCFS).
+            </p>
+            <div class="pt-1 flex items-center justify-between text-[11px] text-amber-200/70 border-t border-amber-900/50">
+              <span>Nightly Fee:</span>
+              <strong id="card-fee" class="text-white">$35 / night</strong>
+            </div>
+          </div>
+
+          <!-- Hikes & Attractions -->
+          <div class="space-y-1.5">
+            <h4 class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+              <span>🥾</span> Nearby Well-Rated Hikes & Attractions
+            </h4>
+            <p id="card-hikes" class="text-xs text-slate-400 bg-slate-800/50 p-2.5 rounded-lg border border-slate-800 leading-relaxed">
+              Nearby hiking trails and natural landmarks.
+            </p>
+          </div>
+
+          <!-- Description -->
+          <div class="space-y-1">
+            <h4 class="text-xs font-bold text-slate-300">About this Destination</h4>
+            <p id="card-desc" class="text-xs text-slate-400 leading-relaxed">
+              Description and tactical advice.
+            </p>
+          </div>
+
+          <!-- External Actions -->
+          <div class="pt-2 border-t border-slate-800 flex items-center gap-2">
+            <a id="card-google-maps" href="#" target="_blank" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-center py-2 px-3 rounded-lg text-xs font-medium transition">
+              Directions on Maps ↗
+            </a>
+            <a id="card-booking-link" href="#" target="_blank" class="flex-1 bg-sky-600 hover:bg-sky-500 text-white text-center py-2 px-3 rounded-lg text-xs font-semibold transition">
+              Booking Portal ↗
+            </a>
+          </div>
+        </div>
+
+        <!-- Quick Strategy Cheat Sheet -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 text-xs space-y-2.5">
+          <h3 class="font-bold text-white text-sm flex items-center gap-2">
+            <span>⚡</span> SF Camper Reservation Strategy
+          </h3>
+          <ul class="space-y-1.5 text-slate-400 leading-normal">
+            <li><strong class="text-emerald-400">ReserveCalifornia:</strong> 6 months rolling at <strong>8:00:00 AM PT sharp</strong>. Sync clocks; Steep Ravine, Bodega Wright's Beach, and Big Sur book in seconds.</li>
+            <li><strong class="text-sky-400">Recreation.gov:</strong> National Parks & USFS drop at <strong>7:00:00 AM PT</strong>. Kirby Cove & Point Reyes backcountry drop 3 months rolling. Yosemite drops 15th of the month.</li>
+            <li><strong class="text-amber-400">FCFS Tactics:</strong> For Mt. Tamalpais (Pantoll/Bootjack) arrive by 8:00 AM on Thursday or Friday morning. Bring exact cash or pay card at kiosk.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Comprehensive Filterable Directory Table -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+        <div>
+          <h2 class="text-xl font-bold text-white">Full Campground Intelligence Directory</h2>
+          <p class="text-xs text-slate-400">Sort and inspect all 43 mapped destinations ordered from closest to furthest from Grace Cathedral.</p>
+        </div>
+        <div class="text-xs text-slate-400">
+          Showing <span id="table-count" class="font-bold text-white">43</span> locations
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr class="border-b border-slate-800 text-slate-400 font-semibold bg-slate-950/40">
+              <th class="py-3 px-3">Campground</th>
+              <th class="py-3 px-3">Region</th>
+              <th class="py-3 px-3">Agency</th>
+              <th class="py-3 px-3">Drive (From Grace)</th>
+              <th class="py-3 px-3">Reservation Rule</th>
+              <th class="py-3 px-3">Sites</th>
+              <th class="py-3 px-3">Composite Score</th>
+              <th class="py-3 px-3">Key Hikes & Attractions</th>
+              <th class="py-3 px-3 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody id="directory-tbody" class="divide-y divide-slate-800/60 text-slate-300">
+            <!-- Dynamic rows populated via JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Client-Side Logic -->
+  <script>
+    const campgrounds = [{"id": "rob_hill", "name": "Rob Hill Campground", "region": "San Francisco", "agency": "Presidio Trust / NPS", "lat": 37.7963, "lng": -122.4746, "reservation_type": "Paid Reservation", "reservation_window": "Opens in February for entire season (Apr-Oct) at 9:00 AM PT via Recreation.gov", "num_sites": 4, "site_types": "Group / Tent camping (up to 30 people each)", "nightly_fee": "$135 - $175 / group site", "rating_public": 4.6, "rating_hikes": 4.7, "nearby_hikes_attractions": "Presidio Promenade, Battery Godfrey, Immigrant Point, Coastal Trail to Baker Beach", "description": "The only public campground in San Francisco! Perched in a cypress grove overlooking Baker Beach and Pacific ocean.", "distance_straight_miles": 3.3, "distance_road_miles": 4.3, "drive_time_from_grace": "12 mins", "composite_score_out_of_10": 9.3, "svg_x": 342.3, "svg_y": 490.8}, {"id": "angel_island", "name": "Angel Island State Park Campsites", "region": "Marin / SF Bay", "agency": "California State Parks", "lat": 37.8609, "lng": -122.4326, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia", "num_sites": 11, "site_types": "Walk-in / Hike-in primitive sites (Ridge, Sunrise, East Bay, Kayak camp)", "nightly_fee": "$30", "rating_public": 4.8, "rating_hikes": 4.8, "nearby_hikes_attractions": "Mt. Caroline Livermore peak, Perimeter Trail, Immigration Station, 360-degree Bay panorama", "description": "Island camping in the center of SF Bay. Uninterrupted night views of city lights and Golden Gate.", "distance_straight_miles": 4.9, "distance_road_miles": 6.3, "drive_time_from_grace": "18 mins", "composite_score_out_of_10": 9.6, "svg_x": 349.8, "svg_y": 482.5}, {"id": "kirby_cove", "name": "Kirby Cove Campground", "region": "Marin / SF Bay", "agency": "National Park Service (GGNRA)", "lat": 37.8286, "lng": -122.4939, "reservation_type": "Paid Reservation", "reservation_window": "3 months rolling at 7:00 AM PT on Recreation.gov (extremely competitive)", "num_sites": 5, "site_types": "Walk-in tent sites (1 day-use group site)", "nightly_fee": "$40", "rating_public": 4.9, "rating_hikes": 4.8, "nearby_hikes_attractions": "Golden Gate Bridge bluff views, Hawk Hill, Coastal Trail, Black Sands Beach", "description": "Unrivaled view directly facing the Golden Gate Bridge and SF skyline from a sheltered beach cove.", "distance_straight_miles": 5.1, "distance_road_miles": 6.6, "drive_time_from_grace": "19 mins", "composite_score_out_of_10": 9.7, "svg_x": 338.9, "svg_y": 486.6}, {"id": "bicentennial", "name": "Bicentennial Campground", "region": "Marin / SF Bay", "agency": "National Park Service (GGNRA)", "lat": 37.8291, "lng": -122.5292, "reservation_type": "Paid Reservation", "reservation_window": "3 months rolling at 7:00 AM PT on Recreation.gov", "num_sites": 3, "site_types": "Walk-in tent sites (100-200m from car)", "nightly_fee": "$35", "rating_public": 4.5, "rating_hikes": 4.7, "nearby_hikes_attractions": "Rodeo Lagoon, Point Bonita Lighthouse, Battery Mendell, Coastal Trail", "description": "Marin Headlands ocean vistas, easiest walk-in camp in the Headlands near historic batteries.", "distance_straight_miles": 6.8, "distance_road_miles": 8.9, "drive_time_from_grace": "26 mins", "composite_score_out_of_10": 9.2, "svg_x": 332.6, "svg_y": 486.6}, {"id": "hawkcamp_haypress", "name": "Haypress & Hawkcamp Backcountry", "region": "Marin / SF Bay", "agency": "National Park Service (GGNRA)", "lat": 37.8465, "lng": -122.5342, "reservation_type": "Paid Reservation", "reservation_window": "3 months rolling at 7:00 AM PT on Recreation.gov", "num_sites": 8, "site_types": "Hike-in backcountry (0.75 to 3 miles hike)", "nightly_fee": "$30", "rating_public": 4.7, "rating_hikes": 4.9, "nearby_hikes_attractions": "Tennessee Valley Trail, Miwok Trail, Coastal Trail, Bobcat Trail", "description": "True secluded backcountry camping under 15 miles from SF; hawk watching and serene Marin ridges.", "distance_straight_miles": 7.6, "distance_road_miles": 9.9, "drive_time_from_grace": "29 mins", "composite_score_out_of_10": 9.6, "svg_x": 331.7, "svg_y": 484.3}, {"id": "pantoll_bootjack", "name": "Pantoll & Bootjack Campgrounds", "region": "Marin / SF Bay", "agency": "California State Parks (Mt. Tamalpais SP)", "lat": 37.9048, "lng": -122.6041, "reservation_type": "First-Come, First-Served", "reservation_window": "100% First-Come, First-Served (Arrive Thursday evening or Friday morning early by 8 AM)", "num_sites": 31, "site_types": "Walk-in tent sites", "nightly_fee": "$25", "rating_public": 4.7, "rating_hikes": 5.0, "nearby_hikes_attractions": "Dipsea Trail, Steep Ravine Trail, Matt Davis Trail, Stinson Beach, Cataract Falls", "description": "The crown jewel trail hub of Mt. Tamalpais. Direct trailhead access to Dipsea & Steep Ravine Redwood cascades.", "distance_straight_miles": 13.0, "distance_road_miles": 16.9, "drive_time_from_grace": "30 mins", "composite_score_out_of_10": 9.7, "svg_x": 319.3, "svg_y": 476.8}, {"id": "steep_ravine", "name": "Steep Ravine Cabins & Environmental Campsites", "region": "Marin / SF Bay", "agency": "California State Parks (Mt. Tamalpais SP)", "lat": 37.8988, "lng": -122.6394, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia (sells out in under 2 seconds)", "num_sites": 17, "site_types": "10 rustic oceanfront wood cabins + 7 primitive walk-in tent sites", "nightly_fee": "$100 (cabin) / $25 (tent)", "rating_public": 4.9, "rating_hikes": 5.0, "nearby_hikes_attractions": "Rocky Point tidepools, Dipsea Trail, Stinson Beach, Steep Ravine redwoods", "description": "Perched on rugged Pacific cliffs with wood stoves and crashing surf. Northern California's most coveted coastal stay.", "distance_straight_miles": 14.4, "distance_road_miles": 18.7, "drive_time_from_grace": "33 mins", "composite_score_out_of_10": 9.9, "svg_x": 313.0, "svg_y": 477.6}, {"id": "anthony_chabot", "name": "Anthony Chabot Regional Park", "region": "East Bay", "agency": "East Bay Regional Park District (EBRPD)", "lat": 37.7471, "lng": -122.1082, "reservation_type": "Paid Reservation", "reservation_window": "12 weeks (84 days) rolling in advance on EBRPD / ReserveAmerica", "num_sites": 75, "site_types": "Drive-in tent, RV hookup sites, hike-in backpack sites", "nightly_fee": "$25 - $45", "rating_public": 4.4, "rating_hikes": 4.4, "nearby_hikes_attractions": "Lake Chabot loop trail, Honker Bay, Skyline National Recreation Trail, Redwood Regional Park", "description": "Wooded hills above Lake Chabot with eucalyptus and pine; excellent quick getaway from SF and Oakland.", "distance_straight_miles": 17.0, "distance_road_miles": 22.1, "drive_time_from_grace": "39 mins", "composite_score_out_of_10": 8.8, "svg_x": 407.4, "svg_y": 497.1}, {"id": "samuel_p_taylor", "name": "Samuel P. Taylor State Park", "region": "Marin / SF Bay", "agency": "California State Parks", "lat": 38.0163, "lng": -122.7291, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia", "num_sites": 60, "site_types": "Standard drive-in, tent, RV/trailer (no hookups), plus Madrone cabins", "nightly_fee": "$35 ($100 cabins)", "rating_public": 4.6, "rating_hikes": 4.7, "nearby_hikes_attractions": "Cross Marin Bike Trail, Barnabe Mountain, Pioneer Redwood Tree Trail, Lagunitas Creek salmon run", "description": "Lush old-growth redwood grove along Lagunitas Creek. Paved car-free path connects directly to West Marin.", "distance_straight_miles": 23.2, "distance_road_miles": 30.1, "drive_time_from_grace": "54 mins", "composite_score_out_of_10": 9.3, "svg_x": 297.0, "svg_y": 462.4}, {"id": "half_moon_bay", "name": "Half Moon Bay State Beach (Francis Beach)", "region": "Half Moon Bay / Coast", "agency": "California State Parks", "lat": 37.4578, "lng": -122.4431, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia", "num_sites": 52, "site_types": "Tent, RV hookup & electric sites, hike-and-bike", "nightly_fee": "$35 - $65", "rating_public": 4.5, "rating_hikes": 4.5, "nearby_hikes_attractions": "Coastside Trail (paved bluff path), Mavericks surf break, Pillar Point Harbor, Purisima Creek", "description": "Right on the coastal bluffs above Francis Beach with crashing waves, beachcombing, and paved biking.", "distance_straight_miles": 23.1, "distance_road_miles": 30.1, "drive_time_from_grace": "54 mins", "composite_score_out_of_10": 9.0, "svg_x": 347.9, "svg_y": 534.5}, {"id": "mount_diablo", "name": "Mount Diablo State Park (Juniper & Live Oak)", "region": "East Bay", "agency": "California State Parks", "lat": 37.8767, "lng": -121.9312, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia", "num_sites": 50, "site_types": "Standard drive-in tent & small RV sites", "nightly_fee": "$30", "rating_public": 4.6, "rating_hikes": 4.7, "nearby_hikes_attractions": "Mount Diablo Summit (3,849 ft, 40-county view), Rock City, Sentinel Rock, Grand Loop Trail", "description": "High elevation perch with sunset views over SF Bay and sunrise over the Sierra Nevada crest.", "distance_straight_miles": 27.0, "distance_road_miles": 35.1, "drive_time_from_grace": "1h 03m", "composite_score_out_of_10": 9.3, "svg_x": 438.9, "svg_y": 480.4}, {"id": "pt_reyes_backcountry", "name": "Point Reyes National Seashore (Wildcat, Coast, Glen, Sky)", "region": "Marin / SF Bay", "agency": "National Park Service", "lat": 38.021, "lng": -122.8422, "reservation_type": "Paid Reservation", "reservation_window": "3 months rolling at 7:00 AM PT on Recreation.gov", "num_sites": 48, "site_types": "Backcountry hike-in / bike-in campsites", "nightly_fee": "$30", "rating_public": 4.9, "rating_hikes": 5.0, "nearby_hikes_attractions": "Alamere Falls (tidefall waterfall), Tomales Point Tule Elk Reserve, Chimney Rock, Arch Rock", "description": "Wild Pacific wilderness. Wildcat camp sits directly behind coastal dunes 1 mile from tidefall waterfall Alamere Falls.", "distance_straight_miles": 28.2, "distance_road_miles": 36.7, "drive_time_from_grace": "1h 06m", "composite_score_out_of_10": 9.9, "svg_x": 276.9, "svg_y": 461.8}, {"id": "memorial_park", "name": "Memorial Park Campground", "region": "Peninsula / Santa Cruz Mtns", "agency": "San Mateo County Parks", "lat": 37.2741, "lng": -122.2891, "reservation_type": "Paid Reservation", "reservation_window": "180 days (6 months) in advance on San Mateo County Parks reservation system", "num_sites": 158, "site_types": "Tent and RV sites along creek", "nightly_fee": "$35 - $45", "rating_public": 4.7, "rating_hikes": 4.7, "nearby_hikes_attractions": "Pescadero Creek swimming holes, Mount Ellen Trail, Pomponio Creek, Pescadero Marsh", "description": "Beloved century-old park surrounded by towering coast redwoods and swimming holes in Pescadero Creek.", "distance_straight_miles": 36.4, "distance_road_miles": 47.3, "drive_time_from_grace": "1h 06m", "composite_score_out_of_10": 9.4, "svg_x": 375.3, "svg_y": 558.2}, {"id": "portola_redwoods", "name": "Portola Redwoods State Park", "region": "Peninsula / Santa Cruz Mtns", "agency": "California State Parks", "lat": 37.2536, "lng": -122.2181, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia", "num_sites": 53, "site_types": "Standard drive-in, walk-in, and backpack camp", "nightly_fee": "$35", "rating_public": 4.7, "rating_hikes": 4.9, "nearby_hikes_attractions": "Peters Creek Old Growth Grove, Tip Toe Falls, Slate Creek Trail, Iverson Trail", "description": "Deep, quiet, rugged redwood canyon with giant trees, ferns, and one of the finest ancient groves in the Bay.", "distance_straight_miles": 38.7, "distance_road_miles": 50.3, "drive_time_from_grace": "1h 10m", "composite_score_out_of_10": 9.6, "svg_x": 387.9, "svg_y": 560.8}, {"id": "butano_sp", "name": "Butano State Park (Ben Ries Campground)", "region": "Coast / Santa Cruz Mtns", "agency": "California State Parks", "lat": 37.2023, "lng": -122.3392, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia", "num_sites": 39, "site_types": "Drive-in tent sites, walk-in sites, backpack trail camp", "nightly_fee": "$35", "rating_public": 4.7, "rating_hikes": 4.8, "nearby_hikes_attractions": "Ano Nuevo State Park (elephant seals), Candelabra Tree, Goat Hill Trail, Jackson Flats", "description": "A secluded redwood canyon sanctuary cloaked in coastal fog and moss, tucked away near Pescadero.", "distance_straight_miles": 40.9, "distance_road_miles": 53.2, "drive_time_from_grace": "1h 14m", "composite_score_out_of_10": 9.5, "svg_x": 366.4, "svg_y": 567.4}, {"id": "del_valle", "name": "Del Valle Regional Park", "region": "East Bay", "agency": "East Bay Regional Park District (EBRPD)", "lat": 37.6163, "lng": -121.6974, "reservation_type": "Paid Reservation", "reservation_window": "12 weeks (84 days) rolling on EBRPD portal", "num_sites": 150, "site_types": "Tent, RV with water/sewer/electric, group sites", "nightly_fee": "$25 - $45", "rating_public": 4.5, "rating_hikes": 4.6, "nearby_hikes_attractions": "5-mile reservoir kayak/paddle, Ohlone Wilderness Trail trailhead, Rose Peak (3,817 ft)", "description": "Surrounded by oak-covered hills with a 5-mile long lake for swimming, boating, and deep wilderness backpacking.", "distance_straight_miles": 41.0, "distance_road_miles": 53.3, "drive_time_from_grace": "1h 14m", "composite_score_out_of_10": 9.1, "svg_x": 480.5, "svg_y": 514.0}, {"id": "big_basin", "name": "Big Basin Redwoods State Park (Sempervirens / Blooms)", "region": "Santa Cruz Mountains", "agency": "California State Parks", "lat": 37.1723, "lng": -122.2218, "reservation_type": "Paid Reservation", "reservation_window": "60-day rolling window on ReserveCalifornia (limited reopening post-CZU fire)", "num_sites": 45, "site_types": "Drive-in & walk-in tent sites", "nightly_fee": "$35", "rating_public": 4.8, "rating_hikes": 5.0, "nearby_hikes_attractions": "Redwood Loop, Berry Creek Falls trail reconstruction, Skyline-to-the-Sea trail, Waddell Creek", "description": "California's oldest state park (1902). Resilient ancient redwoods rebounding with green sprouts.", "distance_straight_miles": 44.1, "distance_road_miles": 57.3, "drive_time_from_grace": "1h 20m", "composite_score_out_of_10": 9.8, "svg_x": 387.2, "svg_y": 571.3}, {"id": "sugarloaf_ridge", "name": "Sugarloaf Ridge State Park", "region": "Sonoma / Napa", "agency": "California State Parks / Sonoma Ecology Ctr", "lat": 38.4379, "lng": -122.5137, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia", "num_sites": 47, "site_types": "Drive-in tent, small RV, plus luxury glamping tents", "nightly_fee": "$35 ($120 glamping)", "rating_public": 4.7, "rating_hikes": 4.9, "nearby_hikes_attractions": "Bald Mountain summit (view Sierra & SF on clear days), Sonoma Creek Falls, Ferguson Observatory", "description": "Sonoma Valley gem with dark skies, public observatory stargazing, waterfalls, and steep panoramic climbs.", "distance_straight_miles": 45.0, "distance_road_miles": 58.5, "drive_time_from_grace": "1h 21m", "composite_score_out_of_10": 9.6, "svg_x": 335.3, "svg_y": 408.0}, {"id": "bothe_napa", "name": "Bothe-Napa Valley State Park", "region": "Sonoma / Napa", "agency": "California State Parks / Napa County Reg Parks", "lat": 38.5368, "lng": -122.5298, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia", "num_sites": 50, "site_types": "Drive-in tent, RV, historic cabins & yurts", "nightly_fee": "$35 ($75 yurts)", "rating_public": 4.6, "rating_hikes": 4.6, "nearby_hikes_attractions": "Ritchey Creek Trail, Coyote Peak, Bale Grist Mill State Historic Park, Napa Valley Vine Trail", "description": "Camp nestled among redwoods and maple in the heart of Napa wine country; spring-fed swimming pool in summer.", "distance_straight_miles": 51.9, "distance_road_miles": 67.4, "drive_time_from_grace": "1h 34m", "composite_score_out_of_10": 9.2, "svg_x": 332.5, "svg_y": 395.3}, {"id": "sonoma_coast_bodega", "name": "Sonoma Coast State Park (Bodega Dunes & Wright's Beach)", "region": "Sonoma / Napa / Coast", "agency": "California State Parks", "lat": 38.3533, "lng": -123.0567, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia (Wright's Beach oceanfront sells in seconds)", "num_sites": 125, "site_types": "Drive-in tent & RV sites (Wright's Beach: 27 beachfront sites)", "nightly_fee": "$35 - $45", "rating_public": 4.7, "rating_hikes": 4.8, "nearby_hikes_attractions": "Kortum Trail (bluff hike to Blind Beach), Goat Rock (harbor seal colony), Bodega Head whale watching", "description": "Dramatic open Pacific coastline. Wright's Beach campsites are steps from the ocean waves.", "distance_straight_miles": 52.2, "distance_road_miles": 67.9, "drive_time_from_grace": "1h 35m", "composite_score_out_of_10": 9.5, "svg_x": 238.8, "svg_y": 418.9}, {"id": "henry_cowell", "name": "Henry Cowell Redwoods State Park", "region": "Santa Cruz Mountains", "agency": "California State Parks", "lat": 37.0426, "lng": -122.0583, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia", "num_sites": 107, "site_types": "Drive-in tent, RV (no hookups)", "nightly_fee": "$35", "rating_public": 4.7, "rating_hikes": 4.8, "nearby_hikes_attractions": "Old Growth Redwood Grove, Garden of Eden swimming hole, Roaring Camp steam train, Fall Creek unit", "description": "Ancient 275-foot redwoods, sandy pine ridges, and freshwater river swimming in the San Lorenzo River.", "distance_straight_miles": 55.3, "distance_road_miles": 71.9, "drive_time_from_grace": "1h 40m", "composite_score_out_of_10": 9.5, "svg_x": 416.3, "svg_y": 588.1}, {"id": "austin_creek", "name": "Austin Creek State Recreation Area (Bullfrog Pond)", "region": "Sonoma / Russian River", "agency": "California State Parks / Stewards of Coast & Redwoods", "lat": 38.5447, "lng": -123.0189, "reservation_type": "Paid Reservation", "reservation_window": "Rolling on Hipcamp / Stewards of Coast & Redwoods portal", "num_sites": 24, "site_types": "Drive-in primitive tent & backpack trail camps", "nightly_fee": "$35", "rating_public": 4.7, "rating_hikes": 4.8, "nearby_hikes_attractions": "Armstrong Redwoods State Natural Reserve, Gilliam Creek, East Ridge Trail, Russian River paddling", "description": "Perched high above Guerneville and Armstrong Redwoods; rugged oak savanna, rolling ridges, and serene starry skies.", "distance_straight_miles": 61.5, "distance_road_miles": 80.0, "drive_time_from_grace": "1h 52m", "composite_score_out_of_10": 9.5, "svg_x": 245.5, "svg_y": 394.2}, {"id": "new_brighton", "name": "New Brighton State Beach", "region": "Monterey Bay Coast", "agency": "California State Parks", "lat": 36.9806, "lng": -121.9312, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia", "num_sites": 111, "site_types": "Beach bluff tent & RV sites (premium oceanfront hookups)", "nightly_fee": "$35 - $60", "rating_public": 4.6, "rating_hikes": 4.4, "nearby_hikes_attractions": "Capitola Village, Forest of Nisene Marks State Park, Monterey Bay coastal bluff trails", "description": "Forested bluff campsites looking out across the entire crescent of Monterey Bay; dolphins and otters often visible.", "distance_straight_miles": 62.0, "distance_road_miles": 80.6, "drive_time_from_grace": "1h 52m", "composite_score_out_of_10": 9.0, "svg_x": 438.9, "svg_y": 596.1}, {"id": "lake_sonoma", "name": "Lake Sonoma Recreation Area", "region": "Sonoma / Russian River", "agency": "US Army Corps of Engineers", "lat": 38.7183, "lng": -122.9981, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 7:00 AM PT on Recreation.gov", "num_sites": 115, "site_types": "Drive-in campsites at Warm Springs + 15 primitive Boat-In/Hike-In wilderness camps", "nightly_fee": "$20 - $35", "rating_public": 4.5, "rating_hikes": 4.5, "nearby_hikes_attractions": "Lake Sonoma Marina, Little Flat trail, Warm Springs Dam, Dry Creek Valley wineries", "description": "Warm water lake tucked into Sonoma hills; unique boat-in boat camping along 50 miles of winding shoreline.", "distance_straight_miles": 71.4, "distance_road_miles": 92.9, "drive_time_from_grace": "2h 10m", "composite_score_out_of_10": 9.0, "svg_x": 249.2, "svg_y": 371.8}, {"id": "salt_point", "name": "Salt Point State Park (Gerstle Cove & Woodside)", "region": "Sonoma / Coast", "agency": "California State Parks", "lat": 38.5663, "lng": -123.3294, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia", "num_sites": 109, "site_types": "Drive-in ocean/forest sites, walk-in sites", "nightly_fee": "$35", "rating_public": 4.8, "rating_hikes": 4.9, "nearby_hikes_attractions": "Tafoni sandstone formations, Pygmy Forest, Gerstle Cove Marine Reserve, Fisk Mill Cove", "description": "Spectacular sandstone coastline sculpted with tafoni pockets, dense bishop pine forests, and abalone/scuba diving.", "distance_straight_miles": 73.1, "distance_road_miles": 95.0, "drive_time_from_grace": "2h 13m", "composite_score_out_of_10": 9.7, "svg_x": 190.3, "svg_y": 391.4}, {"id": "hendy_woods", "name": "Hendy Woods State Park", "region": "Mendocino / Anderson Valley", "agency": "California State Parks", "lat": 39.0722, "lng": -123.4731, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia", "num_sites": 92, "site_types": "Drive-in tent & RV sites, cabins", "nightly_fee": "$35 ($75 cabins)", "rating_public": 4.8, "rating_hikes": 4.8, "nearby_hikes_attractions": "Big Hendy Old Growth Redwood Grove (1,000-year-old trees), Navarro River swimming, Anderson Valley Pinot Noir", "description": "Less crowded old-growth redwood sanctuary in Anderson Valley along the gentle Navarro River.", "distance_straight_miles": 105.4, "distance_road_miles": 137.0, "drive_time_from_grace": "2h 44m", "composite_score_out_of_10": 9.6, "svg_x": 164.8, "svg_y": 326.2}, {"id": "pfeiffer_big_sur", "name": "Pfeiffer Big Sur State Park", "region": "Monterey Bay & Big Sur", "agency": "California State Parks", "lat": 36.2486, "lng": -121.7825, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia (very high demand)", "num_sites": 189, "site_types": "Drive-in tent, RV (no hookups), walk-in riverside sites", "nightly_fee": "$35 - $50", "rating_public": 4.8, "rating_hikes": 5.0, "nearby_hikes_attractions": "Buzzard's Roost Trail, Big Sur River Gorge, Pfeiffer Falls, Valley View Trail, Pfeiffer Beach purple sands", "description": "The quintessential Big Sur experience along the redwood-canopied Big Sur River with natural river swimming holes.", "distance_straight_miles": 112.2, "distance_road_miles": 145.8, "drive_time_from_grace": "2h 54m", "composite_score_out_of_10": 9.8, "svg_x": 465.3, "svg_y": 690.5}, {"id": "pinnacles_np", "name": "Pinnacles National Park Campground", "region": "Central Coast / Pinnacles", "agency": "National Park Service", "lat": 36.4886, "lng": -121.1444, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 7:00 AM PT on Recreation.gov", "num_sites": 134, "site_types": "Tent, RV with electrical hookups, tent cabins, group sites", "nightly_fee": "$40 - $55", "rating_public": 4.6, "rating_hikes": 4.9, "nearby_hikes_attractions": "High Peaks Trail (carved rock steps into volcanic spires), Bear Gulch Cave (talus cave), Condor viewing", "description": "Only campground in California's newest National Park; home to soaring California Condors, talus caves, and swimming pool.", "distance_straight_miles": 114.0, "distance_road_miles": 148.2, "drive_time_from_grace": "2h 57m", "composite_score_out_of_10": 9.5, "svg_x": 578.8, "svg_y": 659.5}, {"id": "calaveras_big_trees", "name": "Calaveras Big Trees State Park", "region": "Sierra Nevada", "agency": "California State Parks", "lat": 38.2778, "lng": -120.3117, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia", "num_sites": 129, "site_types": "Drive-in tent & RV sites, cabins", "nightly_fee": "$35", "rating_public": 4.8, "rating_hikes": 4.8, "nearby_hikes_attractions": "North Grove Giant Sequoias, South Grove Trail, Stanislaus River swimming at Beaver Creek", "description": "Home to ancient Giant Sequoias (Sequoiadendron giganteum) up to 3,000 years old along the crystal Stanislaus River.", "distance_straight_miles": 119.2, "distance_road_miles": 155.0, "drive_time_from_grace": "3h 06m", "composite_score_out_of_10": 9.6, "svg_x": 726.8, "svg_y": 428.7}, {"id": "julia_pfeiffer_burns", "name": "Julia Pfeiffer Burns State Park", "region": "Monterey Bay & Big Sur", "agency": "California State Parks", "lat": 36.1601, "lng": -121.6728, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia (only 2 walk-in sites!)", "num_sites": 2, "site_types": "Environmental walk-in tent sites", "nightly_fee": "$30", "rating_public": 5.0, "rating_hikes": 5.0, "nearby_hikes_attractions": "McWay Falls (80-ft waterfall into turquoise Pacific cove), Ewoldsen Trail, Partington Cove", "description": "Legendary cliff-edge campsites perched directly over the Pacific near McWay Falls. Pure coastal magic.", "distance_straight_miles": 119.9, "distance_road_miles": 155.9, "drive_time_from_grace": "3h 07m", "composite_score_out_of_10": 10.0, "svg_x": 484.8, "svg_y": 701.9}, {"id": "russian_gulch", "name": "Russian Gulch & Van Damme State Parks", "region": "Mendocino Coast", "agency": "California State Parks", "lat": 39.3292, "lng": -123.8056, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia", "num_sites": 105, "site_types": "Standard drive-in, walk-in, RV sites", "nightly_fee": "$35 - $45", "rating_public": 4.9, "rating_hikes": 5.0, "nearby_hikes_attractions": "Devil's Punchbowl sea chasm, Russian Gulch 36-ft Waterfall Trail, Fern Canyon, Frederick W. Panhorst Bridge", "description": "Mendocino coastal paradise: a towering sea-bridge, dramatic blowholes, lush fern canyons, and ocean headlands.", "distance_straight_miles": 130.1, "distance_road_miles": 169.2, "drive_time_from_grace": "3h 23m", "composite_score_out_of_10": 9.9, "svg_x": 105.7, "svg_y": 293.0}, {"id": "kirk_creek", "name": "Kirk Creek Campground", "region": "Monterey Bay & Big Sur", "agency": "US Forest Service (Los Padres NF)", "lat": 35.9897, "lng": -121.4939, "reservation_type": "Paid Reservation + FCFS", "reservation_window": "6 months rolling at 7:00 AM PT on Recreation.gov + several First-Come First-Served sites", "num_sites": 33, "site_types": "Drive-in bluff tent & RV sites", "nightly_fee": "$45", "rating_public": 4.9, "rating_hikes": 5.0, "nearby_hikes_attractions": "Vicente Flat Trail (into Ventana Wilderness), Sand Dollar Beach, Mill Creek cove", "description": "Every campsite has an unobstructed, panoramic view of the Pacific Ocean from an open coastal bluff.", "distance_straight_miles": 134.5, "distance_road_miles": 174.8, "drive_time_from_grace": "3h 29m", "composite_score_out_of_10": 9.9, "svg_x": 516.6, "svg_y": 723.9}, {"id": "prewitt_ridge", "name": "Prewitt Ridge & Nacimiento (Dispersed BLM / USFS)", "region": "Monterey Bay & Big Sur", "agency": "US Forest Service / BLM", "lat": 35.9708, "lng": -121.4475, "reservation_type": "Dispersed / Free FCFS", "reservation_window": "No reservations - 100% Free Dispersed Camping (High clearance AWD/4WD recommended, bring all water)", "num_sites": 25, "site_types": "Primitive dispersed rim campsites", "nightly_fee": "Free ($0)", "rating_public": 4.8, "rating_hikes": 4.7, "nearby_hikes_attractions": "Prewitt Loop Trail, Ventana Wilderness, 3,200-ft cliff drop overlooking marine fog bank", "description": "High-altitude coastal ridge camping 3,200 feet directly above the Pacific Ocean. Sleep above the clouds with jaw-dropping sunsets.", "distance_straight_miles": 136.7, "distance_road_miles": 177.7, "drive_time_from_grace": "3h 33m", "composite_score_out_of_10": 9.5, "svg_x": 524.9, "svg_y": 726.3}, {"id": "plaskett_creek", "name": "Plaskett Creek Campground", "region": "Monterey Bay & Big Sur", "agency": "US Forest Service (Los Padres NF)", "lat": 35.9189, "lng": -121.4683, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 7:00 AM PT on Recreation.gov", "num_sites": 44, "site_types": "Drive-in tent & RV sites in Monterey pine grove", "nightly_fee": "$45", "rating_public": 4.7, "rating_hikes": 4.8, "nearby_hikes_attractions": "Sand Dollar Beach (largest sandy beach in Big Sur), Jade Cove, Willow Creek", "description": "Park-like grassy setting under giant Monterey pines just across Highway 1 from Sand Dollar Beach.", "distance_straight_miles": 139.6, "distance_road_miles": 181.4, "drive_time_from_grace": "3h 37m", "composite_score_out_of_10": 9.5, "svg_x": 521.2, "svg_y": 733.0}, {"id": "lake_tahoe_emerald_bay", "name": "Lake Tahoe (Emerald Bay & D.L. Bliss State Parks)", "region": "Sierra Nevada", "agency": "California State Parks", "lat": 38.9558, "lng": -120.1036, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia", "num_sites": 165, "site_types": "Drive-in tent & RV sites, boat-in camp at Emerald Bay", "nightly_fee": "$35 - $45", "rating_public": 4.9, "rating_hikes": 5.0, "nearby_hikes_attractions": "Rubicon Trail, Vikingsholm Castle, Eagle Rock & Eagle Falls, Desolation Wilderness trailhead", "description": "Cobalt-blue waters of Lake Tahoe, granite boulder coves, and the famed Rubicon Trail hugging the shoreline cliffs.", "distance_straight_miles": 148.7, "distance_road_miles": 193.4, "drive_time_from_grace": "3h 52m", "composite_score_out_of_10": 9.9, "svg_x": 763.8, "svg_y": 341.2}, {"id": "yosemite_pines", "name": "Yosemite Valley (Upper / Lower / North Pines & Camp 4)", "region": "Sierra Nevada", "agency": "National Park Service", "lat": 37.7425, "lng": -119.5719, "reservation_type": "Paid Reservation (or Camp 4 Daily Lottery)", "reservation_window": "Released on the 15th of each month at 7:00 AM PT for 5 months ahead on Recreation.gov; Camp 4 via 1-day advance lottery", "num_sites": 450, "site_types": "Drive-in tent, RV, historic walk-in (Camp 4 climbers camp)", "nightly_fee": "$36 ($10/person Camp 4)", "rating_public": 4.9, "rating_hikes": 5.0, "nearby_hikes_attractions": "Mist Trail (Vernal & Nevada Falls), Half Dome cables, Yosemite Falls, El Capitan, Glacier Point", "description": "The cathedral of American wilderness. Giant granite walls rising 3,000+ feet directly from the pine valley floor.", "distance_straight_miles": 155.2, "distance_road_miles": 201.8, "drive_time_from_grace": "4h 02m", "composite_score_out_of_10": 9.9, "svg_x": 858.3, "svg_y": 497.7}, {"id": "lassen_manzanita", "name": "Lassen Volcanic National Park (Manzanita Lake)", "region": "Shasta / Trinity / Cascade", "agency": "National Park Service", "lat": 40.5342, "lng": -121.5647, "reservation_type": "Paid Reservation + FCFS", "reservation_window": "6 months rolling at 7:00 AM PT on Recreation.gov + Loop C/D walk-ins", "num_sites": 179, "site_types": "Tent, RV (no hookups), 20 rustic camping cabins", "nightly_fee": "$26 ($75 cabins)", "rating_public": 4.8, "rating_hikes": 5.0, "nearby_hikes_attractions": "Lassen Peak summit (10,457 ft), Bumpass Hell hydrothermal boardwalk, Manzanita Lake loop, Cinder Cone", "description": "All four volcano types represented! Reflective alpine lake with kayak rentals looking directly at Lassen Peak.", "distance_straight_miles": 194.9, "distance_road_miles": 253.3, "drive_time_from_grace": "5h 03m", "composite_score_out_of_10": 9.8, "svg_x": 504.1, "svg_y": 137.5}, {"id": "whiskeytown_nra", "name": "Whiskeytown National Rec Area (Oak Bottom)", "region": "Shasta / Trinity / Cascade", "agency": "National Park Service", "lat": 40.6128, "lng": -122.5694, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 7:00 AM PT on Recreation.gov", "num_sites": 122, "site_types": "Walk-in tent sites on lakeshore + RV dry sites", "nightly_fee": "$25 - $30", "rating_public": 4.7, "rating_hikes": 4.8, "nearby_hikes_attractions": "Whiskeytown Falls (220-ft cascade), Crystal Creek Falls, kayak tours, Mt. Shasta vistas", "description": "Crystal-clear mountain lake ringed by pine forests and multi-tier waterfalls; walk-in tent sites right on the sandy shore.", "distance_straight_miles": 195.1, "distance_road_miles": 253.6, "drive_time_from_grace": "5h 04m", "composite_score_out_of_10": 9.5, "svg_x": 325.4, "svg_y": 127.4}, {"id": "lake_shasta_antlers", "name": "Lake Shasta (Antlers & Bailey Cove Campgrounds)", "region": "Shasta / Trinity / Cascade", "agency": "US Forest Service (Shasta-Trinity NF)", "lat": 40.9022, "lng": -122.4219, "reservation_type": "Paid Reservation + FCFS", "reservation_window": "6 months rolling at 7:00 AM PT on Recreation.gov", "num_sites": 110, "site_types": "Drive-in tent, RV sites, lakefront boat slips", "nightly_fee": "$28 - $36", "rating_public": 4.6, "rating_hikes": 4.5, "nearby_hikes_attractions": "Lake Shasta Caverns, Bailey Cove Trail, Shasta Dam, water skiing and houseboating", "description": "Warm water reservoir recreation surrounded by forested mountain inlets with great swimming and boat access.", "distance_straight_miles": 214.9, "distance_road_miles": 279.4, "drive_time_from_grace": "5h 35m", "composite_score_out_of_10": 9.1, "svg_x": 351.7, "svg_y": 90.0}, {"id": "trinity_lake_hayward", "name": "Trinity Lake (Hayward Flat & Tannery Gulch)", "region": "Shasta / Trinity / Cascade", "agency": "US Forest Service (Shasta-Trinity NF)", "lat": 40.8931, "lng": -122.7842, "reservation_type": "Paid Reservation + FCFS", "reservation_window": "6 months rolling at 7:00 AM PT on Recreation.gov", "num_sites": 185, "site_types": "Tent and RV campsites in pine forest near lake", "nightly_fee": "$25 - $32", "rating_public": 4.6, "rating_hikes": 4.7, "nearby_hikes_attractions": "Trinity Alps Wilderness trailheads, Trinity River fly fishing, Bowerman Ridge, lake boating", "description": "Peaceful, uncrowded alternative to Shasta tucked into deep conifer forest under the rugged Trinity Alps.", "distance_straight_miles": 215.2, "distance_road_miles": 279.7, "drive_time_from_grace": "5h 35m", "composite_score_out_of_10": 9.3, "svg_x": 287.3, "svg_y": 91.2}, {"id": "trinity_alps_bridge_camp", "name": "Trinity Alps (Bridge Camp & Big Flat Trailheads / Lewiston BLM)", "region": "Shasta / Trinity / Cascade", "agency": "US Forest Service / BLM", "lat": 40.9167, "lng": -122.9583, "reservation_type": "First-Come, First-Served / Free Wilderness Permit", "reservation_window": "FCFS trailhead camping ($10-$15 or free) + Self-issued Free Wilderness Backpacking Permit at ranger station", "num_sites": 35, "site_types": "Primitive trailhead campsites & infinite backcountry wilderness camping", "nightly_fee": "$0 - $15", "rating_public": 4.9, "rating_hikes": 5.0, "nearby_hikes_attractions": "Canyon Creek Lakes (alpine granite wonderland), Caribou Basin, Stuart Fork Trail to Emerald & Sapphire Lakes", "description": "The Switzerland of California. Glacial cirques, jagged granite ridges, and azure alpine tarns with uncrowded solitude.", "distance_straight_miles": 217.9, "distance_road_miles": 283.2, "drive_time_from_grace": "5h 39m", "composite_score_out_of_10": 9.9, "svg_x": 256.3, "svg_y": 88.2}, {"id": "burney_falls", "name": "McArthur-Burney Falls Memorial State Park", "region": "Shasta / Trinity / Cascade", "agency": "California State Parks", "lat": 41.0117, "lng": -121.6514, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia", "num_sites": 121, "site_types": "Drive-in tent & RV sites, 24 rustic cabins", "nightly_fee": "$35 ($105 cabins)", "rating_public": 4.8, "rating_hikes": 4.8, "nearby_hikes_attractions": "129-foot Burney Falls ('Eighth Wonder of the World'), Lake Britton swim beach, Pacific Crest Trail", "description": "Roaring 129-foot spring-fed waterfall gushing 100 million gallons of cold water daily from volcanic basalt underground springs.", "distance_straight_miles": 226.2, "distance_road_miles": 294.0, "drive_time_from_grace": "5h 52m", "composite_score_out_of_10": 9.6, "svg_x": 488.6, "svg_y": 75.9}, {"id": "castle_crags", "name": "Castle Crags State Park", "region": "Shasta / Trinity / Cascade", "agency": "California State Parks", "lat": 41.1578, "lng": -122.3236, "reservation_type": "Paid Reservation", "reservation_window": "6 months rolling at 8:00 AM PT on ReserveCalifornia (some FCFS sites off-season)", "num_sites": 76, "site_types": "Drive-in tent & RV sites (no hookups)", "nightly_fee": "$35", "rating_public": 4.7, "rating_hikes": 5.0, "nearby_hikes_attractions": "Crags Trail to Castle Dome (6,000-ft granite spires), Pacific Crest Trail (PCT), Upper Sacramento River trout fishing", "description": "Dramatic 6,000-foot granite spires looming above pine forests with jaw-dropping views of snow-capped Mt. Shasta.", "distance_straight_miles": 232.6, "distance_road_miles": 302.4, "drive_time_from_grace": "6h 02m", "composite_score_out_of_10": 9.7, "svg_x": 369.1, "svg_y": 57.1}];
+    const homePoint = {"name": "Grace Cathedral, San Francisco", "lat": 37.7919, "lng": -122.4137};
+
+    let selectedId = campgrounds[0].id;
+    let filteredList = [...campgrounds];
+
+    function getAgencyColor(agency) {
+      if (agency.includes("National Park") || agency.includes("NPS")) return "#38bdf8"; // sky blue
+      if (agency.includes("State Park")) return "#34d399"; // emerald
+      if (agency.includes("Forest") || agency.includes("BLM")) return "#fbbf24"; // amber
+      return "#c084fc"; // purple for regional
+    }
+
+    function renderMarkers() {
+      const container = document.getElementById("campground-markers");
+      container.innerHTML = "";
+
+      filteredList.forEach(cg => {
+        const color = getAgencyColor(cg.agency);
+        const isSelected = cg.id === selectedId;
+
+        const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        g.setAttribute("class", `cg-marker ${isSelected ? 'active-marker' : ''}`);
+        g.setAttribute("transform", `translate(${cg.svg_x}, ${cg.svg_y})`);
+        g.onclick = () => selectCampground(cg.id);
+
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("r", isSelected ? "8" : "6");
+        circle.setAttribute("fill", color);
+        circle.setAttribute("stroke", isSelected ? "#ffffff" : "#0f172a");
+        circle.setAttribute("stroke-width", "1.5");
+
+        const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        title.textContent = `${cg.name} (${cg.drive_time_from_grace}, ${cg.distance_road_miles} mi) - ${cg.reservation_type}`;
+
+        g.appendChild(circle);
+        g.appendChild(title);
+        container.appendChild(g);
+      });
+    }
+
+    function selectCampground(id) {
+      selectedId = id;
+      const cg = campgrounds.find(c => c.id === id);
+      if (!cg) return;
+
+      // Update Card
+      document.getElementById("card-region").textContent = cg.region;
+      document.getElementById("card-title").textContent = cg.name;
+      document.getElementById("card-agency").textContent = cg.agency;
+      document.getElementById("card-score").textContent = cg.composite_score_out_of_10.toFixed(1);
+      document.getElementById("card-drive").textContent = `${cg.drive_time_from_grace} (~${cg.distance_road_miles} mi)`;
+      document.getElementById("card-capacity").textContent = `${cg.num_sites} sites (${cg.site_types})`;
+      document.getElementById("card-rule-title").textContent = cg.reservation_type;
+      document.getElementById("card-window").textContent = cg.reservation_window;
+      document.getElementById("card-fee").textContent = cg.nightly_fee;
+      document.getElementById("card-hikes").textContent = cg.nearby_hikes_attractions;
+      document.getElementById("card-desc").textContent = cg.description;
+
+      // Update links
+      const mapsQuery = encodeURIComponent(`${cg.name}, California`);
+      document.getElementById("card-google-maps").href = `https://www.google.com/maps/search/?api=1&query=${mapsQuery}`;
+      
+      let bookingUrl = "https://www.reservecalifornia.com/";
+      if (cg.agency.includes("National Park") || cg.agency.includes("Forest") || cg.agency.includes("US Army")) {
+        bookingUrl = `https://www.recreation.gov/search?q=${encodeURIComponent(cg.name)}`;
+      } else if (cg.agency.includes("East Bay")) {
+        bookingUrl = "https://www.ebparks.org/recreation/camping";
+      } else if (cg.agency.includes("San Mateo")) {
+        bookingUrl = "https://www.smcgov.org/parks/reservations";
+      }
+      document.getElementById("card-booking-link").href = bookingUrl;
+
+      renderMarkers();
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById("directory-tbody");
+      tbody.innerHTML = "";
+      document.getElementById("table-count").textContent = filteredList.length;
+
+      filteredList.forEach(cg => {
+        const tr = document.createElement("tr");
+        tr.className = "hover:bg-slate-800/40 transition cursor-pointer";
+        tr.onclick = () => {
+          selectCampground(cg.id);
+          window.scrollTo({ top: 120, behavior: "smooth" });
+        };
+
+        tr.innerHTML = `
+          <td class="py-3 px-3 font-semibold text-white flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full inline-block" style="background-color: ${getAgencyColor(cg.agency)}"></span>
+            ${cg.name}
+          </td>
+          <td class="py-3 px-3 text-slate-400">${cg.region}</td>
+          <td class="py-3 px-3 text-slate-400">${cg.agency}</td>
+          <td class="py-3 px-3 font-medium text-slate-200">${cg.drive_time_from_grace} <span class="text-slate-500">(${cg.distance_road_miles} mi)</span></td>
+          <td class="py-3 px-3">
+            <span class="px-2 py-0.5 rounded text-[11px] font-medium ${
+              cg.reservation_type.includes('Paid') ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' :
+              cg.reservation_type.includes('First-Come') ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+              'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+            }">
+              ${cg.reservation_type}
+            </span>
+          </td>
+          <td class="py-3 px-3 text-slate-300 font-semibold">${cg.num_sites}</td>
+          <td class="py-3 px-3 font-bold text-emerald-400">${cg.composite_score_out_of_10.toFixed(1)}</td>
+          <td class="py-3 px-3 text-slate-400 max-w-xs truncate" title="${cg.nearby_hikes_attractions}">${cg.nearby_hikes_attractions}</td>
+          <td class="py-3 px-3 text-right">
+            <button class="bg-slate-800 hover:bg-slate-700 text-sky-400 px-2 py-1 rounded text-[11px] font-medium">Inspect</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function applyFilters() {
+      const query = document.getElementById("search-input").value.toLowerCase().trim();
+      const region = document.getElementById("region-filter").value;
+      const rule = document.getElementById("rule-filter").value;
+      const agency = document.getElementById("agency-filter").value;
+
+      filteredList = campgrounds.filter(cg => {
+        const matchesQuery = !query || 
+          cg.name.toLowerCase().includes(query) || 
+          cg.nearby_hikes_attractions.toLowerCase().includes(query) ||
+          cg.region.toLowerCase().includes(query) ||
+          cg.description.toLowerCase().includes(query);
+
+        const matchesRegion = (region === "ALL") || (cg.region === region);
+        
+        let matchesRule = true;
+        if (rule === "Paid Reservation") matchesRule = cg.reservation_type.includes("Paid");
+        if (rule === "First-Come") matchesRule = cg.reservation_type.includes("First-Come");
+        if (rule === "Dispersed") matchesRule = cg.reservation_type.includes("Dispersed") || cg.nightly_fee.includes("$0") || cg.nightly_fee.toLowerCase().includes("free");
+
+        let matchesAgency = true;
+        if (agency === "National Park Service") matchesAgency = cg.agency.includes("National Park") || cg.agency.includes("NPS");
+        if (agency === "California State Parks") matchesAgency = cg.agency.includes("California State Parks");
+        if (agency === "US Forest Service") matchesAgency = cg.agency.includes("Forest") || cg.agency.includes("BLM");
+        if (agency === "Regional") matchesAgency = cg.agency.includes("Regional") || cg.agency.includes("County");
+
+        return matchesQuery && matchesRegion && matchesRule && matchesAgency;
+      });
+
+      renderMarkers();
+      renderTable();
+    }
+
+    // Initial setup
+    selectCampground(selectedId);
+    renderMarkers();
+    renderTable();
+  </script>
+</body>
+</html>
