@@ -1,200 +1,304 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 900" width="100%" height="auto" style="background:#0f172a; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;">
-<rect width="1100" height="900" fill="#0f172a"/>
-<path d="M 0,0 L 290,0 L 320,110 L 330,210 L 365,345 L 385,385 L 400,430 L 435,540 L 470,610 L 515,700 L 580,790 L 670,900 L 0,900 Z" fill="#082f49" opacity="0.4"/>
-<circle cx="404.6" cy="552.8" r="55.2" fill="none" stroke="#475569" stroke-width="1.2" stroke-dasharray="5,5" opacity="0.6"/>
-<text x="463.8" y="546.8" fill="#94a3b8" font-size="11" font-weight="600">25 Miles</text>
-<circle cx="404.6" cy="552.8" r="110.4" fill="none" stroke="#475569" stroke-width="1.2" stroke-dasharray="5,5" opacity="0.6"/>
-<text x="519.0" y="546.8" fill="#94a3b8" font-size="11" font-weight="600">50 Miles</text>
-<circle cx="404.6" cy="552.8" r="220.9" fill="none" stroke="#475569" stroke-width="1.2" stroke-dasharray="5,5" opacity="0.6"/>
-<text x="629.5" y="546.8" fill="#94a3b8" font-size="11" font-weight="600">100 Miles</text>
-<circle cx="404.6" cy="552.8" r="441.8" fill="none" stroke="#475569" stroke-width="1.2" stroke-dasharray="5,5" opacity="0.6"/>
-<text x="850.4000000000001" y="546.8" fill="#94a3b8" font-size="11" font-weight="600">200 Miles</text>
-<text x="40" y="50" fill="#f8fafc" font-size="24" font-weight="bold">Northern & Central California Campgrounds</text>
-<text x="40" y="75" fill="#94a3b8" font-size="13">Centered on Grace Cathedral (San Francisco) • NPS, CA State Parks, USFS, BLM & Regional Lands</text>
-<g transform="translate(40, 100)">
-<rect width="260" height="150" rx="8" fill="#1e293b" opacity="0.9" stroke="#334155"/>
-<text x="15" y="24" fill="#ffffff" font-size="12" font-weight="bold">Jurisdiction Legend</text>
-<circle cx="25" cy="48" r="6" fill="#f43f5e" stroke="#fff" stroke-width="1.5"/><text x="42" y="52" fill="#e2e8f0" font-size="11">Grace Cathedral (Home Anchor)</text>
-<circle cx="25" cy="72" r="5" fill="#10b981"/><text x="42" y="76" fill="#e2e8f0" font-size="11">California State Parks</text>
-<circle cx="25" cy="96" r="5" fill="#0284c7"/><text x="42" y="100" fill="#e2e8f0" font-size="11">National Parks / NRA (NPS)</text>
-<circle cx="25" cy="120" r="5" fill="#f59e0b"/><text x="42" y="124" fill="#e2e8f0" font-size="11">USFS / BLM / Free Dispersed</text>
-<circle cx="25" cy="140" r="5" fill="#8b5cf6"/><text x="42" y="144" fill="#e2e8f0" font-size="11">Regional / County Parks</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 960" width="100%" height="auto" style="background:#090d16; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;">
+<rect width="1180" height="960" fill="#090d16"/>
+<path d="M 0,0 L 220,0 L 225,120 L 240,230 L 265,340 L 278,390 L 305,440 L 335,540 L 375,620 L 420,710 L 490,810 L 580,960 L 0,960 Z" fill="#0c1929" opacity="0.6"/>
+<circle cx="379.4" cy="694.8" r="65.7" fill="none" stroke="#475569" stroke-width="1.1" stroke-dasharray="4,5" opacity="0.45"/>
+<text x="328.9" y="745.3" fill="#94a3b8" font-size="11" font-weight="500" text-anchor="middle">25 mi</text>
+<circle cx="379.4" cy="694.8" r="131.4" fill="none" stroke="#475569" stroke-width="1.1" stroke-dasharray="4,5" opacity="0.45"/>
+<text x="282.5" y="791.7" fill="#94a3b8" font-size="11" font-weight="500" text-anchor="middle">50 mi</text>
+<circle cx="379.4" cy="694.8" r="262.8" fill="none" stroke="#475569" stroke-width="1.1" stroke-dasharray="4,5" opacity="0.45"/>
+<text x="189.6" y="884.6" fill="#94a3b8" font-size="11" font-weight="500" text-anchor="middle">100 mi</text>
+<circle cx="379.4" cy="694.8" r="525.6" fill="none" stroke="#475569" stroke-width="1.1" stroke-dasharray="4,5" opacity="0.45"/>
+<text x="3.7" y="1070.5" fill="#94a3b8" font-size="11" font-weight="500" text-anchor="middle">200 mi</text>
+<text x="40" y="45" fill="#f8fafc" font-size="22" font-weight="bold">California Campgrounds & Wilderness Explorer</text>
+<text x="40" y="68" fill="#94a3b8" font-size="12.5">69 Destinations • Bay Area, Coast, Tahoe Basin & Eastern Sierra • Radii from Home (SF)</text>
+<g transform="translate(910, 30)">
+<rect width="240" height="152" rx="10" fill="#0f172a" fill-opacity="0.95" stroke="#334155" stroke-width="1"/>
+<text x="14" y="22" fill="#ffffff" font-size="12" font-weight="bold">Map Legend</text>
+<circle cx="24" cy="44" r="6" fill="#f43f5e" stroke="#fff" stroke-width="1.5"/><text x="40" y="48" fill="#e2e8f0" font-size="11">Home (SF)</text>
+<circle cx="24" cy="68" r="5" fill="#34d399"/><text x="40" y="72" fill="#e2e8f0" font-size="11">California & NV State Parks</text>
+<circle cx="24" cy="92" r="5" fill="#38bdf8"/><text x="40" y="96" fill="#e2e8f0" font-size="11">National Parks / NRA (NPS)</text>
+<circle cx="24" cy="116" r="5" fill="#fbbf24"/><text x="40" y="120" fill="#e2e8f0" font-size="11">USFS / BLM / Wilderness ($0)</text>
+<circle cx="24" cy="138" r="5" fill="#c084fc"/><text x="40" y="142" fill="#e2e8f0" font-size="11">Regional & County Parks</text>
 </g>
-<g transform="translate(404.6, 552.8)">
-<circle r="14" fill="none" stroke="#f43f5e" stroke-width="2" opacity="0.7"/>
-<circle r="7" fill="#f43f5e" stroke="#ffffff" stroke-width="2"/>
-<text x="14" y="5" fill="#f43f5e" font-size="13" font-weight="bold">Grace Cathedral</text>
-</g>
-<g>
-<circle cx="392.2" cy="552.1" r="6.5" fill="#0284c7" stroke="#ffffff" stroke-width="1.2"/>
-<text x="401.2" y="556.1" fill="#f1f5f9" font-size="10.5" font-weight="500">Rob Hill Campground <tspan fill="#38bdf8" font-size="9">(12 mins)</tspan></text>
+<g transform="translate(379.4, 694.8)">
+<circle r="14" fill="none" stroke="#f43f5e" stroke-width="1.5" opacity="0.6"/>
+<circle r="6.5" fill="#f43f5e" stroke="#ffffff" stroke-width="2"/>
+<text x="12" y="4" fill="#f43f5e" font-size="12" font-weight="bold">Home</text>
 </g>
 <g>
-<circle cx="400.8" cy="542.8" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="409.8" y="546.8" fill="#f1f5f9" font-size="10.5" font-weight="500">Angel Island State Park  <tspan fill="#38bdf8" font-size="9">(18 mins)</tspan></text>
+<circle cx="368.8" cy="694.0" r="4.5" fill="#38bdf8" stroke="#0f172a" stroke-width="1"/>
+<text x="375.8" y="697.5" fill="#e2e8f0" font-size="9" font-weight="500">Rob Hill Campground <tspan fill="#38bdf8" font-size="8">(12 mins)</tspan></text>
 </g>
 <g>
-<circle cx="388.3" cy="547.5" r="6.5" fill="#0284c7" stroke="#ffffff" stroke-width="1.2"/>
-<text x="397.3" y="551.5" fill="#f1f5f9" font-size="10.5" font-weight="500">Kirby Cove Campground <tspan fill="#38bdf8" font-size="9">(19 mins)</tspan></text>
+<circle cx="376.1" cy="682.5" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="383.1" y="686.0" fill="#e2e8f0" font-size="9" font-weight="500">Angel Island State P <tspan fill="#38bdf8" font-size="8">(18 mins)</tspan></text>
 </g>
 <g>
-<circle cx="381.1" cy="547.4" r="6.5" fill="#0284c7" stroke="#ffffff" stroke-width="1.2"/>
-<text x="390.1" y="551.4" fill="#f1f5f9" font-size="10.5" font-weight="500">Bicentennial Campground <tspan fill="#38bdf8" font-size="9">(26 mins)</tspan></text>
+<circle cx="365.5" cy="688.2" r="4.5" fill="#38bdf8" stroke="#0f172a" stroke-width="1"/>
+<text x="372.5" y="691.7" fill="#e2e8f0" font-size="9" font-weight="500">Kirby Cove Campgroun <tspan fill="#38bdf8" font-size="8">(19 mins)</tspan></text>
 </g>
 <g>
-<circle cx="380.1" cy="544.9" r="6.5" fill="#0284c7" stroke="#ffffff" stroke-width="1.2"/>
-<text x="389.1" y="548.9" fill="#f1f5f9" font-size="10.5" font-weight="500">Haypress & Hawkcamp Back <tspan fill="#38bdf8" font-size="9">(29 mins)</tspan></text>
+<circle cx="359.3" cy="688.2" r="4.5" fill="#38bdf8" stroke="#0f172a" stroke-width="1"/>
+<text x="366.3" y="691.7" fill="#e2e8f0" font-size="9" font-weight="500">Bicentennial Campgro <tspan fill="#38bdf8" font-size="8">(26 mins)</tspan></text>
 </g>
 <g>
-<circle cx="365.8" cy="536.4" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="374.8" y="540.4" fill="#f1f5f9" font-size="10.5" font-weight="500">Pantoll & Bootjack Campg <tspan fill="#38bdf8" font-size="9">(30 mins)</tspan></text>
+<circle cx="358.5" cy="685.1" r="4.5" fill="#38bdf8" stroke="#0f172a" stroke-width="1"/>
+<text x="365.5" y="688.6" fill="#e2e8f0" font-size="9" font-weight="500">Haypress & Hawkcamp  <tspan fill="#38bdf8" font-size="8">(29 mins)</tspan></text>
 </g>
 <g>
-<circle cx="358.6" cy="537.3" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="367.6" y="541.3" fill="#f1f5f9" font-size="10.5" font-weight="500">Steep Ravine Cabins & En <tspan fill="#38bdf8" font-size="9">(33 mins)</tspan></text>
+<circle cx="346.3" cy="674.7" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="353.3" y="678.2" fill="#e2e8f0" font-size="9" font-weight="500">Pantoll & Bootjack C <tspan fill="#38bdf8" font-size="8">(30 mins)</tspan></text>
 </g>
 <g>
-<circle cx="466.8" cy="559.3" r="6.5" fill="#8b5cf6" stroke="#ffffff" stroke-width="1.2"/>
-<text x="475.8" y="563.3" fill="#f1f5f9" font-size="10.5" font-weight="500">Anthony Chabot Regional  <tspan fill="#38bdf8" font-size="9">(39 mins)</tspan></text>
+<circle cx="340.2" cy="675.8" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="347.2" y="679.3" fill="#e2e8f0" font-size="9" font-weight="500">Steep Ravine Cabins  <tspan fill="#38bdf8" font-size="8">(33 mins)</tspan></text>
 </g>
 <g>
-<circle cx="340.4" cy="520.2" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="349.4" y="524.2" fill="#f1f5f9" font-size="10.5" font-weight="500">Samuel P. Taylor State P <tspan fill="#38bdf8" font-size="9">(54 mins)</tspan></text>
+<circle cx="365.3" cy="657.7" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="372.3" y="661.2" fill="#e2e8f0" font-size="9" font-weight="500">China Camp State Par <tspan fill="#38bdf8" font-size="8">(35 mins)</tspan></text>
 </g>
 <g>
-<circle cx="398.6" cy="601.3" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="407.6" y="605.3" fill="#f1f5f9" font-size="10.5" font-weight="500">Half Moon Bay State Beac <tspan fill="#38bdf8" font-size="9">(54 mins)</tspan></text>
+<circle cx="432.4" cy="702.7" r="4.5" fill="#c084fc" stroke="#0f172a" stroke-width="1"/>
+<text x="439.4" y="706.2" fill="#e2e8f0" font-size="9" font-weight="500">Anthony Chabot Regio <tspan fill="#38bdf8" font-size="8">(39 mins)</tspan></text>
 </g>
 <g>
-<circle cx="502.9" cy="540.5" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="511.9" y="544.5" fill="#f1f5f9" font-size="10.5" font-weight="500">Mount Diablo State Park  <tspan fill="#38bdf8" font-size="9">(1h 03m)</tspan></text>
+<circle cx="324.7" cy="654.9" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="331.7" y="658.4" fill="#e2e8f0" font-size="9" font-weight="500">Samuel P. Taylor Sta <tspan fill="#38bdf8" font-size="8">(54 mins)</tspan></text>
 </g>
 <g>
-<circle cx="317.3" cy="519.5" r="6.5" fill="#0284c7" stroke="#ffffff" stroke-width="1.2"/>
-<text x="326.3" y="523.5" fill="#f1f5f9" font-size="10.5" font-weight="500">Point Reyes National Sea <tspan fill="#38bdf8" font-size="9">(1h 06m)</tspan></text>
+<circle cx="374.3" cy="754.2" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="381.3" y="757.7" fill="#e2e8f0" font-size="9" font-weight="500">Half Moon Bay State  <tspan fill="#38bdf8" font-size="8">(54 mins)</tspan></text>
 </g>
 <g>
-<circle cx="430.0" cy="628.0" r="6.5" fill="#8b5cf6" stroke="#ffffff" stroke-width="1.2"/>
-<text x="439.0" y="632.0" fill="#f1f5f9" font-size="10.5" font-weight="500">Memorial Park Campground <tspan fill="#38bdf8" font-size="9">(1h 06m)</tspan></text>
+<circle cx="463.1" cy="679.7" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="470.1" y="683.2" fill="#e2e8f0" font-size="9" font-weight="500">Mount Diablo State P <tspan fill="#38bdf8" font-size="8">(1h 03m)</tspan></text>
 </g>
 <g>
-<circle cx="444.5" cy="630.9" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="453.5" y="634.9" fill="#f1f5f9" font-size="10.5" font-weight="500">Portola Redwoods State P <tspan fill="#38bdf8" font-size="9">(1h 10m)</tspan></text>
+<circle cx="305.0" cy="654.0" r="4.5" fill="#38bdf8" stroke="#0f172a" stroke-width="1"/>
+<text x="312.0" y="657.5" fill="#e2e8f0" font-size="9" font-weight="500">Point Reyes National <tspan fill="#38bdf8" font-size="8">(1h 06m)</tspan></text>
 </g>
 <g>
-<circle cx="419.8" cy="638.4" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="428.8" y="642.4" fill="#f1f5f9" font-size="10.5" font-weight="500">Butano State Park (Ben R <tspan fill="#38bdf8" font-size="9">(1h 14m)</tspan></text>
+<circle cx="401.0" cy="786.8" r="4.5" fill="#c084fc" stroke="#0f172a" stroke-width="1"/>
+<text x="408.0" y="790.3" fill="#e2e8f0" font-size="9" font-weight="500">Memorial Park Campgr <tspan fill="#38bdf8" font-size="8">(1h 03m)</tspan></text>
 </g>
 <g>
-<circle cx="550.5" cy="578.3" r="6.5" fill="#8b5cf6" stroke="#ffffff" stroke-width="1.2"/>
-<text x="559.5" y="582.3" fill="#f1f5f9" font-size="10.5" font-weight="500">Del Valle Regional Park <tspan fill="#38bdf8" font-size="9">(1h 14m)</tspan></text>
+<circle cx="413.3" cy="790.5" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="420.3" y="794.0" fill="#e2e8f0" font-size="9" font-weight="500">Portola Redwoods Sta <tspan fill="#38bdf8" font-size="8">(1h 07m)</tspan></text>
 </g>
 <g>
-<circle cx="443.7" cy="642.7" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="452.7" y="646.7" fill="#f1f5f9" font-size="10.5" font-weight="500">Big Basin Redwoods State <tspan fill="#38bdf8" font-size="9">(1h 20m)</tspan></text>
+<circle cx="392.3" cy="799.6" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="399.3" y="803.1" fill="#e2e8f0" font-size="9" font-weight="500">Butano State Park (B <tspan fill="#38bdf8" font-size="8">(1h 11m)</tspan></text>
 </g>
 <g>
-<circle cx="384.2" cy="459.0" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="393.2" y="463.0" fill="#f1f5f9" font-size="10.5" font-weight="500">Sugarloaf Ridge State Pa <tspan fill="#38bdf8" font-size="9">(1h 21m)</tspan></text>
+<circle cx="503.7" cy="726.0" r="4.5" fill="#c084fc" stroke="#0f172a" stroke-width="1"/>
+<text x="510.7" y="729.5" fill="#e2e8f0" font-size="9" font-weight="500">Del Valle Regional P <tspan fill="#38bdf8" font-size="8">(1h 11m)</tspan></text>
 </g>
 <g>
-<circle cx="381.0" cy="444.7" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="390.0" y="448.7" fill="#f1f5f9" font-size="10.5" font-weight="500">Bothe-Napa Valley State  <tspan fill="#38bdf8" font-size="9">(1h 34m)</tspan></text>
+<circle cx="440.4" cy="793.8" r="4.5" fill="#c084fc" stroke="#0f172a" stroke-width="1"/>
+<text x="447.4" y="797.3" fill="#e2e8f0" font-size="9" font-weight="500">Sanborn County Park <tspan fill="#38bdf8" font-size="8">(1h 15m)</tspan></text>
 </g>
 <g>
-<circle cx="273.6" cy="471.3" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="282.6" y="475.3" fill="#f1f5f9" font-size="10.5" font-weight="500">Sonoma Coast State Park  <tspan fill="#38bdf8" font-size="9">(1h 35m)</tspan></text>
+<circle cx="412.7" cy="804.9" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="419.7" y="808.4" fill="#e2e8f0" font-size="9" font-weight="500">Big Basin Redwoods S <tspan fill="#38bdf8" font-size="8">(1h 17m)</tspan></text>
 </g>
 <g>
-<circle cx="477.0" cy="661.6" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="486.0" y="665.6" fill="#f1f5f9" font-size="10.5" font-weight="500">Henry Cowell Redwoods St <tspan fill="#38bdf8" font-size="9">(1h 40m)</tspan></text>
+<circle cx="362.0" cy="579.9" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="369.0" y="583.4" fill="#e2e8f0" font-size="9" font-weight="500">Sugarloaf Ridge Stat <tspan fill="#38bdf8" font-size="8">(1h 18m)</tspan></text>
 </g>
 <g>
-<circle cx="281.3" cy="443.5" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="290.3" y="447.5" fill="#f1f5f9" font-size="10.5" font-weight="500">Austin Creek State Recre <tspan fill="#38bdf8" font-size="9">(1h 52m)</tspan></text>
+<circle cx="503.8" cy="636.9" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="510.8" y="640.4" fill="#e2e8f0" font-size="9" font-weight="500">Brannan Island State <tspan fill="#38bdf8" font-size="8">(1h 19m)</tspan></text>
 </g>
 <g>
-<circle cx="502.9" cy="670.6" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="511.9" y="674.6" fill="#f1f5f9" font-size="10.5" font-weight="500">New Brighton State Beach <tspan fill="#38bdf8" font-size="9">(1h 52m)</tspan></text>
+<circle cx="410.3" cy="567.4" r="4.5" fill="#c084fc" stroke="#0f172a" stroke-width="1"/>
+<text x="417.3" y="570.9" fill="#e2e8f0" font-size="9" font-weight="500">Lake Berryessa (Plea <tspan fill="#38bdf8" font-size="8">(1h 28m)</tspan></text>
 </g>
 <g>
-<circle cx="285.6" cy="418.3" r="6.5" fill="#8b5cf6" stroke="#ffffff" stroke-width="1.2"/>
-<text x="294.6" y="422.3" fill="#f1f5f9" font-size="10.5" font-weight="500">Lake Sonoma Recreation A <tspan fill="#38bdf8" font-size="9">(2h 10m)</tspan></text>
+<circle cx="359.2" cy="562.3" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="366.2" y="565.8" fill="#e2e8f0" font-size="9" font-weight="500">Bothe-Napa Valley St <tspan fill="#38bdf8" font-size="8">(1h 30m)</tspan></text>
 </g>
 <g>
-<circle cx="218.1" cy="440.4" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="227.1" y="444.4" fill="#f1f5f9" font-size="10.5" font-weight="500">Salt Point State Park (G <tspan fill="#38bdf8" font-size="9">(2h 13m)</tspan></text>
+<circle cx="267.8" cy="595.0" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="274.8" y="598.5" fill="#e2e8f0" font-size="9" font-weight="500">Sonoma Coast State P <tspan fill="#38bdf8" font-size="8">(1h 31m)</tspan></text>
 </g>
 <g>
-<circle cx="188.8" cy="366.9" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="197.8" y="370.9" fill="#f1f5f9" font-size="10.5" font-weight="500">Hendy Woods State Park <tspan fill="#38bdf8" font-size="9">(2h 44m)</tspan></text>
+<circle cx="441.1" cy="828.0" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="448.1" y="831.5" fill="#e2e8f0" font-size="9" font-weight="500">Henry Cowell Redwood <tspan fill="#38bdf8" font-size="8">(1h 37m)</tspan></text>
 </g>
 <g>
-<circle cx="533.2" cy="776.8" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="542.2" y="780.8" fill="#f1f5f9" font-size="10.5" font-weight="500">Pfeiffer Big Sur State P <tspan fill="#38bdf8" font-size="9">(2h 54m)</tspan></text>
+<circle cx="487.2" cy="820.2" r="4.5" fill="#c084fc" stroke="#0f172a" stroke-width="1"/>
+<text x="494.2" y="823.7" fill="#e2e8f0" font-size="9" font-weight="500">Uvas Canyon County P <tspan fill="#38bdf8" font-size="8">(1h 44m)</tspan></text>
 </g>
 <g>
-<circle cx="663.2" cy="742.0" r="6.5" fill="#0284c7" stroke="#ffffff" stroke-width="1.2"/>
-<text x="672.2" y="746.0" fill="#f1f5f9" font-size="10.5" font-weight="500">Pinnacles National Park  <tspan fill="#38bdf8" font-size="9">(2h 57m)</tspan></text>
+<circle cx="274.4" cy="560.9" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="281.4" y="564.4" fill="#e2e8f0" font-size="9" font-weight="500">Austin Creek State R <tspan fill="#38bdf8" font-size="8">(1h 48m)</tspan></text>
 </g>
 <g>
-<circle cx="832.8" cy="482.3" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="702.8" y="486.3" fill="#f1f5f9" font-size="10.5" font-weight="500">Calaveras Big Trees Stat <tspan fill="#38bdf8" font-size="9">(3h 06m)</tspan></text>
+<circle cx="463.1" cy="839.0" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="470.1" y="842.5" fill="#e2e8f0" font-size="9" font-weight="500">New Brighton State B <tspan fill="#38bdf8" font-size="8">(1h 48m)</tspan></text>
 </g>
 <g>
-<circle cx="555.5" cy="789.7" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="564.5" y="793.7" fill="#f1f5f9" font-size="10.5" font-weight="500">Julia Pfeiffer Burns Sta <tspan fill="#38bdf8" font-size="9">(3h 07m)</tspan></text>
+<circle cx="529.8" cy="802.4" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="536.8" y="805.9" fill="#e2e8f0" font-size="9" font-weight="500">Henry W. Coe State P <tspan fill="#38bdf8" font-size="8">(1h 51m)</tspan></text>
 </g>
 <g>
-<circle cx="121.1" cy="329.6" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="130.1" y="333.6" fill="#f1f5f9" font-size="10.5" font-weight="500">Russian Gulch & Van Damm <tspan fill="#38bdf8" font-size="9">(3h 23m)</tspan></text>
+<circle cx="502.1" cy="833.6" r="4.5" fill="#c084fc" stroke="#0f172a" stroke-width="1"/>
+<text x="509.1" y="837.1" fill="#e2e8f0" font-size="9" font-weight="500">Mount Madonna County <tspan fill="#38bdf8" font-size="8">(1h 56m)</tspan></text>
 </g>
 <g>
-<circle cx="592.0" cy="814.4" r="6.5" fill="#f59e0b" stroke="#ffffff" stroke-width="1.2"/>
-<text x="601.0" y="818.4" fill="#f1f5f9" font-size="10.5" font-weight="500">Kirk Creek Campground <tspan fill="#38bdf8" font-size="9">(3h 29m)</tspan></text>
+<circle cx="278.0" cy="530.1" r="4.5" fill="#c084fc" stroke="#0f172a" stroke-width="1"/>
+<text x="285.0" y="533.6" fill="#e2e8f0" font-size="9" font-weight="500">Lake Sonoma Recreati <tspan fill="#38bdf8" font-size="8">(2h 05m)</tspan></text>
 </g>
 <g>
-<circle cx="601.4" cy="817.1" r="6.5" fill="#f59e0b" stroke="#ffffff" stroke-width="1.2"/>
-<text x="610.4" y="821.1" fill="#f1f5f9" font-size="10.5" font-weight="500">Prewitt Ridge & Nacimien <tspan fill="#38bdf8" font-size="9">(3h 33m)</tspan></text>
+<circle cx="220.5" cy="557.1" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="227.5" y="560.6" fill="#e2e8f0" font-size="9" font-weight="500">Salt Point State Par <tspan fill="#38bdf8" font-size="8">(2h 08m)</tspan></text>
 </g>
 <g>
-<circle cx="597.2" cy="824.7" r="6.5" fill="#f59e0b" stroke="#ffffff" stroke-width="1.2"/>
-<text x="606.2" y="814.7" fill="#f1f5f9" font-size="10.5" font-weight="500">Plaskett Creek Campgroun <tspan fill="#38bdf8" font-size="9">(3h 37m)</tspan></text>
+<circle cx="537.3" cy="878.2" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="544.3" y="881.7" fill="#e2e8f0" font-size="9" font-weight="500">Fremont Peak State P <tspan fill="#38bdf8" font-size="8">(2h 10m)</tspan></text>
 </g>
 <g>
-<circle cx="875.2" cy="383.8" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="745.2" y="387.8" fill="#f1f5f9" font-size="10.5" font-weight="500">Lake Tahoe (Emerald Bay  <tspan fill="#38bdf8" font-size="9">(3h 52m)</tspan></text>
+<circle cx="309.6" cy="477.5" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="316.6" y="481.0" fill="#e2e8f0" font-size="9" font-weight="500">Clear Lake State Par <tspan fill="#38bdf8" font-size="8">(2h 10m)</tspan></text>
 </g>
 <g>
-<circle cx="983.5" cy="560.0" r="6.5" fill="#0284c7" stroke="#ffffff" stroke-width="1.2"/>
-<text x="853.5" y="564.0" fill="#f1f5f9" font-size="10.5" font-weight="500">Yosemite Valley (Upper / <tspan fill="#38bdf8" font-size="9">(4h 02m)</tspan></text>
+<circle cx="614.9" cy="825.9" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="621.9" y="829.4" fill="#e2e8f0" font-size="9" font-weight="500">San Luis Reservoir S <tspan fill="#38bdf8" font-size="8">(2h 14m)</tspan></text>
 </g>
 <g>
-<circle cx="577.6" cy="154.7" r="6.5" fill="#0284c7" stroke="#ffffff" stroke-width="1.2"/>
-<text x="586.6" y="158.7" fill="#f1f5f9" font-size="10.5" font-weight="500">Lassen Volcanic National <tspan fill="#38bdf8" font-size="9">(5h 03m)</tspan></text>
+<circle cx="195.6" cy="467.2" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="202.6" y="470.7" fill="#e2e8f0" font-size="9" font-weight="500">Hendy Woods State Pa <tspan fill="#38bdf8" font-size="8">(2h 37m)</tspan></text>
 </g>
 <g>
-<circle cx="372.9" cy="143.3" r="6.5" fill="#0284c7" stroke="#ffffff" stroke-width="1.2"/>
-<text x="381.9" y="147.3" fill="#f1f5f9" font-size="10.5" font-weight="500">Whiskeytown National Rec <tspan fill="#38bdf8" font-size="9">(5h 04m)</tspan></text>
+<circle cx="488.9" cy="969.1" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="495.9" y="961.1" fill="#e2e8f0" font-size="9" font-weight="500">Pfeiffer Big Sur Sta <tspan fill="#38bdf8" font-size="8">(2h 47m)</tspan></text>
 </g>
 <g>
-<circle cx="402.9" cy="101.3" r="6.5" fill="#f59e0b" stroke="#ffffff" stroke-width="1.2"/>
-<text x="411.9" y="105.3" fill="#f1f5f9" font-size="10.5" font-weight="500">Lake Shasta (Antlers & B <tspan fill="#38bdf8" font-size="9">(5h 35m)</tspan></text>
+<circle cx="599.6" cy="926.5" r="4.5" fill="#38bdf8" stroke="#0f172a" stroke-width="1"/>
+<text x="606.6" y="930.0" fill="#e2e8f0" font-size="9" font-weight="500">Pinnacles National P <tspan fill="#38bdf8" font-size="8">(2h 50m)</tspan></text>
 </g>
 <g>
-<circle cx="329.1" cy="102.6" r="6.5" fill="#f59e0b" stroke="#ffffff" stroke-width="1.2"/>
-<text x="338.1" y="106.6" fill="#f1f5f9" font-size="10.5" font-weight="500">Trinity Lake (Hayward Fl <tspan fill="#38bdf8" font-size="9">(5h 35m)</tspan></text>
+<circle cx="744.1" cy="608.4" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="751.1" y="611.9" fill="#e2e8f0" font-size="9" font-weight="500">Calaveras Big Trees  <tspan fill="#38bdf8" font-size="8">(2h 58m)</tspan></text>
 </g>
 <g>
-<circle cx="293.7" cy="99.2" r="6.5" fill="#f59e0b" stroke="#ffffff" stroke-width="1.2"/>
-<text x="302.7" y="103.2" fill="#f1f5f9" font-size="10.5" font-weight="500">Trinity Alps (Bridge Cam <tspan fill="#38bdf8" font-size="9">(5h 39m)</tspan></text>
+<circle cx="508.0" cy="984.9" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="515.0" y="976.9" fill="#e2e8f0" font-size="9" font-weight="500">Julia Pfeiffer Burns <tspan fill="#38bdf8" font-size="8">(2h 59m)</tspan></text>
 </g>
 <g>
-<circle cx="559.9" cy="85.4" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="568.9" y="89.4" fill="#f1f5f9" font-size="10.5" font-weight="500">McArthur-Burney Falls Me <tspan fill="#38bdf8" font-size="9">(5h 52m)</tspan></text>
+<circle cx="137.9" cy="421.5" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="144.9" y="425.0" fill="#e2e8f0" font-size="9" font-weight="500">Russian Gulch & Van  <tspan fill="#38bdf8" font-size="8">(3h 14m)</tspan></text>
 </g>
 <g>
-<circle cx="423.0" cy="64.2" r="6.5" fill="#10b981" stroke="#ffffff" stroke-width="1.2"/>
-<text x="432.0" y="68.2" fill="#f1f5f9" font-size="10.5" font-weight="500">Castle Crags State Park <tspan fill="#38bdf8" font-size="9">(6h 02m)</tspan></text>
+<circle cx="539.0" cy="1015.2" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="546.0" y="1007.2" fill="#e2e8f0" font-size="9" font-weight="500">Kirk Creek Campgroun <tspan fill="#38bdf8" font-size="8">(3h 21m)</tspan></text>
+</g>
+<g>
+<circle cx="547.1" cy="1018.5" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="554.1" y="1010.5" fill="#e2e8f0" font-size="9" font-weight="500">Prewitt Ridge & Naci <tspan fill="#38bdf8" font-size="8">(3h 24m)</tspan></text>
+</g>
+<g>
+<circle cx="543.4" cy="1027.8" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="550.4" y="1019.8" fill="#e2e8f0" font-size="9" font-weight="500">Plaskett Creek Campg <tspan fill="#38bdf8" font-size="8">(3h 28m)</tspan></text>
+</g>
+<g>
+<circle cx="800.3" cy="534.4" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="807.3" y="537.9" fill="#e2e8f0" font-size="9" font-weight="500">Mokelumne Wilderness <tspan fill="#38bdf8" font-size="8">(3h 54m)</tspan></text>
+</g>
+<g>
+<circle cx="780.3" cy="487.9" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="787.3" y="491.4" fill="#e2e8f0" font-size="9" font-weight="500">Lake Tahoe (Emerald  <tspan fill="#38bdf8" font-size="8">(3h 42m)</tspan></text>
+</g>
+<g>
+<circle cx="782.9" cy="489.1" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="789.9" y="492.6" fill="#e2e8f0" font-size="9" font-weight="500">Desolation Wildernes <tspan fill="#38bdf8" font-size="8">(4h 00m)</tspan></text>
+</g>
+<g>
+<circle cx="842.9" cy="604.3" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="849.9" y="607.8" fill="#e2e8f0" font-size="9" font-weight="500">Emigrant Wilderness  <tspan fill="#38bdf8" font-size="8">(4h 00m)</tspan></text>
+</g>
+<g>
+<circle cx="776.4" cy="473.8" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="783.4" y="477.3" fill="#e2e8f0" font-size="9" font-weight="500">Meeks Bay Campground <tspan fill="#38bdf8" font-size="8">(4h 02m)</tspan></text>
+</g>
+<g>
+<circle cx="776.7" cy="469.7" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="783.7" y="473.2" fill="#e2e8f0" font-size="9" font-weight="500">Sugar Pine Point Sta <tspan fill="#38bdf8" font-size="8">(4h 04m)</tspan></text>
+</g>
+<g>
+<circle cx="771.2" cy="459.9" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="778.2" y="463.4" fill="#e2e8f0" font-size="9" font-weight="500">Kaspian Campground & <tspan fill="#38bdf8" font-size="8">(4h 05m)</tspan></text>
+</g>
+<g>
+<circle cx="872.5" cy="703.6" r="4.5" fill="#38bdf8" stroke="#0f172a" stroke-width="1"/>
+<text x="879.5" y="707.1" fill="#e2e8f0" font-size="9" font-weight="500">Yosemite Valley (Upp <tspan fill="#38bdf8" font-size="8">(3h 52m)</tspan></text>
+</g>
+<g>
+<circle cx="770.8" cy="454.8" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="777.8" y="458.3" fill="#e2e8f0" font-size="9" font-weight="500">William Kent Campgro <tspan fill="#38bdf8" font-size="8">(4h 07m)</tspan></text>
+</g>
+<g>
+<circle cx="757.3" cy="423.4" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="764.3" y="426.9" fill="#e2e8f0" font-size="9" font-weight="500">Donner Memorial Stat <tspan fill="#38bdf8" font-size="8">(4h 14m)</tspan></text>
+</g>
+<g>
+<circle cx="814.9" cy="461.0" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="821.9" y="464.5" fill="#e2e8f0" font-size="9" font-weight="500">Lake Tahoe-Nevada St <tspan fill="#38bdf8" font-size="8">(4h 23m)</tspan></text>
+</g>
+<g>
+<circle cx="526.7" cy="207.3" r="4.5" fill="#38bdf8" stroke="#0f172a" stroke-width="1"/>
+<text x="533.7" y="210.8" fill="#e2e8f0" font-size="9" font-weight="500">Lassen Volcanic Nati <tspan fill="#38bdf8" font-size="8">(4h 51m)</tspan></text>
+</g>
+<g>
+<circle cx="352.4" cy="193.3" r="4.5" fill="#38bdf8" stroke="#0f172a" stroke-width="1"/>
+<text x="359.4" y="196.8" fill="#e2e8f0" font-size="9" font-weight="500">Whiskeytown National <tspan fill="#38bdf8" font-size="8">(4h 51m)</tspan></text>
+</g>
+<g>
+<circle cx="947.2" cy="657.4" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="954.2" y="660.9" fill="#e2e8f0" font-size="9" font-weight="500">Mono Lake Tufa Reser <tspan fill="#38bdf8" font-size="8">(5h 31m)</tspan></text>
+</g>
+<g>
+<circle cx="959.9" cy="695.9" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="966.9" y="699.4" fill="#e2e8f0" font-size="9" font-weight="500">June Lake Loop (Oh!  <tspan fill="#38bdf8" font-size="8">(5h 37m)</tspan></text>
+</g>
+<g>
+<circle cx="972.5" cy="729.7" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="979.5" y="733.2" fill="#e2e8f0" font-size="9" font-weight="500">Mammoth Lakes Basin  <tspan fill="#38bdf8" font-size="8">(5h 46m)</tspan></text>
+</g>
+<g>
+<circle cx="378.0" cy="141.8" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="385.0" y="145.3" fill="#e2e8f0" font-size="9" font-weight="500">Lake Shasta (Antlers <tspan fill="#38bdf8" font-size="8">(5h 21m)</tspan></text>
+</g>
+<g>
+<circle cx="315.1" cy="143.4" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="322.1" y="146.9" fill="#e2e8f0" font-size="9" font-weight="500">Trinity Lake (Haywar <tspan fill="#38bdf8" font-size="8">(5h 21m)</tspan></text>
+</g>
+<g>
+<circle cx="284.9" cy="139.3" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="291.9" y="142.8" fill="#e2e8f0" font-size="9" font-weight="500">Trinity Alps (Bridge <tspan fill="#38bdf8" font-size="8">(5h 25m)</tspan></text>
+</g>
+<g>
+<circle cx="997.4" cy="729.3" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="862.4" y="732.8" fill="#e2e8f0" font-size="9" font-weight="500">Convict Lake Campgro <tspan fill="#38bdf8" font-size="8">(6h 01m)</tspan></text>
+</g>
+<g>
+<circle cx="511.7" cy="122.4" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="518.7" y="125.9" fill="#e2e8f0" font-size="9" font-weight="500">McArthur-Burney Fall <tspan fill="#38bdf8" font-size="8">(5h 38m)</tspan></text>
+</g>
+<g>
+<circle cx="395.0" cy="96.4" r="4.5" fill="#34d399" stroke="#0f172a" stroke-width="1"/>
+<text x="402.0" y="99.9" fill="#e2e8f0" font-size="9" font-weight="500">Castle Crags State P <tspan fill="#38bdf8" font-size="8">(5h 47m)</tspan></text>
+</g>
+<g>
+<circle cx="1069.2" cy="813.1" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="934.2" y="816.6" fill="#e2e8f0" font-size="9" font-weight="500">Big Pine Creek Campg <tspan fill="#38bdf8" font-size="8">(6h 52m)</tspan></text>
+</g>
+<g>
+<circle cx="1103.7" cy="909.0" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="968.7" y="912.5" fill="#e2e8f0" font-size="9" font-weight="500">Whitney Portal Campg <tspan fill="#38bdf8" font-size="8">(7h 32m)</tspan></text>
+</g>
+<g>
+<circle cx="1125.3" cy="905.2" r="4.5" fill="#fbbf24" stroke="#0f172a" stroke-width="1"/>
+<text x="990.3" y="908.7" fill="#e2e8f0" font-size="9" font-weight="500">Alabama Hills Nation <tspan fill="#38bdf8" font-size="8">(7h 43m)</tspan></text>
 </g>
 </svg>
