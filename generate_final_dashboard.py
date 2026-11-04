@@ -7,11 +7,19 @@ with open("campgrounds_data.json", "r") as f:
 with open("park_boundaries.geojson", "r") as f:
     boundaries_data = json.load(f)
 
+with open("prominent_trails.geojson", "r") as f:
+    trails_data = json.load(f)
+
+with open("prominent_landmarks.geojson", "r") as f:
+    landmarks_data = json.load(f)
+
 campgrounds = cg_data["campgrounds"]
 home = cg_data["home_point"]
 
 campgrounds_json_str = json.dumps(campgrounds)
 boundaries_json_str = json.dumps(boundaries_data)
+trails_json_str = json.dumps(trails_data)
+landmarks_json_str = json.dumps(landmarks_data)
 home_json_str = json.dumps(home)
 
 html_content = f"""<!DOCTYPE html>
@@ -19,7 +27,7 @@ html_content = f"""<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>California Campgrounds Explorer | Parks & Wilderness Boundaries</title>
+  <title>California Campgrounds Explorer | High-Resolution Parks, Trails & Peaks</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Leaflet CSS & JS -->
@@ -73,6 +81,29 @@ html_content = f"""<!DOCTYPE html>
       font-size: 11.5px;
       box-shadow: 0 4px 14px rgba(0,0,0,0.5);
     }}
+    .trail-tooltip {{
+      background: rgba(15, 23, 42, 0.95);
+      border: 1.5px solid #f97316;
+      color: #f8fafc;
+      border-radius: 8px;
+      padding: 5px 9px;
+      font-size: 11.5px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.6);
+    }}
+    .landmark-tooltip {{
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid #38bdf8;
+      color: #f8fafc;
+      border-radius: 8px;
+      padding: 5px 9px;
+      font-size: 11.5px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.6);
+    }}
+    /* Custom Landmark Pin Badges */
+    .custom-landmark-pin {{
+      pointer-events: auto;
+      cursor: pointer;
+    }}
     /* Custom scrollbars */
     ::-webkit-scrollbar {{
       width: 6px;
@@ -105,30 +136,30 @@ html_content = f"""<!DOCTYPE html>
           </span>
         </div>
         <h1 class="text-3xl font-extrabold tracking-tight text-white mt-1.5">
-          Campgrounds, Parks & Wilderness Intelligence Map
+          Campgrounds, Parks, Trails & Wilderness Explorer
         </h1>
         <p class="text-sm text-slate-400 mt-1">
-          Featuring full <strong class="text-emerald-400">park & wilderness boundaries</strong>, <strong class="text-sky-400">101 individually listed campgrounds</strong>, multi-field ratings, satellite imagery with major roads, and direct reservation links.
+          Featuring <strong class="text-emerald-400">surveyed high-resolution boundaries (174,000+ pts)</strong>, <strong class="text-amber-400">hiking trail paths & names</strong>, <strong class="text-rose-400">peaks (with elevations)</strong>, lakes & rivers, and <strong class="text-sky-400">101 individually listed campsites</strong>.
         </p>
       </div>
 
       <!-- Quick Metrics -->
-      <div class="flex items-center gap-3">
-        <div class="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-center">
-          <span class="block text-2xl font-bold text-white" id="stat-total">{len(campgrounds)}</span>
-          <span class="text-[11px] text-slate-400 uppercase tracking-wider">Campsites</span>
+      <div class="flex items-center gap-2.5 flex-wrap">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-center">
+          <span class="block text-xl font-bold text-white" id="stat-total">101</span>
+          <span class="text-[10px] text-slate-400 uppercase tracking-wider">Campsites</span>
         </div>
-        <div class="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-center">
-          <span class="block text-2xl font-bold text-purple-400">46</span>
-          <span class="text-[11px] text-slate-400 uppercase tracking-wider">Park Boundaries</span>
+        <div class="bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-center">
+          <span class="block text-xl font-bold text-purple-400">50</span>
+          <span class="text-[10px] text-slate-400 uppercase tracking-wider">Hi-Res Parks</span>
         </div>
-        <div class="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-center">
-          <span class="block text-2xl font-bold text-amber-400">8:00 AM</span>
-          <span class="text-[11px] text-slate-400 uppercase tracking-wider">State Parks</span>
+        <div class="bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-center">
+          <span class="block text-xl font-bold text-amber-400">21</span>
+          <span class="text-[10px] text-slate-400 uppercase tracking-wider">Hike Paths</span>
         </div>
-        <div class="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-center">
-          <span class="block text-2xl font-bold text-sky-400">7:00 AM</span>
-          <span class="text-[11px] text-slate-400 uppercase tracking-wider">NPS / USFS</span>
+        <div class="bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-center">
+          <span class="block text-xl font-bold text-rose-400">45</span>
+          <span class="text-[10px] text-slate-400 uppercase tracking-wider">Peaks & Lakes</span>
         </div>
       </div>
     </header>
@@ -137,11 +168,11 @@ html_content = f"""<!DOCTYPE html>
     <div class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-900/95 border border-slate-800 p-4 rounded-xl">
       <!-- Search -->
       <div>
-        <label class="block text-xs font-medium text-slate-400 mb-1">Search Campsite, Park, or Trail</label>
+        <label class="block text-xs font-medium text-slate-400 mb-1">Search Campsite, Park, Trail, or Peak</label>
         <input 
           id="search-input" 
           type="text" 
-          placeholder="e.g. Steep Ravine, Upper Pines, Desolation, Wildcat..." 
+          placeholder="e.g. Mount Whitney, Dipsea, Steep Ravine, Desolation..." 
           class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
           oninput="applyFilters()"
         >
@@ -218,14 +249,14 @@ html_content = f"""<!DOCTYPE html>
           <!-- Clickable Header that toggles collapse/expand -->
           <div id="legend-header" class="font-bold text-white text-[12px] flex items-center justify-between gap-3 cursor-pointer select-none hover:text-sky-300 transition" onclick="toggleLegend()" title="Click to collapse or expand legend">
             <span class="flex items-center gap-1.5">
-              <span>🗺️</span> <span>Legend & Boundaries</span>
+              <span>🗺️</span> <span>Legend & Overlays</span>
             </span>
             <span id="legend-toggle-icon" class="text-[11px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">Collapse ▲</span>
           </div>
           
           <!-- Collapsible Content -->
           <div id="legend-content" class="space-y-2 pt-2 border-t border-slate-700/80 mt-1.5">
-            <div class="text-[10.5px] uppercase tracking-wider text-slate-400 font-semibold">Jurisdictions & Boundaries:</div>
+            <div class="text-[10.5px] uppercase tracking-wider text-slate-400 font-semibold">Map Features & Styling:</div>
             
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2">
@@ -234,48 +265,69 @@ html_content = f"""<!DOCTYPE html>
               </div>
             </div>
 
+            <!-- Trails & Landmarks Styling -->
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2">
-                <span class="w-3 h-3 rounded-full bg-emerald-400 inline-block ring-1 ring-slate-900"></span>
-                <span class="text-slate-300">State Parks</span>
+                <span class="w-4 h-1 bg-amber-500 inline-block rounded"></span>
+                <span class="text-amber-300 font-medium">Hiking Trails</span>
               </div>
-              <span class="text-[10px] text-emerald-400 px-1 py-0.5 rounded bg-emerald-950/60 border border-emerald-600/40 font-mono">Boundaries [—]</span>
+              <span class="text-[10px] text-amber-400 px-1 py-0.5 rounded bg-amber-950/60 border border-amber-600/40">Click trail to inspect</span>
             </div>
 
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2">
-                <span class="w-3 h-3 rounded-full bg-sky-400 inline-block ring-1 ring-slate-900"></span>
-                <span class="text-slate-300">National Parks / NRA</span>
+                <span>⛰️</span>
+                <span class="text-slate-300">Prominent Peaks</span>
               </div>
-              <span class="text-[10px] text-sky-400 px-1 py-0.5 rounded bg-sky-950/60 border border-sky-600/40 font-mono">Boundaries [—]</span>
+              <span class="text-[10px] text-rose-400 font-mono">Elevation (ft)</span>
             </div>
 
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2">
-                <span class="w-3 h-3 rounded-full bg-purple-400 inline-block ring-1 ring-slate-900"></span>
-                <span class="text-slate-300">Wilderness Areas</span>
+                <span>💧</span>
+                <span class="text-slate-300">Lakes & Rivers 🌊</span>
               </div>
-              <span class="text-[10px] text-purple-400 px-1 py-0.5 rounded bg-purple-950/60 border border-purple-600/40 font-mono">Boundaries [- -]</span>
+              <span class="text-[10px] text-sky-400 font-mono">Alpine & Coast</span>
             </div>
 
-            <div class="flex items-center justify-between gap-2">
-              <div class="flex items-center gap-2">
-                <span class="w-3 h-3 rounded-full bg-amber-400 inline-block ring-1 ring-slate-900"></span>
-                <span class="text-slate-300">USFS / BLM / Scenic</span>
-              </div>
-              <span class="text-[10px] text-amber-400 px-1 py-0.5 rounded bg-amber-950/60 border border-amber-600/40 font-mono">Boundaries [—]</span>
-            </div>
+            <div class="border-t border-slate-800 pt-1.5 space-y-1.5">
+              <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Park Boundaries (Surveyed):</div>
 
-            <div class="flex items-center justify-between gap-2">
-              <div class="flex items-center gap-2">
-                <span class="w-3 h-3 rounded-full bg-pink-400 inline-block ring-1 ring-slate-900"></span>
-                <span class="text-slate-300">County / Regional</span>
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="w-3 h-3 rounded-full bg-emerald-400 inline-block ring-1 ring-slate-900"></span>
+                  <span class="text-slate-300">State Parks</span>
+                </div>
+                <span class="text-[10px] text-emerald-400 px-1 py-0.5 rounded bg-emerald-950/60 border border-emerald-600/40 font-mono">Detailed</span>
               </div>
-              <span class="text-[10px] text-pink-400 px-1 py-0.5 rounded bg-pink-950/60 border border-pink-600/40 font-mono">Boundaries [—]</span>
+
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="w-3 h-3 rounded-full bg-sky-400 inline-block ring-1 ring-slate-900"></span>
+                  <span class="text-slate-300">National Parks / NRA</span>
+                </div>
+                <span class="text-[10px] text-sky-400 px-1 py-0.5 rounded bg-sky-950/60 border border-sky-600/40 font-mono">Detailed</span>
+              </div>
+
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="w-3 h-3 rounded-full bg-purple-400 inline-block ring-1 ring-slate-900"></span>
+                  <span class="text-slate-300">Wilderness Areas</span>
+                </div>
+                <span class="text-[10px] text-purple-400 px-1 py-0.5 rounded bg-purple-950/60 border border-purple-600/40 font-mono">[- -]</span>
+              </div>
+
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="w-3 h-3 rounded-full bg-amber-400 inline-block ring-1 ring-slate-900"></span>
+                  <span class="text-slate-300">USFS / BLM / Scenic</span>
+                </div>
+                <span class="text-[10px] text-amber-400 px-1 py-0.5 rounded bg-amber-950/60 border border-amber-600/40 font-mono">Detailed</span>
+              </div>
             </div>
 
             <div class="pt-1.5 text-[10px] text-slate-400 border-t border-slate-800 leading-tight">
-              Hover boundary polygon for park info; click to zoom to park. Dashed rings = 25, 50, 100, 200 mi from Home (labeled SW).
+              Hover boundary or trail for info; click to zoom or view in inspector card. Toggle layers in top-left control.
             </div>
           </div>
         </div>
@@ -300,37 +352,37 @@ html_content = f"""<!DOCTYPE html>
                 </span>
               </div>
               <h2 id="card-title" class="text-xl font-bold text-white mt-1.5 leading-snug">
-                Select a campsite or park on map
+                Select a campsite, trail, or landmark
               </h2>
               <p id="card-agency" class="text-xs text-slate-400 mt-0.5">Managing Agency</p>
             </div>
-            <div class="text-right flex-shrink-0">
+            <div class="text-right flex-shrink-0" id="card-score-box">
               <div class="bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-2.5 py-1 text-center">
                 <span id="card-score" class="text-lg font-black text-emerald-400">9.5</span>
-                <span class="block text-[9px] uppercase tracking-wider text-slate-400">Composite / 10</span>
+                <span class="block text-[9px] uppercase tracking-wider text-slate-400" id="card-score-label">Composite / 10</span>
               </div>
             </div>
           </div>
 
-          <!-- Multi-Dimensional Specific Ratings Grid -->
-          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3 space-y-2">
+          <!-- Multi-Dimensional Specific Ratings Grid (or Trail Stats Grid) -->
+          <div id="card-metrics-grid" class="bg-slate-950/70 border border-slate-800 rounded-xl p-3 space-y-2">
             <div class="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center justify-between">
-              <span>Multi-Field Assessment</span>
+              <span id="card-metrics-title">Multi-Field Assessment</span>
               <span id="card-comp-badge" class="px-2 py-0.5 text-[10px] rounded font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">
                 Competition: Extreme (10/10)
               </span>
             </div>
             <div class="grid grid-cols-3 gap-2 text-center text-xs">
               <div class="bg-slate-900/80 rounded-lg p-2 border border-slate-800">
-                <span class="block text-slate-400 text-[10px]">🥾 Hiking</span>
+                <span class="block text-slate-400 text-[10px]" id="metric-label-1">🥾 Hiking</span>
                 <strong id="card-rating-hiking" class="text-sky-400 text-sm">10.0 / 10</strong>
               </div>
               <div class="bg-slate-900/80 rounded-lg p-2 border border-slate-800">
-                <span class="block text-slate-400 text-[10px]">🌅 Views</span>
+                <span class="block text-slate-400 text-[10px]" id="metric-label-2">🌅 Views</span>
                 <strong id="card-rating-views" class="text-amber-400 text-sm">10.0 / 10</strong>
               </div>
               <div class="bg-slate-900/80 rounded-lg p-2 border border-slate-800">
-                <span class="block text-slate-400 text-[10px]">⛺ Comfort</span>
+                <span class="block text-slate-400 text-[10px]" id="metric-label-3">⛺ Comfort</span>
                 <strong id="card-rating-comfort" class="text-emerald-400 text-sm">7.5 / 10</strong>
               </div>
             </div>
@@ -339,17 +391,17 @@ html_content = f"""<!DOCTYPE html>
           <!-- Quick Stats Grid -->
           <div class="grid grid-cols-2 gap-2 text-xs">
             <div class="bg-slate-800/70 rounded-lg p-2.5 border border-slate-800">
-              <span class="block text-slate-400 text-[10px] uppercase font-semibold">Drive from Home</span>
+              <span class="block text-slate-400 text-[10px] uppercase font-semibold" id="card-stat1-label">Drive from Home</span>
               <span id="card-drive" class="font-bold text-white text-sm">50 mins (~22 mi)</span>
             </div>
             <div class="bg-slate-800/70 rounded-lg p-2.5 border border-slate-800">
-              <span class="block text-slate-400 text-[10px] uppercase font-semibold">Specific Capacity</span>
+              <span class="block text-slate-400 text-[10px] uppercase font-semibold" id="card-stat2-label">Specific Capacity</span>
               <span id="card-capacity" class="font-bold text-white text-sm">10 rustic cabins</span>
             </div>
           </div>
 
           <!-- Seasonal Profile & Winter Intelligence Callout -->
-          <div class="bg-sky-950/25 border border-sky-700/40 rounded-xl p-3 space-y-2 text-xs">
+          <div id="card-seasonal-box" class="bg-sky-950/25 border border-sky-700/40 rounded-xl p-3 space-y-2 text-xs">
             <div class="flex items-center justify-between">
               <span class="font-bold text-sky-300 uppercase tracking-wider flex items-center gap-1.5">
                 <span>❄️</span> Winter & Seasonal Intelligence
@@ -374,7 +426,7 @@ html_content = f"""<!DOCTYPE html>
           </div>
 
           <!-- Reservation Intelligence Callout -->
-          <div class="bg-amber-950/30 border border-amber-600/40 rounded-xl p-3.5 space-y-1.5">
+          <div id="card-reservation-box" class="bg-amber-950/30 border border-amber-600/40 rounded-xl p-3.5 space-y-1.5">
             <div class="flex items-center gap-2">
               <span class="w-2 h-2 rounded-full bg-amber-400"></span>
               <h3 class="text-xs font-bold text-amber-300 uppercase tracking-wider" id="card-rule-title">Reservation Rule & Window</h3>
@@ -383,15 +435,15 @@ html_content = f"""<!DOCTYPE html>
               Select a campsite to view exact release times and booking portals.
             </p>
             <div class="pt-1.5 flex items-center justify-between text-[11px] text-amber-200/80 border-t border-amber-900/50">
-              <span>Nightly Fee:</span>
+              <span id="card-fee-label">Nightly Fee:</span>
               <strong id="card-fee" class="text-white text-xs">$100 / night</strong>
             </div>
           </div>
 
-          <!-- Hikes & Natural Attractions -->
+          <!-- Hikes & Natural Attractions / Description -->
           <div class="space-y-1.5">
             <h4 class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-              <span>🥾</span> Direct Trailheads & Nearby Attractions
+              <span id="card-hikes-icon">🥾</span> <span id="card-hikes-title">Direct Trailheads & Nearby Attractions</span>
             </h4>
             <p id="card-hikes" class="text-xs text-slate-300 bg-slate-800/60 p-2.5 rounded-lg border border-slate-800 leading-relaxed">
               Nearby hiking trails and natural landmarks.
@@ -402,10 +454,10 @@ html_content = f"""<!DOCTYPE html>
           <div class="pt-3 border-t border-slate-800 space-y-2">
             <div class="flex items-center gap-2">
               <a id="card-reserve-btn" href="#" target="_blank" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-center py-2.5 px-3 rounded-lg text-xs font-bold shadow-md transition flex items-center justify-center gap-1.5">
-                <span>🎫</span> Reserve Campsite Page ↗
+                <span>🎫</span> <span id="card-btn1-text">Reserve Campsite Page ↗</span>
               </a>
               <a id="card-inspect-btn" href="#" target="_blank" class="flex-1 bg-sky-600 hover:bg-sky-500 text-white text-center py-2.5 px-3 rounded-lg text-xs font-bold shadow-md transition flex items-center justify-center gap-1.5">
-                <span>🏞️</span> Park Overview & Hikes ↗
+                <span>🏞️</span> <span id="card-btn2-text">Park Overview & Hikes ↗</span>
               </a>
             </div>
             <a id="card-google-maps" href="#" target="_blank" class="block w-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-center py-2 px-3 rounded-lg text-xs font-medium transition">
@@ -418,12 +470,13 @@ html_content = f"""<!DOCTYPE html>
         <!-- Strategy Quick Guide -->
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 text-xs space-y-2">
           <h3 class="font-bold text-white text-sm flex items-center gap-2">
-            <span>⚡</span> Booking Window Cheat Sheet
+            <span>⚡</span> Navigation & Booking Shortcuts
           </h3>
           <ul class="space-y-1.5 text-slate-400 leading-normal">
-            <li><strong class="text-emerald-400">ReserveCalifornia:</strong> 6 months rolling at <strong>8:00:00 AM PT</strong>. Steep Ravine, Big Sur, Sugar Pine Point open daily.</li>
-            <li><strong class="text-sky-400">Recreation.gov:</strong> Most sites 6 months rolling at <strong>7:00:00 AM PT</strong>. Desolation Wilderness permits & Eastern Sierra campgrounds open 6 months rolling. Yosemite opens 15th of each month.</li>
-            <li><strong class="text-amber-400">First-Come, First-Served:</strong> Mt. Tamalpais (Pantoll/Bootjack) is open daily year-round; midweek is easy, but weekend campers should arrive by Friday 8:00 AM.</li>
+            <li><strong class="text-amber-400">Hiking Trails Overlay:</strong> Click any orange trail line to inspect distance, elevation gain, difficulty, and connected campgrounds.</li>
+            <li><strong class="text-rose-400">Peaks & Lakes:</strong> Click peak badges ⛰️ (e.g. Mount Whitney 14,505', Half Dome) or lakes 💧 for elevations and geography.</li>
+            <li><strong class="text-emerald-400">ReserveCalifornia:</strong> 6 months rolling at <strong>8:00:00 AM PT</strong>.</li>
+            <li><strong class="text-sky-400">Recreation.gov:</strong> 6 months rolling at <strong>7:00:00 AM PT</strong>. Yosemite opens on the 15th monthly.</li>
           </ul>
         </div>
 
@@ -434,11 +487,11 @@ html_content = f"""<!DOCTYPE html>
     <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-4">
         <div>
-          <h2 class="text-xl font-bold text-white">Full Individual Campsite Directory ({len(campgrounds)} Entries)</h2>
+          <h2 class="text-xl font-bold text-white">Full Individual Campsite Directory (101 Entries)</h2>
           <p class="text-xs text-slate-400">Every campground and campsite listed individually with exact capacity, ratings, and booking portals.</p>
         </div>
         <div class="text-xs text-slate-400">
-          Showing <span id="table-count" class="font-bold text-white">{len(campgrounds)}</span> campsites
+          Showing <span id="table-count" class="font-bold text-white">101</span> campsites
         </div>
       </div>
 
@@ -470,6 +523,8 @@ html_content = f"""<!DOCTYPE html>
   <script>
     const campgrounds = {campgrounds_json_str};
     const parkBoundaries = {boundaries_json_str};
+    const prominentTrails = {trails_json_str};
+    const prominentLandmarks = {landmarks_json_str};
     const homePoint = {home_json_str};
 
     let selectedId = campgrounds[0].id;
@@ -477,6 +532,8 @@ html_content = f"""<!DOCTYPE html>
     let markerLayerGroup = L.layerGroup();
     let ringsLayerGroup = L.layerGroup();
     let boundaryLayerGroup = L.layerGroup();
+    let trailsLayerGroup = L.layerGroup();
+    let landmarksLayerGroup = L.layerGroup();
     let markerMap = {{}};
     let legendCollapsed = false;
 
@@ -504,7 +561,7 @@ html_content = f"""<!DOCTYPE html>
 
     // 2. Basemap Layers
     const esriSatellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
-      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+      attribution: 'Tiles &copy; Esri, USDA, USGS',
       maxZoom: 19
     }});
     const esriRoads = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
@@ -522,14 +579,26 @@ html_content = f"""<!DOCTYPE html>
       maxZoom: 16
     }});
 
+    const openTopo = L.tileLayer('https://{{s}}.tile.opentopomap.org/{{z}}/{{x}}/{{y}}.png', {{
+      attribution: 'Map data &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap (CC-BY-SA)',
+      maxZoom: 17
+    }});
+
     const osmOutdoors = L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
       attribution: '&copy; OpenStreetMap contributors',
       maxZoom: 19
     }});
 
+    // Global Hiking Trail Overlay (Waymarked Trails)
+    const waymarkedTrailsOverlay = L.tileLayer('https://tile.waymarkedtrails.org/hiking/{{z}}/{{x}}/{{y}}.png', {{
+      attribution: 'Map &copy; <a href="https://hiking.waymarkedtrails.org">Waymarked Trails</a> (CC-BY-SA)',
+      maxZoom: 18,
+      opacity: 0.85
+    }});
+
     satelliteHybrid.addTo(map);
 
-    // 3. Add Boundaries Layer (GeoJSON)
+    // 3. Add Boundaries Layer (Surveyed High-Resolution GeoJSON)
     const boundariesGeoJson = L.geoJSON(parkBoundaries, {{
       style: function(feature) {{
         return {{
@@ -562,7 +631,6 @@ html_content = f"""<!DOCTYPE html>
 
         layer.on('click', function(e) {{
           map.fitBounds(layer.getBounds(), {{ padding: [40, 40], maxZoom: 12 }});
-          // Also set search to this park
           document.getElementById("search-input").value = p.name;
           applyFilters();
         }});
@@ -571,6 +639,95 @@ html_content = f"""<!DOCTYPE html>
 
     boundaryLayerGroup.addLayer(boundariesGeoJson);
     boundaryLayerGroup.addTo(map);
+
+    // 4. Add Prominent Hiking Trails Layer (Vector GeoJSON LineStrings)
+    const trailsGeoJson = L.geoJSON(prominentTrails, {{
+      style: function(feature) {{
+        const p = feature.properties;
+        return {{
+          color: p.color || '#f97316',
+          weight: 3.5,
+          opacity: 0.9,
+          dashArray: (p.category && p.category.includes('National')) ? '8, 6' : null
+        }};
+      }},
+      onEachFeature: function(feature, layer) {{
+        const p = feature.properties;
+        const tooltipContent = `
+          <div class="trail-tooltip">
+            <strong>🥾 ${{p.name}}</strong><br>
+            <span style="color:#94a3b8; font-size:10.5px;">${{p.park_name}} • ${{p.distance_miles}} • ↑${{p.elevation_gain_ft}}</span><br>
+            <span style="color:#fbbf24; font-size:10px; font-weight:600;">Difficulty: ${{p.difficulty}}</span>
+          </div>
+        `;
+        layer.bindTooltip(tooltipContent, {{ sticky: true, opacity: 0.95 }});
+
+        layer.on('mouseover', function(e) {{
+          layer.setStyle({{ weight: 6.0, opacity: 1.0 }});
+        }});
+        layer.on('mouseout', function(e) {{
+          trailsGeoJson.resetStyle(layer);
+        }});
+        layer.on('click', function(e) {{
+          selectTrail(p);
+        }});
+      }}
+    }});
+
+    trailsLayerGroup.addLayer(trailsGeoJson);
+    trailsLayerGroup.addTo(map);
+
+    // 5. Add Prominent Landmarks Layer (Peaks, Lakes, Rivers)
+    prominentLandmarks.features.forEach(lm => {{
+      const p = lm.properties;
+      const [lng, lat] = lm.geometry.coordinates;
+      let iconHtml = "";
+
+      if (p.type === "peak") {{
+        iconHtml = `
+          <div style="background: rgba(15, 23, 42, 0.92); border: 1.5px solid #f43f5e; color: #fff; padding: 2px 6px; border-radius: 6px; font-size: 10px; font-weight: bold; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.7); display: flex; align-items: center; gap: 3.5px;">
+            <span>⛰️</span>
+            <span>${{p.name}}</span>
+            <span style="color: #fca5a5; font-size: 9px; font-mono;">${{Number(p.elevation_ft).toLocaleString()}}'</span>
+          </div>
+        `;
+      }} else if (p.type === "lake") {{
+        iconHtml = `
+          <div style="background: rgba(15, 23, 42, 0.92); border: 1.5px solid #0ea5e9; color: #fff; padding: 2px 6px; border-radius: 6px; font-size: 10px; font-weight: bold; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.7); display: flex; align-items: center; gap: 3.5px;">
+            <span>💧</span>
+            <span>${{p.name}}</span>
+            ${{p.elevation_ft ? `<span style="color: #7dd3fc; font-size: 9px; font-mono;">${{Number(p.elevation_ft).toLocaleString()}}'</span>` : ''}}
+          </div>
+        `;
+      }} else {{
+        iconHtml = `
+          <div style="background: rgba(15, 23, 42, 0.92); border: 1.5px solid #06b6d4; color: #fff; padding: 2px 6px; border-radius: 6px; font-size: 10px; font-weight: bold; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.7); display: flex; align-items: center; gap: 3.5px;">
+            <span>🌊</span>
+            <span>${{p.name}}</span>
+          </div>
+        `;
+      }}
+
+      const landmarkIcon = L.divIcon({{
+        className: 'custom-landmark-pin',
+        html: iconHtml,
+        iconAnchor: [35, 12]
+      }});
+
+      const marker = L.marker([lat, lng], {{ icon: landmarkIcon }});
+      marker.bindTooltip(`<strong>${{p.name}}</strong><br><span style='font-size:10.5px; color:#cbd5e1;'>${{p.type.toUpperCase()}} ${{p.elevation_ft ? '• ' + Number(p.elevation_ft).toLocaleString() + ' ft' : ''}}</span>`, {{
+        direction: 'top',
+        className: 'landmark-tooltip'
+      }});
+
+      marker.on('click', () => {{
+        selectLandmark(p, [lat, lng]);
+      }});
+
+      landmarksLayerGroup.addLayer(marker);
+    }});
+
+    landmarksLayerGroup.addTo(map);
     markerLayerGroup.addTo(map);
     ringsLayerGroup.addTo(map);
 
@@ -578,10 +735,14 @@ html_content = f"""<!DOCTYPE html>
     const baseLayers = {{
       "🛰️ Satellite + Major Roads (Default)": satelliteHybrid,
       "🌲 USGS Topo & Land Cover": usgsTopo,
+      "🏔️ OpenTopoMap (Contours & Relief)": openTopo,
       "🗺️ Street & Outdoors (OSM)": osmOutdoors
     }};
     const overlayLayers = {{
       "🌲 Park & Wilderness Boundaries": boundaryLayerGroup,
+      "🥾 Prominent Hiking Trails": trailsLayerGroup,
+      "🌐 Waymarked Trails (Global Hiking Overlay)": waymarkedTrailsOverlay,
+      "⛰️ Peaks, Lakes & Rivers": landmarksLayerGroup,
       "📍 Campsite Markers": markerLayerGroup,
       "⭕ Distance Rings": ringsLayerGroup
     }};
@@ -713,32 +874,49 @@ html_content = f"""<!DOCTYPE html>
       const cg = campgrounds.find(c => c.id === id);
       if (!cg) return;
 
+      // Restore campground labels
       document.getElementById("card-region").textContent = cg.region;
       document.getElementById("card-park-badge").textContent = cg.park_name;
       document.getElementById("card-title").textContent = cg.name;
       document.getElementById("card-agency").textContent = cg.agency;
       document.getElementById("card-score").textContent = cg.composite_score_out_of_10.toFixed(1);
+      document.getElementById("card-score-label").textContent = "Composite / 10";
       
-      // Multi-dimensional ratings
-      document.getElementById("card-rating-hiking").textContent = `${{cg.rating_hiking.toFixed(1)}} / 10`;
-      document.getElementById("card-rating-views").textContent = `${{cg.rating_views.toFixed(1)}} / 10`;
-      document.getElementById("card-rating-comfort").textContent = `${{cg.rating_comfort.toFixed(1)}} / 10`;
+      document.getElementById("card-metrics-title").textContent = "Multi-Field Assessment";
       document.getElementById("card-comp-badge").textContent = `Competition: ${{cg.competition_badge || (cg.rating_competition + '/10')}}`;
+      document.getElementById("metric-label-1").textContent = "🥾 Hiking";
+      document.getElementById("card-rating-hiking").textContent = `${{cg.rating_hiking.toFixed(1)}} / 10`;
+      document.getElementById("metric-label-2").textContent = "🌅 Views";
+      document.getElementById("card-rating-views").textContent = `${{cg.rating_views.toFixed(1)}} / 10`;
+      document.getElementById("metric-label-3").textContent = "⛺ Comfort";
+      document.getElementById("card-rating-comfort").textContent = `${{cg.rating_comfort.toFixed(1)}} / 10`;
 
-      // Seasonal & Winter profile
+      document.getElementById("card-stat1-label").textContent = "Drive from Home";
+      document.getElementById("card-drive").textContent = `${{cg.drive_time_from_home}} (~${{cg.distance_road_miles}} mi)`;
+      document.getElementById("card-stat2-label").textContent = "Specific Capacity";
+      document.getElementById("card-capacity").textContent = `${{cg.num_sites}} sites (${{cg.site_types}})`;
+
+      document.getElementById("card-seasonal-box").style.display = "block";
       document.getElementById("card-peak-season").textContent = cg.peak_season || "Jun – Sep";
       document.getElementById("card-light-season").textContent = cg.light_season || "Nov – Apr";
       document.getElementById("card-winter-profile").textContent = cg.winter_profile || "Open with winter weather variations.";
 
-      document.getElementById("card-drive").textContent = `${{cg.drive_time_from_home}} (~${{cg.distance_road_miles}} mi)`;
-      document.getElementById("card-capacity").textContent = `${{cg.num_sites}} sites (${{cg.site_types}})`;
+      document.getElementById("card-reservation-box").style.display = "block";
       document.getElementById("card-rule-title").textContent = cg.reservation_type;
       document.getElementById("card-window").textContent = cg.reservation_window;
+      document.getElementById("card-fee-label").textContent = "Nightly Fee:";
       document.getElementById("card-fee").textContent = cg.nightly_fee;
+
+      document.getElementById("card-hikes-title").textContent = "Direct Trailheads & Nearby Attractions";
+      document.getElementById("card-hikes-icon").textContent = "🥾";
       document.getElementById("card-hikes").textContent = cg.nearby_hikes_attractions;
 
       document.getElementById("card-reserve-btn").href = cg.direct_booking_url;
+      document.getElementById("card-reserve-btn").style.display = "flex";
+      document.getElementById("card-btn1-text").textContent = "Reserve Campsite Page ↗";
+
       document.getElementById("card-inspect-btn").href = cg.overview_url;
+      document.getElementById("card-btn2-text").textContent = "Park Overview & Hikes ↗";
       
       const mapsQuery = encodeURIComponent(`${{cg.name}}, ${{cg.park_name}}, California`);
       document.getElementById("card-google-maps").href = `https://www.google.com/maps/dir/Grace+Cathedral,+1100+California+St,+San+Francisco,+CA+94108/${{mapsQuery}}`;
@@ -753,8 +931,7 @@ html_content = f"""<!DOCTYPE html>
 
       Object.keys(markerMap).forEach(key => {{
         const isCurrent = key === id;
-        const currentCg = campgrounds.find(c => c.id === key);
-        if (currentCg && markerMap[key]) {{
+        if (markerMap[key]) {{
           markerMap[key].setStyle({{
             radius: isCurrent ? 7.5 : 5.5,
             color: isCurrent ? '#ffffff' : '#0f172a',
@@ -762,6 +939,89 @@ html_content = f"""<!DOCTYPE html>
           }});
         }}
       }});
+    }}
+
+    function selectTrail(p) {{
+      document.getElementById("card-region").textContent = "Hiking Trail";
+      document.getElementById("card-park-badge").textContent = p.park_name;
+      document.getElementById("card-title").textContent = p.name;
+      document.getElementById("card-agency").textContent = p.category;
+      document.getElementById("card-score").textContent = "🥾";
+      document.getElementById("card-score-label").textContent = p.difficulty;
+
+      document.getElementById("card-metrics-title").textContent = "Trail Specifications";
+      document.getElementById("card-comp-badge").textContent = `Difficulty: ${{p.difficulty}}`;
+      document.getElementById("metric-label-1").textContent = "📏 Distance";
+      document.getElementById("card-rating-hiking").textContent = p.distance_miles;
+      document.getElementById("metric-label-2").textContent = "📈 Elevation Gain";
+      document.getElementById("card-rating-views").textContent = `↑ ${{p.elevation_gain_ft}}`;
+      document.getElementById("metric-label-3").textContent = "⛺ Trailhead Camp";
+      document.getElementById("card-rating-comfort").textContent = p.trailhead_campground ? p.trailhead_campground.split("/")[0].trim() : "Nearby";
+
+      document.getElementById("card-stat1-label").textContent = "Distance & Gain";
+      document.getElementById("card-drive").textContent = `${{p.distance_miles}} (Gain: ${{p.elevation_gain_ft}})`;
+      document.getElementById("card-stat2-label").textContent = "Trailhead Camp";
+      document.getElementById("card-capacity").textContent = p.trailhead_campground || p.park_name;
+
+      document.getElementById("card-seasonal-box").style.display = "block";
+      document.getElementById("card-peak-season").textContent = "Spring to Autumn (Alpine: Jul - Sep)";
+      document.getElementById("card-light-season").textContent = "Winter snows (snowshoe/skis)";
+      document.getElementById("card-winter-profile").textContent = "Trail conditions change rapidly in winter; check ranger stations for snowpack, microspikes or avalanche risk.";
+
+      document.getElementById("card-reservation-box").style.display = "none";
+
+      document.getElementById("card-hikes-title").textContent = "Trail Route & Guide";
+      document.getElementById("card-hikes-icon").textContent = "🗺️";
+      document.getElementById("card-hikes").textContent = p.description;
+
+      document.getElementById("card-reserve-btn").style.display = "none";
+      document.getElementById("card-inspect-btn").href = `https://www.alltrails.com/search?q=${{encodeURIComponent(p.name + ' ' + p.park_name)}}`;
+      document.getElementById("card-btn2-text").textContent = "AllTrails Route Info ↗";
+
+      const mapsQuery = encodeURIComponent(`${{p.name}}, ${{p.park_name}}, California`);
+      document.getElementById("card-google-maps").href = `https://www.google.com/maps/search/${{mapsQuery}}`;
+    }}
+
+    function selectLandmark(p, coords) {{
+      const typeIcons = {{ peak: "⛰️", lake: "💧", river: "🌊" }};
+      const icon = typeIcons[p.type] || "📍";
+      
+      document.getElementById("card-region").textContent = p.type.toUpperCase();
+      document.getElementById("card-park-badge").textContent = p.elevation_ft ? `${{Number(p.elevation_ft).toLocaleString()}} ft elevation` : "California Waterway";
+      document.getElementById("card-title").textContent = p.name;
+      document.getElementById("card-agency").textContent = p.type === "peak" ? "Mountain Peak" : (p.type === "lake" ? "Alpine / Natural Lake" : "River / Waterway");
+      document.getElementById("card-score").textContent = icon;
+      document.getElementById("card-score-label").textContent = p.type.toUpperCase();
+
+      document.getElementById("card-metrics-title").textContent = "Landmark Intelligence";
+      document.getElementById("card-comp-badge").textContent = p.elevation_ft ? `Elevation: ${{Number(p.elevation_ft).toLocaleString()}}'` : "Natural Landmark";
+      document.getElementById("metric-label-1").textContent = "Feature Type";
+      document.getElementById("card-rating-hiking").textContent = p.type.toUpperCase();
+      document.getElementById("metric-label-2").textContent = "Elevation";
+      document.getElementById("card-rating-views").textContent = p.elevation_ft ? `${{Number(p.elevation_ft).toLocaleString()}} ft` : "Sea Level to Crest";
+      document.getElementById("metric-label-3").textContent = "Coordinates";
+      document.getElementById("card-rating-comfort").textContent = `${{coords[0].toFixed(2)}}°, ${{coords[1].toFixed(2)}}°`;
+
+      document.getElementById("card-stat1-label").textContent = "Landmark";
+      document.getElementById("card-drive").textContent = p.name;
+      document.getElementById("card-stat2-label").textContent = "Elevation (ft)";
+      document.getElementById("card-capacity").textContent = p.elevation_ft ? `${{Number(p.elevation_ft).toLocaleString()}} feet` : "Natural waterway";
+
+      document.getElementById("card-seasonal-box").style.display = "none";
+      document.getElementById("card-reservation-box").style.display = "none";
+
+      document.getElementById("card-hikes-title").textContent = "Geographic & Scenic Summary";
+      document.getElementById("card-hikes-icon").textContent = icon;
+      document.getElementById("card-hikes").textContent = p.description;
+
+      document.getElementById("card-reserve-btn").style.display = "none";
+      document.getElementById("card-inspect-btn").href = `https://en.wikipedia.org/wiki/${{encodeURIComponent(p.name.split('(')[0].trim())}}`;
+      document.getElementById("card-btn2-text").textContent = "Wikipedia Geography ↗";
+
+      const mapsQuery = encodeURIComponent(`${{p.name}}, California`);
+      document.getElementById("card-google-maps").href = `https://www.google.com/maps/search/${{mapsQuery}}`;
+
+      map.panTo(coords, {{ animate: true, duration: 0.5 }});
     }}
 
     function renderTable() {{
@@ -884,4 +1144,4 @@ with open("campground_map_dashboard.html", "w") as f:
     f.write(html_content)
 
 
-print(f"Generated campground_map_dashboard.html with {len(campgrounds)} individual campsites and {len(boundaries_data['features'])} boundary polygons!")
+print(f"Generated campground_map_dashboard.html ({len(html_content):,} bytes)!")
