@@ -631,8 +631,7 @@ html_content = f"""<!DOCTYPE html>
 
         layer.on('click', function(e) {{
           map.fitBounds(layer.getBounds(), {{ padding: [40, 40], maxZoom: 12 }});
-          document.getElementById("search-input").value = p.name;
-          applyFilters();
+          selectPark(p);
         }});
       }}
     }});
@@ -1022,6 +1021,69 @@ html_content = f"""<!DOCTYPE html>
       document.getElementById("card-google-maps").href = `https://www.google.com/maps/search/${{mapsQuery}}`;
 
       map.panTo(coords, {{ animate: true, duration: 0.5 }});
+    }}
+
+    function selectPark(p) {{
+      document.getElementById("card-region").textContent = p.category || "Park Area";
+      document.getElementById("card-park-badge").textContent = p.acres ? `${{Number(p.acres).toLocaleString()}} acres` : "Public Lands";
+      document.getElementById("card-title").textContent = p.name;
+      document.getElementById("card-agency").textContent = p.agency || "Managing Agency";
+      document.getElementById("card-score").textContent = "🌲";
+      document.getElementById("card-score-label").textContent = p.category || "Park Area";
+
+      // Match all campgrounds in this park without hiding ANY campgrounds on the map!
+      const pNameLower = p.name.toLowerCase();
+      const parkCgs = campgrounds.filter(c => {{
+        const cPark = (c.park_name || "").toLowerCase();
+        const cName = (c.name || "").toLowerCase();
+        return cPark.includes(pNameLower) || pNameLower.includes(cPark) || cName.includes(pNameLower);
+      }});
+
+      document.getElementById("card-metrics-title").textContent = "Park Information & Capacity";
+      document.getElementById("card-comp-badge").textContent = `${{parkCgs.length}} Campsites in Area`;
+      document.getElementById("metric-label-1").textContent = "Jurisdiction";
+      document.getElementById("card-rating-hiking").textContent = p.category ? p.category.split('/')[0].trim() : "Protected";
+      document.getElementById("metric-label-2").textContent = "Acreage";
+      document.getElementById("card-rating-views").textContent = p.acres ? `${{Number(p.acres).toLocaleString()}} ac` : "Surveyed";
+      document.getElementById("metric-label-3").textContent = "Campgrounds";
+      document.getElementById("card-rating-comfort").textContent = `${{parkCgs.length}} sites`;
+
+      document.getElementById("card-stat1-label").textContent = "Managing Agency";
+      document.getElementById("card-drive").textContent = p.agency || "Public Agency";
+      document.getElementById("card-stat2-label").textContent = "Campgrounds in Park";
+      document.getElementById("card-capacity").textContent = parkCgs.length > 0 ? `${{parkCgs.length}} campgrounds available` : "Backcountry / Wilderness";
+
+      document.getElementById("card-seasonal-box").style.display = "block";
+      document.getElementById("card-peak-season").textContent = "Summer & Fall";
+      document.getElementById("card-light-season").textContent = "Winter & Early Spring";
+      document.getElementById("card-winter-profile").textContent = "High-resolution vector boundary active. All regional campgrounds remain visible across the map. Check Caltrans and agency pages for current seasonal conditions.";
+
+      document.getElementById("card-reservation-box").style.display = "none";
+
+      document.getElementById("card-hikes-title").textContent = "Park Geography & Features";
+      document.getElementById("card-hikes-icon").textContent = "🌲";
+      const cgNamesList = parkCgs.map(c => c.name).join(", ");
+      document.getElementById("card-hikes").textContent = `${{p.description || "Public protected outdoor park."}} ${{parkCgs.length > 0 ? "Campgrounds: " + cgNamesList + "." : ""}}`;
+
+      document.getElementById("card-reserve-btn").style.display = "none";
+      document.getElementById("card-inspect-btn").href = `https://www.google.com/search?q=${{encodeURIComponent(p.name + ' California Parks')}}`;
+      document.getElementById("card-btn2-text").textContent = "Search Park Info ↗";
+
+      const mapsQuery = encodeURIComponent(`${{p.name}}, California`);
+      document.getElementById("card-google-maps").href = `https://www.google.com/maps/search/${{mapsQuery}}`;
+
+      // Highlight this park's campgrounds with a golden ring while keeping ALL other campgrounds 100% visible!
+      const parkCgIds = new Set(parkCgs.map(c => c.id));
+      Object.keys(markerMap).forEach(key => {{
+        const isParkCg = parkCgIds.has(key);
+        if (markerMap[key]) {{
+          markerMap[key].setStyle({{
+            radius: isParkCg ? 8.5 : 5.5,
+            color: isParkCg ? '#fbbf24' : '#0f172a',
+            weight: isParkCg ? 3.0 : 1.2
+          }});
+        }}
+      }});
     }}
 
     function renderTable() {{
