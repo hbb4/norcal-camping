@@ -1,0 +1,2067 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Yosemite National Park",
+        "category": "National Park",
+        "agency": "National Park Service",
+        "acres": 750000,
+        "color": "#0284c7",
+        "fillColor": "#38bdf8",
+        "fillOpacity": 0.15,
+        "dashArray": null,
+        "description": "World-renowned glaciated granite valley, giant sequoias, Half Dome, El Capitan, and high alpine meadows."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -119.88,
+              38.18
+            ],
+            [
+              -119.65,
+              38.19
+            ],
+            [
+              -119.5,
+              38.12
+            ],
+            [
+              -119.28,
+              38.05
+            ],
+            [
+              -119.2,
+              37.92
+            ],
+            [
+              -119.22,
+              37.75
+            ],
+            [
+              -119.3,
+              37.6
+            ],
+            [
+              -119.45,
+              37.5
+            ],
+            [
+              -119.65,
+              37.48
+            ],
+            [
+              -119.82,
+              37.55
+            ],
+            [
+              -119.92,
+              37.72
+            ],
+            [
+              -119.98,
+              37.88
+            ],
+            [
+              -119.9,
+              38.05
+            ],
+            [
+              -119.88,
+              38.18
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Point Reyes National Seashore",
+        "category": "National Park / Seashore",
+        "agency": "National Park Service",
+        "acres": 71000,
+        "color": "#0284c7",
+        "fillColor": "#38bdf8",
+        "fillOpacity": 0.18,
+        "dashArray": null,
+        "description": "Wild Pacific coastal wilderness, tidefall waterfall Alamere Falls, tule elk reserve, and coastal backcountry trail camps."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.98,
+              38.23
+            ],
+            [
+              -122.91,
+              38.18
+            ],
+            [
+              -122.84,
+              38.1
+            ],
+            [
+              -122.78,
+              38.02
+            ],
+            [
+              -122.74,
+              37.93
+            ],
+            [
+              -122.78,
+              37.92
+            ],
+            [
+              -122.84,
+              37.98
+            ],
+            [
+              -122.92,
+              38.02
+            ],
+            [
+              -123.02,
+              38.0
+            ],
+            [
+              -123.0,
+              38.07
+            ],
+            [
+              -122.95,
+              38.12
+            ],
+            [
+              -123.04,
+              38.2
+            ],
+            [
+              -122.98,
+              38.23
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Lassen Volcanic National Park",
+        "category": "National Park",
+        "agency": "National Park Service",
+        "acres": 106000,
+        "color": "#0284c7",
+        "fillColor": "#38bdf8",
+        "fillOpacity": 0.15,
+        "dashArray": null,
+        "description": "All four volcano types represented: Lassen Peak, Bumpass Hell hydrothermal boardwalk, Manzanita Lake, and Cinder Cone."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.6,
+              40.56
+            ],
+            [
+              -121.4,
+              40.57
+            ],
+            [
+              -121.35,
+              40.48
+            ],
+            [
+              -121.36,
+              40.4
+            ],
+            [
+              -121.48,
+              40.39
+            ],
+            [
+              -121.6,
+              40.45
+            ],
+            [
+              -121.62,
+              40.52
+            ],
+            [
+              -121.6,
+              40.56
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Pinnacles National Park",
+        "category": "National Park",
+        "agency": "National Park Service",
+        "acres": 26000,
+        "color": "#0284c7",
+        "fillColor": "#38bdf8",
+        "fillOpacity": 0.16,
+        "dashArray": null,
+        "description": "Volcanic spires, talus caves, soaring California Condors, and High Peaks climbing trails."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.22,
+              36.54
+            ],
+            [
+              -121.14,
+              36.53
+            ],
+            [
+              -121.12,
+              36.46
+            ],
+            [
+              -121.18,
+              36.44
+            ],
+            [
+              -121.24,
+              36.47
+            ],
+            [
+              -121.25,
+              36.52
+            ],
+            [
+              -121.22,
+              36.54
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Marin Headlands (GGNRA)",
+        "category": "National Recreation Area",
+        "agency": "National Park Service",
+        "acres": 15000,
+        "color": "#0284c7",
+        "fillColor": "#38bdf8",
+        "fillOpacity": 0.18,
+        "dashArray": null,
+        "description": "Golden Gate coastal bluffs, Kirby Cove, Hawk Hill raptor migration, and historic military batteries."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.56,
+              37.86
+            ],
+            [
+              -122.49,
+              37.84
+            ],
+            [
+              -122.47,
+              37.82
+            ],
+            [
+              -122.52,
+              37.81
+            ],
+            [
+              -122.55,
+              37.83
+            ],
+            [
+              -122.56,
+              37.86
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Whiskeytown National Recreation Area",
+        "category": "National Recreation Area",
+        "agency": "National Park Service",
+        "acres": 42000,
+        "color": "#0284c7",
+        "fillColor": "#38bdf8",
+        "fillOpacity": 0.15,
+        "dashArray": null,
+        "description": "Crystal-clear mountain lake ringed by pine forests and multi-tier waterfalls like Whiskeytown Falls."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.62,
+              40.66
+            ],
+            [
+              -122.5,
+              40.67
+            ],
+            [
+              -122.48,
+              40.58
+            ],
+            [
+              -122.6,
+              40.57
+            ],
+            [
+              -122.65,
+              40.61
+            ],
+            [
+              -122.62,
+              40.66
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Desolation Wilderness",
+        "category": "National Wilderness Area",
+        "agency": "US Forest Service (Eldorado NF)",
+        "acres": 63960,
+        "color": "#a855f7",
+        "fillColor": "#c084fc",
+        "fillOpacity": 0.2,
+        "dashArray": "6, 6",
+        "description": "Glaciated alpine granite wonderland: Lake Aloha, Mount Tallac (9,735 ft), Velma Lakes, and the Pacific Crest Trail."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -120.22,
+              39.02
+            ],
+            [
+              -120.08,
+              39.0
+            ],
+            [
+              -120.05,
+              38.93
+            ],
+            [
+              -120.06,
+              38.86
+            ],
+            [
+              -120.14,
+              38.83
+            ],
+            [
+              -120.22,
+              38.88
+            ],
+            [
+              -120.25,
+              38.96
+            ],
+            [
+              -120.22,
+              39.02
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Mokelumne Wilderness",
+        "category": "National Wilderness Area",
+        "agency": "US Forest Service (Eldorado/Stanislaus)",
+        "acres": 105165,
+        "color": "#a855f7",
+        "fillColor": "#c084fc",
+        "fillOpacity": 0.2,
+        "dashArray": "6, 6",
+        "description": "High alpine volcanic spires, July wildflower superblooms at Winnemucca Lake, Round Top (10,381 ft), and Carson Pass."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -120.15,
+              38.72
+            ],
+            [
+              -119.92,
+              38.71
+            ],
+            [
+              -119.86,
+              38.62
+            ],
+            [
+              -119.92,
+              38.52
+            ],
+            [
+              -120.1,
+              38.53
+            ],
+            [
+              -120.18,
+              38.62
+            ],
+            [
+              -120.15,
+              38.72
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Emigrant Wilderness",
+        "category": "National Wilderness Area",
+        "agency": "US Forest Service (Stanislaus NF)",
+        "acres": 113000,
+        "color": "#a855f7",
+        "fillColor": "#c084fc",
+        "fillOpacity": 0.2,
+        "dashArray": "6, 6",
+        "description": "Smooth glaciated granite bowls, uncrowded alpine lakes, Relief Reservoir, and Middle Fork Stanislaus River."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -119.85,
+              38.35
+            ],
+            [
+              -119.6,
+              38.34
+            ],
+            [
+              -119.52,
+              38.22
+            ],
+            [
+              -119.65,
+              38.12
+            ],
+            [
+              -119.85,
+              38.15
+            ],
+            [
+              -119.9,
+              38.25
+            ],
+            [
+              -119.85,
+              38.35
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Ansel Adams Wilderness",
+        "category": "National Wilderness Area",
+        "agency": "US Forest Service (Inyo/Sierra NF)",
+        "acres": 231533,
+        "color": "#a855f7",
+        "fillColor": "#c084fc",
+        "fillOpacity": 0.2,
+        "dashArray": "6, 6",
+        "description": "Jagged peaks of the Minarets, Mount Ritter, Banner Peak, Thousand Island Lake, and the John Muir Trail."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -119.35,
+              37.82
+            ],
+            [
+              -119.12,
+              37.8
+            ],
+            [
+              -119.05,
+              37.68
+            ],
+            [
+              -119.15,
+              37.58
+            ],
+            [
+              -119.32,
+              37.62
+            ],
+            [
+              -119.38,
+              37.74
+            ],
+            [
+              -119.35,
+              37.82
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "John Muir Wilderness",
+        "category": "National Wilderness Area",
+        "agency": "US Forest Service (Inyo/Sierra NF)",
+        "acres": 580000,
+        "color": "#a855f7",
+        "fillColor": "#c084fc",
+        "fillOpacity": 0.18,
+        "dashArray": "6, 6",
+        "description": "The spine of the High Sierra: Mount Whitney (14,505 ft), Palisade Glacier, Evolution Valley, and deep alpine canyons."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -119.15,
+              37.58
+            ],
+            [
+              -118.65,
+              37.4
+            ],
+            [
+              -118.25,
+              36.65
+            ],
+            [
+              -118.35,
+              36.55
+            ],
+            [
+              -118.55,
+              36.85
+            ],
+            [
+              -118.85,
+              37.15
+            ],
+            [
+              -119.15,
+              37.58
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Ventana Wilderness",
+        "category": "National Wilderness Area",
+        "agency": "US Forest Service (Los Padres NF)",
+        "acres": 240026,
+        "color": "#a855f7",
+        "fillColor": "#c084fc",
+        "fillOpacity": 0.2,
+        "dashArray": "6, 6",
+        "description": "Steep coastal Big Sur wilderness, deep redwood canyons, Cone Peak (5,155 ft), and Big Sur River gorge."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.75,
+              36.38
+            ],
+            [
+              -121.52,
+              36.36
+            ],
+            [
+              -121.42,
+              36.2
+            ],
+            [
+              -121.4,
+              36.05
+            ],
+            [
+              -121.55,
+              36.02
+            ],
+            [
+              -121.68,
+              36.18
+            ],
+            [
+              -121.75,
+              36.38
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Trinity Alps Wilderness",
+        "category": "National Wilderness Area",
+        "agency": "US Forest Service (Shasta-Trinity/Klamath)",
+        "acres": 525627,
+        "color": "#a855f7",
+        "fillColor": "#c084fc",
+        "fillOpacity": 0.18,
+        "dashArray": "6, 6",
+        "description": "The Switzerland of California: glaciated granite cirques, Canyon Creek Lakes, Caribou Basin, and Thompson Peak."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -123.18,
+              41.15
+            ],
+            [
+              -122.82,
+              41.16
+            ],
+            [
+              -122.75,
+              40.95
+            ],
+            [
+              -122.88,
+              40.85
+            ],
+            [
+              -123.15,
+              40.88
+            ],
+            [
+              -123.25,
+              41.02
+            ],
+            [
+              -123.18,
+              41.15
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Mount Tamalpais State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 6300,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.2,
+        "dashArray": null,
+        "description": "Iconic Bay Area peak, Pantoll & Bootjack campgrounds, Steep Ravine cabins, Dipsea Trail, and old-growth redwoods."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.65,
+              37.93
+            ],
+            [
+              -122.58,
+              37.93
+            ],
+            [
+              -122.56,
+              37.91
+            ],
+            [
+              -122.59,
+              37.89
+            ],
+            [
+              -122.64,
+              37.89
+            ],
+            [
+              -122.66,
+              37.91
+            ],
+            [
+              -122.65,
+              37.93
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Samuel P. Taylor State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 2882,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.2,
+        "dashArray": null,
+        "description": "Lush old-growth redwood grove along Lagunitas Creek with coho salmon runs and Cross Marin Bike Trail."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.76,
+              38.04
+            ],
+            [
+              -122.7,
+              38.04
+            ],
+            [
+              -122.7,
+              38.0
+            ],
+            [
+              -122.75,
+              38.01
+            ],
+            [
+              -122.76,
+              38.04
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "China Camp State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 1514,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.2,
+        "dashArray": null,
+        "description": "Oak and bay laurel woodlands along San Pablo Bay, 15 miles of mountain bike singletrack, and historic Chinese shrimp village."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.51,
+              38.02
+            ],
+            [
+              -122.46,
+              38.01
+            ],
+            [
+              -122.47,
+              37.99
+            ],
+            [
+              -122.51,
+              38.0
+            ],
+            [
+              -122.51,
+              38.02
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Angel Island State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 740,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.25,
+        "dashArray": null,
+        "description": "Island camping in SF Bay with 360-degree views of Golden Gate Bridge and San Francisco skyline."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.44,
+              37.87
+            ],
+            [
+              -122.41,
+              37.87
+            ],
+            [
+              -122.41,
+              37.85
+            ],
+            [
+              -122.44,
+              37.85
+            ],
+            [
+              -122.44,
+              37.87
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Big Basin Redwoods State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 18000,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.2,
+        "dashArray": null,
+        "description": "California's oldest state park (1902); resilient ancient redwoods, Berry Creek Falls, and Skyline-to-the-Sea trail."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.27,
+              37.2
+            ],
+            [
+              -122.18,
+              37.2
+            ],
+            [
+              -122.18,
+              37.13
+            ],
+            [
+              -122.25,
+              37.12
+            ],
+            [
+              -122.28,
+              37.16
+            ],
+            [
+              -122.27,
+              37.2
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Henry Cowell Redwoods State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 4650,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.2,
+        "dashArray": null,
+        "description": "Old Growth Redwood Grove with 275-foot trees, San Lorenzo River swimming, and Fall Creek unit."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.09,
+              37.07
+            ],
+            [
+              -122.04,
+              37.07
+            ],
+            [
+              -122.04,
+              37.02
+            ],
+            [
+              -122.09,
+              37.03
+            ],
+            [
+              -122.09,
+              37.07
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Portola Redwoods State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 2800,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.2,
+        "dashArray": null,
+        "description": "Deep, quiet, rugged redwood canyon with Peters Creek Old Growth Grove and Tip Toe Falls."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.24,
+              37.27
+            ],
+            [
+              -122.19,
+              37.27
+            ],
+            [
+              -122.19,
+              37.24
+            ],
+            [
+              -122.24,
+              37.24
+            ],
+            [
+              -122.24,
+              37.27
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Butano State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 4000,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.2,
+        "dashArray": null,
+        "description": "Secluded redwood canyon cloaked in coastal fog and moss near Pescadero and Ano Nuevo elephant seals."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.36,
+              37.23
+            ],
+            [
+              -122.3,
+              37.23
+            ],
+            [
+              -122.3,
+              37.18
+            ],
+            [
+              -122.36,
+              37.19
+            ],
+            [
+              -122.36,
+              37.23
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Half Moon Bay State Beach",
+        "category": "State Beach",
+        "agency": "California State Parks",
+        "acres": 181,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.25,
+        "dashArray": null,
+        "description": "Coastal bluffs above Francis Beach with crashing waves, Coastside Trail, and Mavericks surf break nearby."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.46,
+              37.49
+            ],
+            [
+              -122.43,
+              37.49
+            ],
+            [
+              -122.43,
+              37.44
+            ],
+            [
+              -122.46,
+              37.44
+            ],
+            [
+              -122.46,
+              37.49
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Mount Diablo State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 20000,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.2,
+        "dashArray": null,
+        "description": "Panoramic 3,849-foot summit, Juniper and Live Oak campgrounds, Rock City sandstone mazes, and 40-county views."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.96,
+              37.91
+            ],
+            [
+              -121.88,
+              37.91
+            ],
+            [
+              -121.87,
+              37.84
+            ],
+            [
+              -121.96,
+              37.84
+            ],
+            [
+              -121.96,
+              37.91
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Henry W. Coe State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 87000,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.18,
+        "dashArray": null,
+        "description": "The largest state park in Northern California: rugged Diablo Range ridges, spring wildflower superblooms, and remote lakes."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.6,
+              37.28
+            ],
+            [
+              -121.38,
+              37.26
+            ],
+            [
+              -121.37,
+              37.12
+            ],
+            [
+              -121.56,
+              37.12
+            ],
+            [
+              -121.62,
+              37.2
+            ],
+            [
+              -121.6,
+              37.28
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Sugarloaf Ridge State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 4000,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.2,
+        "dashArray": null,
+        "description": "Sonoma Valley dark skies, Robert Ferguson Observatory, Bald Mountain summit, and Sonoma Creek Falls."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.54,
+              38.46
+            ],
+            [
+              -122.48,
+              38.46
+            ],
+            [
+              -122.48,
+              38.42
+            ],
+            [
+              -122.54,
+              38.42
+            ],
+            [
+              -122.54,
+              38.46
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Bothe-Napa Valley State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 1991,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.2,
+        "dashArray": null,
+        "description": "Heart of Napa wine country; redwoods, Ritchey Creek, historic yurts and cabins, and spring-fed swimming pool."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.55,
+              38.55
+            ],
+            [
+              -122.51,
+              38.55
+            ],
+            [
+              -122.51,
+              38.52
+            ],
+            [
+              -122.55,
+              38.52
+            ],
+            [
+              -122.55,
+              38.55
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Sonoma Coast State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 5000,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.22,
+        "dashArray": null,
+        "description": "Dramatic Pacific bluffs from Bodega Head to Goat Rock seal colony, Wright's Beach beachfront camping, and Kortum Trail."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -123.1,
+              38.48
+            ],
+            [
+              -123.05,
+              38.48
+            ],
+            [
+              -123.0,
+              38.32
+            ],
+            [
+              -123.05,
+              38.3
+            ],
+            [
+              -123.1,
+              38.38
+            ],
+            [
+              -123.1,
+              38.48
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Salt Point State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 6000,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.2,
+        "dashArray": null,
+        "description": "Tafoni sandstone rock pockets, Gerstle Cove Marine Reserve, Pygmy Forest, and bishop pine coastal woodlands."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -123.36,
+              38.6
+            ],
+            [
+              -123.3,
+              38.6
+            ],
+            [
+              -123.3,
+              38.54
+            ],
+            [
+              -123.36,
+              38.54
+            ],
+            [
+              -123.36,
+              38.6
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Russian Gulch & Van Damme State Parks",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 3000,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.2,
+        "dashArray": null,
+        "description": "Mendocino coast sea bridges, Devil's Punchbowl blowhole, Russian Gulch waterfall, and sea cave kayaking in Van Damme cove."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -123.82,
+              39.35
+            ],
+            [
+              -123.76,
+              39.35
+            ],
+            [
+              -123.76,
+              39.26
+            ],
+            [
+              -123.82,
+              39.26
+            ],
+            [
+              -123.82,
+              39.35
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Pfeiffer Big Sur State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 1006,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.25,
+        "dashArray": null,
+        "description": "Quintessential Big Sur: towering redwoods along the Big Sur River, swimming gorge, and Buzzard's Roost Trail."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.81,
+              36.27
+            ],
+            [
+              -121.75,
+              36.27
+            ],
+            [
+              -121.75,
+              36.23
+            ],
+            [
+              -121.81,
+              36.23
+            ],
+            [
+              -121.81,
+              36.27
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Julia Pfeiffer Burns State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 3762,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.25,
+        "dashArray": null,
+        "description": "Legendary McWay Falls plunging 80 feet directly into a turquoise Pacific cove, Ewoldsen Trail, and cliffside walk-in camps."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.69,
+              36.18
+            ],
+            [
+              -121.65,
+              36.18
+            ],
+            [
+              -121.65,
+              36.14
+            ],
+            [
+              -121.69,
+              36.14
+            ],
+            [
+              -121.69,
+              36.18
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Fremont Peak State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 298,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.25,
+        "dashArray": null,
+        "description": "High ridge 3,169-ft peak above Salinas Valley with Fremont Peak Astronomical Observatory and Monterey Bay sunset vistas."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.52,
+              36.78
+            ],
+            [
+              -121.48,
+              36.78
+            ],
+            [
+              -121.48,
+              36.75
+            ],
+            [
+              -121.52,
+              36.75
+            ],
+            [
+              -121.52,
+              36.78
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Calaveras Big Trees State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 6500,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.2,
+        "dashArray": null,
+        "description": "North and South Groves of ancient Giant Sequoias up to 3,000 years old along the crystal-clear Stanislaus River."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -120.35,
+              38.31
+            ],
+            [
+              -120.26,
+              38.31
+            ],
+            [
+              -120.26,
+              38.25
+            ],
+            [
+              -120.35,
+              38.25
+            ],
+            [
+              -120.35,
+              38.31
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Sugar Pine Point State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 2500,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.22,
+        "dashArray": null,
+        "description": "Lake Tahoe's premier winter snow-camping park with heated restrooms, 1960 Olympic Nordic trails, and pristine summer beaches."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -120.15,
+              39.07
+            ],
+            [
+              -120.1,
+              39.07
+            ],
+            [
+              -120.1,
+              39.04
+            ],
+            [
+              -120.15,
+              39.04
+            ],
+            [
+              -120.15,
+              39.07
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Emerald Bay & D.L. Bliss State Parks",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 3300,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.22,
+        "dashArray": null,
+        "description": "Fannette Island, Vikingsholm castle, Eagle Falls, Calawee Cove boulder beaches, and the famed Rubicon Trail."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -120.13,
+              39.01
+            ],
+            [
+              -120.07,
+              39.01
+            ],
+            [
+              -120.07,
+              38.93
+            ],
+            [
+              -120.13,
+              38.93
+            ],
+            [
+              -120.13,
+              39.01
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Donner Memorial State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 3293,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.22,
+        "dashArray": null,
+        "description": "East shore of Donner Lake in Truckee; winter groomed Nordic ski & snowshoe trails, summer swimming beach, and pioneer history museum."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -120.25,
+              39.33
+            ],
+            [
+              -120.21,
+              39.33
+            ],
+            [
+              -120.21,
+              39.31
+            ],
+            [
+              -120.25,
+              39.31
+            ],
+            [
+              -120.25,
+              39.33
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Castle Crags State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 4350,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.2,
+        "dashArray": null,
+        "description": "6,000-foot granite spires looming above pine forests with jaw-dropping views of snow-capped Mt. Shasta."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.38,
+              41.19
+            ],
+            [
+              -122.28,
+              41.19
+            ],
+            [
+              -122.28,
+              41.13
+            ],
+            [
+              -122.38,
+              41.13
+            ],
+            [
+              -122.38,
+              41.19
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "McArthur-Burney Falls State Park",
+        "category": "State Park",
+        "agency": "California State Parks",
+        "acres": 910,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.25,
+        "dashArray": null,
+        "description": "129-foot spring-fed Burney Falls ('Eighth Wonder of the World') gushing 100 million gallons daily into an azure pool."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.67,
+              41.03
+            ],
+            [
+              -121.63,
+              41.03
+            ],
+            [
+              -121.63,
+              41.0
+            ],
+            [
+              -121.67,
+              41.0
+            ],
+            [
+              -121.67,
+              41.03
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Alabama Hills National Scenic Area",
+        "category": "National Scenic Area",
+        "agency": "Bureau of Land Management (BLM)",
+        "acres": 30000,
+        "color": "#f59e0b",
+        "fillColor": "#fbbf24",
+        "fillOpacity": 0.2,
+        "dashArray": null,
+        "description": "World-famous golden granite rock arches and rounded labyrinth boulders directly beneath snow-capped Mount Whitney."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -118.15,
+              36.65
+            ],
+            [
+              -118.08,
+              36.65
+            ],
+            [
+              -118.08,
+              36.57
+            ],
+            [
+              -118.15,
+              36.57
+            ],
+            [
+              -118.15,
+              36.65
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Lake Tahoe-Nevada State Park",
+        "category": "State Park (NV)",
+        "agency": "Nevada State Parks",
+        "acres": 14300,
+        "color": "#059669",
+        "fillColor": "#10b981",
+        "fillOpacity": 0.2,
+        "dashArray": null,
+        "description": "Sand Harbor crystal-turquoise boulder coves, Spooner Lake cross-country ski trails, and the famed Marlette Flume Trail."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -119.95,
+              39.22
+            ],
+            [
+              -119.88,
+              39.22
+            ],
+            [
+              -119.88,
+              39.08
+            ],
+            [
+              -119.95,
+              39.08
+            ],
+            [
+              -119.95,
+              39.22
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Mount Madonna County Park",
+        "category": "County Park",
+        "agency": "Santa Clara County Parks",
+        "acres": 4605,
+        "color": "#db2777",
+        "fillColor": "#f472b6",
+        "fillOpacity": 0.18,
+        "dashArray": null,
+        "description": "Coast redwood forest on the mountain ridge between Gilroy and Watsonville; canvas yurts and white deer sanctuary."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.73,
+              37.03
+            ],
+            [
+              -121.68,
+              37.03
+            ],
+            [
+              -121.68,
+              36.99
+            ],
+            [
+              -121.73,
+              36.99
+            ],
+            [
+              -121.73,
+              37.03
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Sanborn County Park",
+        "category": "County Park",
+        "agency": "Santa Clara County Parks",
+        "acres": 3453,
+        "color": "#db2777",
+        "fillColor": "#f472b6",
+        "fillOpacity": 0.18,
+        "dashArray": null,
+        "description": "Lush redwood forest above Saratoga with direct trail connection to Castle Rock State Park sandstone spires."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.08,
+              37.25
+            ],
+            [
+              -122.04,
+              37.25
+            ],
+            [
+              -122.04,
+              37.22
+            ],
+            [
+              -122.08,
+              37.22
+            ],
+            [
+              -122.08,
+              37.25
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Uvas Canyon County Park",
+        "category": "County Park",
+        "agency": "Santa Clara County Parks",
+        "acres": 1133,
+        "color": "#db2777",
+        "fillColor": "#f472b6",
+        "fillOpacity": 0.18,
+        "dashArray": null,
+        "description": "Lush waterfall canyon featuring six cascading multi-tier natural waterfalls along Swanson Creek."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.81,
+              37.1
+            ],
+            [
+              -121.77,
+              37.1
+            ],
+            [
+              -121.77,
+              37.07
+            ],
+            [
+              -121.81,
+              37.07
+            ],
+            [
+              -121.81,
+              37.1
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Memorial County Park",
+        "category": "County Park",
+        "agency": "San Mateo County Parks",
+        "acres": 673,
+        "color": "#db2777",
+        "fillColor": "#f472b6",
+        "fillOpacity": 0.18,
+        "dashArray": null,
+        "description": "Historic coast redwood park along Pescadero Creek with natural swimming holes and Mt. Ellen trail."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.31,
+              37.29
+            ],
+            [
+              -122.26,
+              37.29
+            ],
+            [
+              -122.26,
+              37.26
+            ],
+            [
+              -122.31,
+              37.26
+            ],
+            [
+              -122.31,
+              37.29
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Anthony Chabot Regional Park",
+        "category": "Regional Park",
+        "agency": "East Bay Regional Park District",
+        "acres": 5067,
+        "color": "#db2777",
+        "fillColor": "#f472b6",
+        "fillOpacity": 0.18,
+        "dashArray": null,
+        "description": "Forested eucalyptus and pine ridges above Lake Chabot with extensive hiking, biking, and horse trails."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -122.13,
+              37.78
+            ],
+            [
+              -122.07,
+              37.78
+            ],
+            [
+              -122.07,
+              37.73
+            ],
+            [
+              -122.13,
+              37.73
+            ],
+            [
+              -122.13,
+              37.78
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Del Valle Regional Park",
+        "category": "Regional Park",
+        "agency": "East Bay Regional Park District",
+        "acres": 4395,
+        "color": "#db2777",
+        "fillColor": "#f472b6",
+        "fillOpacity": 0.18,
+        "dashArray": null,
+        "description": "5-mile reservoir in oak hills with warm water swimming, boating, and Ohlone Wilderness Trail trailhead."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.73,
+              37.64
+            ],
+            [
+              -121.66,
+              37.64
+            ],
+            [
+              -121.66,
+              37.58
+            ],
+            [
+              -121.73,
+              37.58
+            ],
+            [
+              -121.73,
+              37.64
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}
