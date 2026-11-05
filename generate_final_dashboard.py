@@ -452,10 +452,10 @@ html_content = f"""<!DOCTYPE html>
 
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center gap-2">
-                  <span class="w-3 h-3 rounded-sm inline-block" style="border:1.5px dotted #84cc16; background:rgba(101,163,13,0.25);"></span>
+                  <span class="w-3 h-3 rounded-full bg-lime-400 inline-block ring-1 ring-slate-900"></span>
                   <span class="text-slate-300">National Forests (USFS)</span>
                 </div>
-                <span class="text-[10px] text-lime-400 px-1 py-0.5 rounded bg-lime-950/60 border border-lime-600/40 font-mono">[· ·]</span>
+                <span class="text-[10px] text-lime-400 px-1 py-0.5 rounded bg-lime-950/60 border border-lime-600/40 font-mono">[- -]</span>
               </div>
             </div>
 
@@ -749,8 +749,8 @@ html_content = f"""<!DOCTYPE html>
           const isForest = p.layer === 'forests';
           return {{
             color: p.color || '#10b981',
-            weight: isForest ? 1.4 : (p.category.includes('Wilderness') ? 2.0 : 1.8),
-            opacity: isForest ? 0.8 : 0.9,
+            weight: (isForest || p.category.includes('Wilderness')) ? 2.0 : 1.8,   // forests match wilderness
+            opacity: 0.9,
             fillColor: p.fillColor || '#10b981',
             fillOpacity: p.fillOpacity || 0.18,
             dashArray: p.dashArray || null

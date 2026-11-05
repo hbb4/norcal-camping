@@ -156,7 +156,7 @@ STYLES = {
     "wild":     dict(color="#a855f7", fillColor="#c084fc", fillOpacity=0.14, dashArray="6, 6", layer="parks"),
     "blm":      dict(color="#f59e0b", fillColor="#fbbf24", fillOpacity=0.16, dashArray=None, layer="parks"),
     "regional": dict(color="#db2777", fillColor="#f472b6", fillOpacity=0.18, dashArray=None, layer="parks"),
-    "forest":   dict(color="#84cc16", fillColor="#65a30d", fillOpacity=0.07, dashArray="2, 5", layer="forests"),
+    "forest":   dict(color="#84cc16", fillColor="#65a30d", fillOpacity=0.14, dashArray="6, 6", layer="forests"),
 }
 
 # Features kept from the previous official-source build (NPS LRD / CA State Parks
