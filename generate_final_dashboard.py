@@ -13,6 +13,22 @@ with open("prominent_trails.geojson", "r") as f:
 with open("prominent_landmarks.geojson", "r") as f:
     landmarks_data = json.load(f)
 
+with open("rivers.geojson", "r") as f:
+    rivers_data = json.load(f)
+
+with open("rafting_sections.geojson", "r") as f:
+    rafting_data = json.load(f)
+
+# Landmarks whose labels stay visible even at the widest zoom levels
+MAJOR_LANDMARKS = {
+    "Mount Whitney", "Mount Shasta", "Lassen Peak", "Half Dome", "Mount Diablo", "Mount Tamalpais (East Peak)",
+    "Mount Tallac", "Mount Rose", "Thompson Peak", "Mount Lyell", "North Palisade", "Cone Peak", "Mount Saint Helena",
+    "Lake Tahoe", "Mono Lake", "Shasta Lake", "Trinity Lake", "Clear Lake", "Lake Berryessa", "Lake Almanor",
+    "Lake Oroville", "Folsom Lake", "Whiskeytown Lake",
+}
+for _f in landmarks_data["features"]:
+    _f["properties"]["major"] = _f["properties"]["name"] in MAJOR_LANDMARKS
+
 campgrounds = cg_data["campgrounds"]
 home = cg_data["home_point"]
 
@@ -20,6 +36,15 @@ campgrounds_json_str = json.dumps(campgrounds)
 boundaries_json_str = json.dumps(boundaries_data)
 trails_json_str = json.dumps(trails_data)
 landmarks_json_str = json.dumps(landmarks_data)
+rivers_json_str = json.dumps(rivers_data, separators=(",", ":"))
+rafting_json_str = json.dumps(rafting_data)
+
+n_parks = sum(1 for f in boundaries_data["features"] if f["properties"].get("layer") != "forests")
+n_forests = sum(1 for f in boundaries_data["features"] if f["properties"].get("layer") == "forests")
+n_wilderness = sum(1 for f in boundaries_data["features"] if "Wilderness" in f["properties"]["category"])
+n_trails = len(trails_data["features"])
+n_landmarks = len(landmarks_data["features"])
+n_rivers = len(rivers_data["features"])
 home_json_str = json.dumps(home)
 
 html_content = f"""<!DOCTYPE html>
@@ -99,10 +124,62 @@ html_content = f"""<!DOCTYPE html>
       font-size: 11.5px;
       box-shadow: 0 4px 14px rgba(0,0,0,0.6);
     }}
-    /* Custom Landmark Pin Badges */
-    .custom-landmark-pin {{
+    /* Peak & lake crosshairs: the crosshair center sits exactly on the coordinate; the label is pinned to its right */
+    .landmark-xhair {{
       pointer-events: auto;
       cursor: pointer;
+    }}
+    .landmark-xhair svg {{
+      position: absolute;
+      left: 0;
+      top: 0;
+      overflow: visible;
+    }}
+    .landmark-xhair .lm-label {{
+      position: absolute;
+      left: 19px;
+      top: 0;
+      line-height: 18px;
+      white-space: nowrap;
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: 0.01em;
+      text-shadow: 0 0 3px #020617, 0 0 2px #020617, 0 1px 4px #020617, 0 0 1px #020617;
+    }}
+    .landmark-xhair .lm-elev {{
+      font-weight: 600;
+      font-size: 9.5px;
+      margin-left: 4px;
+    }}
+    .lm-compact .landmark-xhair .lm-label.minor {{
+      display: none;
+    }}
+    /* Let clicks on empty SVG overlay space fall through to the canvas-rendered park boundaries
+       (trail / river / rafting paths keep their own pointer events). */
+    .leaflet-pane > svg {{
+      pointer-events: none;
+    }}
+    /* River names drawn along each river's path */
+    .river-label {{
+      font-size: 11px;
+      font-weight: 700;
+      font-style: italic;
+      fill: #bfdbfe;
+      stroke: #0b1a33;
+      stroke-width: 3px;
+      paint-order: stroke;
+      letter-spacing: 0.06em;
+      pointer-events: none;
+    }}
+    .raft-label {{
+      background: rgba(15, 23, 42, 0.92);
+      border: 1.5px solid #2dd4bf;
+      color: #f8fafc;
+      border-radius: 8px;
+      padding: 5px 9px;
+      font-size: 11.5px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.6);
     }}
     /* Custom scrollbars */
     ::-webkit-scrollbar {{
@@ -139,7 +216,7 @@ html_content = f"""<!DOCTYPE html>
           Campgrounds, Parks, Trails & Wilderness Explorer
         </h1>
         <p class="text-sm text-slate-400 mt-1">
-          Featuring <strong class="text-emerald-400">surveyed high-resolution boundaries (174,000+ pts)</strong>, <strong class="text-amber-400">hiking trail paths & names</strong>, <strong class="text-rose-400">peaks (with elevations)</strong>, lakes & rivers, and <strong class="text-sky-400">101 individually listed campsites</strong>.
+          Featuring <strong class="text-emerald-400">{n_parks} park & wilderness boundaries plus {n_forests} national forests</strong>, <strong class="text-amber-400">{n_trails} hiking trails incl. the PCT, JMT & Tahoe Rim Trail</strong>, <strong class="text-rose-400">peaks & lakes</strong>, {n_rivers} rivers, American River rafting runs, and <strong class="text-sky-400">{len(campgrounds)} individually listed campsites</strong>.
         </p>
       </div>
 
@@ -150,15 +227,15 @@ html_content = f"""<!DOCTYPE html>
           <span class="text-[10px] text-slate-400 uppercase tracking-wider">Campsites</span>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-center">
-          <span class="block text-xl font-bold text-purple-400">50</span>
-          <span class="text-[10px] text-slate-400 uppercase tracking-wider">Hi-Res Parks</span>
+          <span class="block text-xl font-bold text-purple-400">{n_parks + n_forests}</span>
+          <span class="text-[10px] text-slate-400 uppercase tracking-wider">Parks & Forests</span>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-center">
-          <span class="block text-xl font-bold text-amber-400">21</span>
-          <span class="text-[10px] text-slate-400 uppercase tracking-wider">Hike Paths</span>
+          <span class="block text-xl font-bold text-amber-400">{n_trails}</span>
+          <span class="text-[10px] text-slate-400 uppercase tracking-wider">Trails</span>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-center">
-          <span class="block text-xl font-bold text-rose-400">45</span>
+          <span class="block text-xl font-bold text-rose-400">{n_landmarks}</span>
           <span class="text-[10px] text-slate-400 uppercase tracking-wider">Peaks & Lakes</span>
         </div>
       </div>
@@ -268,26 +345,66 @@ html_content = f"""<!DOCTYPE html>
             <!-- Trails & Landmarks Styling -->
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2">
-                <span class="w-4 h-1 bg-amber-500 inline-block rounded"></span>
-                <span class="text-amber-300 font-medium">Hiking Trails</span>
+                <span class="w-4 h-1 bg-orange-500 inline-block rounded"></span>
+                <span class="text-orange-300 font-medium">Hiking Trails</span>
               </div>
               <span class="text-[10px] text-amber-400 px-1 py-0.5 rounded bg-amber-950/60 border border-amber-600/40">Click trail to inspect</span>
             </div>
 
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2">
-                <span>⛰️</span>
-                <span class="text-slate-300">Prominent Peaks</span>
+                <span class="w-4 h-1.5 inline-block rounded" style="background:#facc15; box-shadow:0 0 0 1px #0f172a;"></span>
+                <span class="text-yellow-300 font-medium">Pacific Crest Trail</span>
+              </div>
+              <span class="text-[10px] text-slate-400 font-mono">Halfmile survey</span>
+            </div>
+
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="w-4 h-1.5 inline-block rounded" style="background:repeating-linear-gradient(90deg,#22d3ee 0 5px,transparent 5px 8px); box-shadow:0 0 0 1px #0f172a;"></span>
+                <span class="text-cyan-300 font-medium">John Muir Trail</span>
+              </div>
+              <span class="text-[10px] text-slate-400 font-mono">Shares PCT tread</span>
+            </div>
+
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="w-4 h-1.5 inline-block rounded" style="background:#f8fafc; box-shadow:0 0 0 1px #0f172a;"></span>
+                <span class="text-slate-100 font-medium">Tahoe Rim Trail</span>
+              </div>
+              <span class="text-[10px] text-slate-400 font-mono">165-mi loop</span>
+            </div>
+
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="4.2" fill="none" stroke="#fb7185" stroke-width="1.8"/><path d="M9 0.5v5M9 12.5v5M0.5 9h5M12.5 9h5" stroke="#fb7185" stroke-width="1.8"/></svg>
+                <span class="text-slate-300">Peaks</span>
               </div>
               <span class="text-[10px] text-rose-400 font-mono">Elevation (ft)</span>
             </div>
 
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2">
-                <span>💧</span>
-                <span class="text-slate-300">Lakes & Rivers 🌊</span>
+                <svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="4.2" fill="none" stroke="#38bdf8" stroke-width="1.8"/><path d="M9 0.5v5M9 12.5v5M0.5 9h5M12.5 9h5" stroke="#38bdf8" stroke-width="1.8"/></svg>
+                <span class="text-slate-300">Lakes</span>
               </div>
-              <span class="text-[10px] text-sky-400 font-mono">Alpine & Coast</span>
+              <span class="text-[10px] text-sky-400 font-mono">Surface elev.</span>
+            </div>
+
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="w-4 h-1 inline-block rounded" style="background:#60a5fa;"></span>
+                <span class="text-slate-300">Rivers (named along path)</span>
+              </div>
+              <span class="text-[10px] text-sky-400 font-mono">Zoom 10+</span>
+            </div>
+
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="w-4 h-1.5 inline-block rounded" style="background:#2dd4bf; box-shadow:0 0 0 1px #0f172a;"></span>
+                <span class="text-teal-300 font-medium">American River Rafting</span>
+              </div>
+              <span class="text-[10px] text-slate-400 font-mono">Class II-IV</span>
             </div>
 
             <div class="border-t border-slate-800 pt-1.5 space-y-1.5">
@@ -320,9 +437,25 @@ html_content = f"""<!DOCTYPE html>
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center gap-2">
                   <span class="w-3 h-3 rounded-full bg-amber-400 inline-block ring-1 ring-slate-900"></span>
-                  <span class="text-slate-300">USFS / BLM / Scenic</span>
+                  <span class="text-slate-300">National Monuments / NRA / BLM</span>
                 </div>
                 <span class="text-[10px] text-amber-400 px-1 py-0.5 rounded bg-amber-950/60 border border-amber-600/40 font-mono">Detailed</span>
+              </div>
+
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="w-3 h-3 rounded-full bg-pink-400 inline-block ring-1 ring-slate-900"></span>
+                  <span class="text-slate-300">Regional / County Parks</span>
+                </div>
+                <span class="text-[10px] text-pink-400 px-1 py-0.5 rounded bg-pink-950/60 border border-pink-600/40 font-mono">Detailed</span>
+              </div>
+
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="w-3 h-3 rounded-sm inline-block" style="border:1.5px dotted #84cc16; background:rgba(101,163,13,0.25);"></span>
+                  <span class="text-slate-300">National Forests (USFS)</span>
+                </div>
+                <span class="text-[10px] text-lime-400 px-1 py-0.5 rounded bg-lime-950/60 border border-lime-600/40 font-mono">[· ·]</span>
               </div>
             </div>
 
@@ -525,6 +658,8 @@ html_content = f"""<!DOCTYPE html>
     const parkBoundaries = {boundaries_json_str};
     const prominentTrails = {trails_json_str};
     const prominentLandmarks = {landmarks_json_str};
+    const riversData = {rivers_json_str};
+    const raftingData = {rafting_json_str};
     const homePoint = {home_json_str};
 
     let selectedId = campgrounds[0].id;
@@ -532,8 +667,13 @@ html_content = f"""<!DOCTYPE html>
     let markerLayerGroup = L.layerGroup();
     let ringsLayerGroup = L.layerGroup();
     let boundaryLayerGroup = L.layerGroup();
+    let forestLayerGroup = L.layerGroup();
     let trailsLayerGroup = L.layerGroup();
     let landmarksLayerGroup = L.layerGroup();
+    let riversLayerGroup = L.layerGroup();
+    let riversToggle = L.layerGroup();   // layer-control proxy; real river layer only shows at zoom >= RIVER_MIN_ZOOM
+    let raftingLayerGroup = L.layerGroup();
+    const RIVER_MIN_ZOOM = 10;
     let markerMap = {{}};
     let legendCollapsed = false;
 
@@ -598,124 +738,140 @@ html_content = f"""<!DOCTYPE html>
 
     satelliteHybrid.addTo(map);
 
-    // 3. Add Boundaries Layer (Surveyed High-Resolution GeoJSON)
-    const boundariesGeoJson = L.geoJSON(parkBoundaries, {{
-      style: function(feature) {{
-        return {{
-          color: feature.properties.color || '#10b981',
-          weight: feature.properties.category.includes('Wilderness') ? 2.0 : 1.8,
-          opacity: 0.9,
-          fillColor: feature.properties.fillColor || '#10b981',
-          fillOpacity: feature.properties.fillOpacity || 0.18,
-          dashArray: feature.properties.dashArray || null
-        }};
-      }},
-      onEachFeature: function(feature, layer) {{
-        const p = feature.properties;
-        const acresStr = p.acres ? `${{Number(p.acres).toLocaleString()}} acres` : '';
-        const tooltipContent = `
-          <div class="boundary-tooltip">
-            <strong>${{p.name}}</strong><br>
-            <span style="color:#94a3b8; font-size:10.5px;">${{p.category}} • ${{p.agency}} ${{acresStr ? '• ' + acresStr : ''}}</span>
-          </div>
-        `;
-        layer.bindTooltip(tooltipContent, {{ sticky: true, opacity: 0.95 }});
+    // 3. Boundaries: parks/wilderness and national forests (canvas renderer keeps thousands of vertices fast)
+    const polyRenderer = L.canvas({{ padding: 0.3 }});
+    function makeBoundaryLayer(filterFn) {{
+      const gj = L.geoJSON(parkBoundaries, {{
+        renderer: polyRenderer,
+        filter: filterFn,
+        style: function(feature) {{
+          const p = feature.properties;
+          const isForest = p.layer === 'forests';
+          return {{
+            color: p.color || '#10b981',
+            weight: isForest ? 1.4 : (p.category.includes('Wilderness') ? 2.0 : 1.8),
+            opacity: isForest ? 0.8 : 0.9,
+            fillColor: p.fillColor || '#10b981',
+            fillOpacity: p.fillOpacity || 0.18,
+            dashArray: p.dashArray || null
+          }};
+        }},
+        onEachFeature: function(feature, layer) {{
+          const p = feature.properties;
+          const acresStr = p.acres ? `${{Number(p.acres).toLocaleString()}} acres` : '';
+          const tooltipContent = `
+            <div class="boundary-tooltip">
+              <strong>${{p.name}}</strong><br>
+              <span style="color:#94a3b8; font-size:10.5px;">${{p.category}} • ${{p.agency}} ${{acresStr ? '• ' + acresStr : ''}}</span>
+            </div>
+          `;
+          layer.bindTooltip(tooltipContent, {{ sticky: true, opacity: 0.95 }});
+          layer.on('mouseover', function() {{
+            layer.setStyle({{ weight: 3.2, fillOpacity: (p.fillOpacity || 0.18) + 0.12 }});
+          }});
+          layer.on('mouseout', function() {{
+            gj.resetStyle(layer);
+          }});
+          layer.on('click', function() {{
+            map.fitBounds(layer.getBounds(), {{ padding: [40, 40], maxZoom: 12 }});
+            selectPark(p);
+          }});
+        }}
+      }});
+      return gj;
+    }}
 
-        layer.on('mouseover', function(e) {{
-          layer.setStyle({{ weight: 3.2, fillOpacity: (p.fillOpacity || 0.18) + 0.15 }});
-        }});
+    const forestsGeoJson = makeBoundaryLayer(f => f.properties.layer === 'forests');
+    forestLayerGroup.addLayer(forestsGeoJson);
+    forestLayerGroup.addTo(map);
 
-        layer.on('mouseout', function(e) {{
-          boundariesGeoJson.resetStyle(layer);
-        }});
-
-        layer.on('click', function(e) {{
-          map.fitBounds(layer.getBounds(), {{ padding: [40, 40], maxZoom: 12 }});
-          selectPark(p);
-        }});
-      }}
-    }});
-
+    const boundariesGeoJson = makeBoundaryLayer(f => f.properties.layer !== 'forests');
     boundaryLayerGroup.addLayer(boundariesGeoJson);
     boundaryLayerGroup.addTo(map);
 
-    // 4. Add Prominent Hiking Trails Layer (Vector GeoJSON LineStrings)
-    const trailsGeoJson = L.geoJSON(prominentTrails, {{
+    // 4. Hiking trails. PCT (gold), JMT (cyan, dashed so the shared PCT tread shows through),
+    //    Tahoe Rim Trail (white) get a dark casing; all other hikes are orange.
+    const TRAIL_STYLE = {{
+      pct:  {{ color: '#facc15', weight: 4.0, dashArray: null }},
+      jmt:  {{ color: '#22d3ee', weight: 3.4, dashArray: '9, 7' }},
+      trt:  {{ color: '#f8fafc', weight: 3.4, dashArray: null }},
+      hike: {{ color: '#f97316', weight: 3.2, dashArray: null }}
+    }};
+    const trailOrder = {{ hike: 0, pct: 1, trt: 2, jmt: 3 }};   // signature routes drawn on top
+    const orderedTrails = {{
+      type: 'FeatureCollection',
+      features: [...prominentTrails.features].sort((a, b) =>
+        (trailOrder[a.properties.trail_type] ?? 0) - (trailOrder[b.properties.trail_type] ?? 0))
+    }};
+
+    const trailCasing = L.geoJSON(orderedTrails, {{
+      filter: f => f.properties.trail_type !== 'hike',
+      interactive: false,
+      style: f => ({{ color: '#0f172a', weight: TRAIL_STYLE[f.properties.trail_type].weight + 3, opacity: 0.7 }})
+    }});
+
+    const trailsGeoJson = L.geoJSON(orderedTrails, {{
       style: function(feature) {{
-        const p = feature.properties;
-        return {{
-          color: p.color || '#f97316',
-          weight: 3.5,
-          opacity: 0.9,
-          dashArray: (p.category && p.category.includes('National')) ? '8, 6' : null
-        }};
+        const st = TRAIL_STYLE[feature.properties.trail_type] || TRAIL_STYLE.hike;
+        return {{ color: st.color, weight: st.weight, opacity: 0.95, dashArray: st.dashArray, lineCap: 'round' }};
       }},
       onEachFeature: function(feature, layer) {{
         const p = feature.properties;
+        const st = TRAIL_STYLE[p.trail_type] || TRAIL_STYLE.hike;
         const tooltipContent = `
-          <div class="trail-tooltip">
-            <strong>🥾 ${{p.name}}</strong><br>
+          <div class="trail-tooltip" style="border-color:${{st.color}}">
+            <strong>${{p.name}}</strong><br>
             <span style="color:#94a3b8; font-size:10.5px;">${{p.park_name}} • ${{p.distance_miles}} • ↑${{p.elevation_gain_ft}}</span><br>
             <span style="color:#fbbf24; font-size:10px; font-weight:600;">Difficulty: ${{p.difficulty}}</span>
           </div>
         `;
         layer.bindTooltip(tooltipContent, {{ sticky: true, opacity: 0.95 }});
-
-        layer.on('mouseover', function(e) {{
-          layer.setStyle({{ weight: 6.0, opacity: 1.0 }});
+        layer.on('mouseover', function() {{
+          layer.setStyle({{ weight: st.weight + 2.5, opacity: 1.0 }});
         }});
-        layer.on('mouseout', function(e) {{
+        layer.on('mouseout', function() {{
           trailsGeoJson.resetStyle(layer);
         }});
-        layer.on('click', function(e) {{
+        layer.on('click', function() {{
           selectTrail(p);
         }});
       }}
     }});
 
+    trailsLayerGroup.addLayer(trailCasing);
     trailsLayerGroup.addLayer(trailsGeoJson);
     trailsLayerGroup.addTo(map);
 
-    // 5. Add Prominent Landmarks Layer (Peaks, Lakes, Rivers)
+    // 5. Peaks & lakes: a fixed-size crosshair centered exactly on the surveyed point,
+    //    with the label pinned immediately to its right (no emoji, no offset drift).
+    const XHAIR = 18;
+    function crosshairSvg(color) {{
+      return `<svg width="${{XHAIR}}" height="${{XHAIR}}" viewBox="0 0 18 18" aria-hidden="true">
+        <circle cx="9" cy="9" r="4.4" fill="none" stroke="#020617" stroke-width="3.6"/>
+        <path d="M9 0.5v5M9 12.5v5M0.5 9h5M12.5 9h5" stroke="#020617" stroke-width="3.6" stroke-linecap="round"/>
+        <circle cx="9" cy="9" r="4.4" fill="none" stroke="${{color}}" stroke-width="1.8"/>
+        <path d="M9 0.5v5M9 12.5v5M0.5 9h5M12.5 9h5" stroke="${{color}}" stroke-width="1.8" stroke-linecap="round"/>
+        <circle cx="9" cy="9" r="1.3" fill="${{color}}"/>
+      </svg>`;
+    }}
+
     prominentLandmarks.features.forEach(lm => {{
       const p = lm.properties;
       const [lng, lat] = lm.geometry.coordinates;
-      let iconHtml = "";
-
-      if (p.type === "peak") {{
-        iconHtml = `
-          <div style="background: rgba(15, 23, 42, 0.92); border: 1.5px solid #f43f5e; color: #fff; padding: 2px 6px; border-radius: 6px; font-size: 10px; font-weight: bold; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.7); display: flex; align-items: center; gap: 3.5px;">
-            <span>⛰️</span>
-            <span>${{p.name}}</span>
-            <span style="color: #fca5a5; font-size: 9px; font-mono;">${{Number(p.elevation_ft).toLocaleString()}}'</span>
-          </div>
-        `;
-      }} else if (p.type === "lake") {{
-        iconHtml = `
-          <div style="background: rgba(15, 23, 42, 0.92); border: 1.5px solid #0ea5e9; color: #fff; padding: 2px 6px; border-radius: 6px; font-size: 10px; font-weight: bold; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.7); display: flex; align-items: center; gap: 3.5px;">
-            <span>💧</span>
-            <span>${{p.name}}</span>
-            ${{p.elevation_ft ? `<span style="color: #7dd3fc; font-size: 9px; font-mono;">${{Number(p.elevation_ft).toLocaleString()}}'</span>` : ''}}
-          </div>
-        `;
-      }} else {{
-        iconHtml = `
-          <div style="background: rgba(15, 23, 42, 0.92); border: 1.5px solid #06b6d4; color: #fff; padding: 2px 6px; border-radius: 6px; font-size: 10px; font-weight: bold; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.7); display: flex; align-items: center; gap: 3.5px;">
-            <span>🌊</span>
-            <span>${{p.name}}</span>
-          </div>
-        `;
-      }}
-
+      const color = p.type === 'peak' ? '#fb7185' : '#38bdf8';
+      const elevColor = p.type === 'peak' ? '#fda4af' : '#7dd3fc';
+      const elev = p.elevation_ft ? `<span class="lm-elev" style="color:${{elevColor}}">${{Number(p.elevation_ft).toLocaleString()}}'</span>` : '';
       const landmarkIcon = L.divIcon({{
-        className: 'custom-landmark-pin',
-        html: iconHtml,
-        iconAnchor: [35, 12]
+        className: 'landmark-xhair',
+        html: `${{crosshairSvg(color)}}<span class="lm-label${{p.major ? '' : ' minor'}}">${{p.name}}${{elev}}</span>`,
+        iconSize: [XHAIR, XHAIR],
+        iconAnchor: [XHAIR / 2, XHAIR / 2]
       }});
 
-      const marker = L.marker([lat, lng], {{ icon: landmarkIcon }});
-      marker.bindTooltip(`<strong>${{p.name}}</strong><br><span style='font-size:10.5px; color:#cbd5e1;'>${{p.type.toUpperCase()}} ${{p.elevation_ft ? '• ' + Number(p.elevation_ft).toLocaleString() + ' ft' : ''}}</span>`, {{
+      const marker = L.marker([lat, lng], {{ icon: landmarkIcon, keyboard: false, riseOnHover: true }});
+      marker.bindTooltip(`<strong>${{p.name}}</strong><br><span style='font-size:10.5px; color:#cbd5e1;'>${{p.type === 'peak' ? 'Peak' : 'Lake'}} ${{p.elevation_ft ? '• ' + Number(p.elevation_ft).toLocaleString() + ' ft' : ''}}</span>`, {{
         direction: 'top',
+        offset: [0, -8],
         className: 'landmark-tooltip'
       }});
 
@@ -726,7 +882,199 @@ html_content = f"""<!DOCTYPE html>
       landmarksLayerGroup.addLayer(marker);
     }});
 
+    function updateLandmarkLabelDensity() {{
+      map.getContainer().classList.toggle('lm-compact', map.getZoom() < 9);
+    }}
+    map.on('zoomend', updateLandmarkLabelDensity);
+    updateLandmarkLabelDensity();
+
     landmarksLayerGroup.addTo(map);
+
+    // 6. Rivers: real river centerlines, shown only when zoomed in (RIVER_MIN_ZOOM+), with the river's
+    //    name written along its path (SVG textPath, kept upright and re-laid-out after every zoom/pan).
+    const riverPane = map.createPane('riverPane');
+    riverPane.style.zIndex = 420;            // above park polygons & trails, below markers
+    const riverRenderer = L.svg({{ pane: 'riverPane', padding: 0.5 }});
+    const RIVER_STYLE = {{ color: '#60a5fa', weight: 2.4, opacity: 0.9 }};
+    const riverLines = [];
+    riversData.features.forEach(f => {{
+      const p = f.properties;
+      const parts = f.geometry.type === 'MultiLineString' ? f.geometry.coordinates : [f.geometry.coordinates];
+      parts.forEach(part => {{
+        const pl = L.polyline(part.map(c => [c[1], c[0]]), {{
+          renderer: riverRenderer, noClip: true, smoothFactor: 1.2, lineCap: 'round', ...RIVER_STYLE
+        }});
+        pl.riverProps = p;
+        pl.bindTooltip(`<strong>${{p.name}}</strong><br><span style='font-size:10.5px; color:#cbd5e1;'>River • ${{p.miles_mapped}} mi mapped</span>`, {{
+          sticky: true, className: 'landmark-tooltip'
+        }});
+        pl.on('mouseover', () => pl.setStyle({{ weight: 4.5, color: '#93c5fd' }}));
+        pl.on('mouseout', () => pl.setStyle(RIVER_STYLE));
+        pl.on('click', e => selectRiver(p, e.latlng));
+        riverLines.push(pl);
+        riversLayerGroup.addLayer(pl);
+      }});
+    }});
+
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    let riverLabelGroup = null;
+
+    function slicePolyline(pts, cum, a, b) {{
+      // Sub-polyline of pts between arc-length a and b (pixels).
+      const out = [];
+      const lerp = (i, d) => {{
+        const t = (d - cum[i]) / ((cum[i + 1] - cum[i]) || 1);
+        return L.point(pts[i].x + (pts[i + 1].x - pts[i].x) * t, pts[i].y + (pts[i + 1].y - pts[i].y) * t);
+      }};
+      for (let i = 0; i < pts.length - 1; i++) {{
+        if (cum[i + 1] < a) continue;
+        if (cum[i] > b) break;
+        if (!out.length) out.push(lerp(i, Math.max(a, cum[i])));
+        if (cum[i + 1] <= b) out.push(pts[i + 1]);
+        else {{ out.push(lerp(i, b)); break; }}
+      }}
+      return out;
+    }}
+
+    const _labelCtx = document.createElement('canvas').getContext('2d');
+    const _labelWidths = {{}};
+    function measureRiverLabel(name) {{
+      if (!(name in _labelWidths)) {{
+        _labelCtx.font = `italic 700 11px ${{getComputedStyle(document.body).fontFamily}}`;
+        _labelWidths[name] = _labelCtx.measureText(name).width + name.length * 0.66;   // + letter-spacing
+      }}
+      return _labelWidths[name];
+    }}
+
+    function smoothForLabel(seg) {{
+      // Resample every 3px, then a few moving-average passes so glyphs follow a gentle curve.
+      const cum = [0];
+      for (let i = 1; i < seg.length; i++) cum.push(cum[i - 1] + seg[i].distanceTo(seg[i - 1]));
+      const total = cum[cum.length - 1];
+      const pts = [];
+      for (let d = 0, j = 0; d <= total; d += 3) {{
+        while (j < seg.length - 2 && cum[j + 1] < d) j++;
+        const t = (d - cum[j]) / ((cum[j + 1] - cum[j]) || 1);
+        pts.push(L.point(seg[j].x + (seg[j + 1].x - seg[j].x) * t, seg[j].y + (seg[j + 1].y - seg[j].y) * t));
+      }}
+      let cur = pts;
+      for (let pass = 0; pass < 3; pass++) {{
+        const k = 10;
+        cur = cur.map((_, i) => {{
+          let sx = 0, sy = 0, n = 0;
+          for (let q = Math.max(0, i - k); q <= Math.min(cur.length - 1, i + k); q++) {{ sx += cur[q].x; sy += cur[q].y; n++; }}
+          return L.point(sx / n, sy / n);
+        }});
+      }}
+      return cur;
+    }}
+
+    function drawRiverLabels() {{
+      if (riverLabelGroup) {{ riverLabelGroup.remove(); riverLabelGroup = null; }}
+      if (!map.hasLayer(riversLayerGroup) || !riverRenderer._rootGroup) return;
+      riverLabelGroup = document.createElementNS(SVG_NS, 'g');
+      riverRenderer._rootGroup.appendChild(riverLabelGroup);
+      const view = map.getBounds();
+      const vb = L.bounds(map.latLngToLayerPoint(view.getNorthWest()), map.latLngToLayerPoint(view.getSouthEast()));
+      let uid = 0;
+      riverLines.forEach(pl => {{
+        if (!view.intersects(pl.getBounds())) return;
+        const name = pl.riverProps.name;
+        const textW = measureRiverLabel(name) + 12;
+        (pl._parts || []).forEach(pts => {{
+          if (pts.length < 2) return;
+          const cum = [0];
+          for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
+          const total = cum[cum.length - 1];
+          if (total < textW + 40) return;
+          let lastPlaced = -Infinity;
+          for (let c = textW / 2 + 30; c < total - textW / 2 - 30; c += 40) {{
+            if (c - lastPlaced < 420) continue;
+            const a = c - textW / 2, b = c + textW / 2;
+            let seg = slicePolyline(pts, cum, a - 30, b + 30);
+            if (seg.length < 2) continue;
+            if (!vb.contains(seg[Math.floor(seg.length / 2)])) continue;
+            if (seg[0].distanceTo(seg[seg.length - 1]) < 0.75 * (textW + 60)) continue;   // too curvy here
+            seg = smoothForLabel(seg);
+            if (seg[seg.length - 1].x < seg[0].x) seg = seg.reverse();                    // keep text upright
+            const id = `river-lbl-${{uid++}}`;
+            const path = document.createElementNS(SVG_NS, 'path');
+            path.setAttribute('id', id);
+            path.setAttribute('d', 'M' + seg.map(q => `${{q.x.toFixed(1)}} ${{q.y.toFixed(1)}}`).join(' L'));
+            path.setAttribute('fill', 'none');
+            path.setAttribute('stroke', 'none');
+            const text = document.createElementNS(SVG_NS, 'text');
+            text.setAttribute('class', 'river-label');
+            text.setAttribute('dy', '-5');
+            const tp = document.createElementNS(SVG_NS, 'textPath');
+            tp.setAttribute('href', '#' + id);
+            tp.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', '#' + id);
+            tp.setAttribute('startOffset', '50%');
+            tp.setAttribute('text-anchor', 'middle');
+            tp.textContent = name;
+            text.appendChild(tp);
+            riverLabelGroup.appendChild(path);
+            riverLabelGroup.appendChild(text);
+            lastPlaced = c;
+          }}
+        }});
+      }});
+    }}
+
+    let riverLabelFrame = null;
+    function scheduleRiverLabels() {{
+      // Lay labels out on the next frame, after Leaflet has finished re-projecting every river path.
+      if (riverLabelFrame) cancelAnimationFrame(riverLabelFrame);
+      riverLabelFrame = requestAnimationFrame(() => {{ riverLabelFrame = null; drawRiverLabels(); }});
+    }}
+
+    let riversEnabled = true;
+    let riverLabelHook = false;
+    function updateRivers() {{
+      const want = riversEnabled && map.getZoom() >= RIVER_MIN_ZOOM;
+      if (want && !map.hasLayer(riversLayerGroup)) map.addLayer(riversLayerGroup);
+      if (!want && map.hasLayer(riversLayerGroup)) map.removeLayer(riversLayerGroup);
+      if (!riverLabelHook && map.hasLayer(riversLayerGroup)) {{
+        // Re-layout labels whenever the SVG renderer has re-projected the river paths (after every zoom/pan).
+        riverRenderer.on('update', scheduleRiverLabels);
+        riverLabelHook = true;
+      }}
+      scheduleRiverLabels();
+    }}
+    riversToggle.addTo(map);
+    map.on('moveend', updateRivers);
+    map.on('viewreset zoomend', scheduleRiverLabels);
+    map.on('overlayadd', e => {{ if (e.layer === riversToggle) {{ riversEnabled = true; updateRivers(); }} }});
+    map.on('overlayremove', e => {{ if (e.layer === riversToggle) {{ riversEnabled = false; updateRivers(); }} }});
+
+    // 7. American River whitewater rafting runs
+    raftingData.features.forEach(f => {{
+      const p = f.properties;
+      const latlngs = f.geometry.coordinates.map(c => [c[1], c[0]]);
+      L.polyline(latlngs, {{ color: '#0f172a', weight: 10, opacity: 0.7, interactive: false, lineCap: 'round' }}).addTo(raftingLayerGroup);
+      const line = L.polyline(latlngs, {{ color: '#2dd4bf', weight: 6, opacity: 0.95, lineCap: 'round' }});
+      const foam = L.polyline(latlngs, {{ color: '#f0fdfa', weight: 2, opacity: 0.9, dashArray: '2, 11', interactive: false }});
+      line.bindTooltip(`
+        <div class="raft-label">
+          <strong>${{p.name}}</strong><br>
+          <span style="color:#5eead4; font-weight:700;">${{p['class']}}</span>
+          <span style="color:#94a3b8; font-size:10.5px;"> • ${{p.length_miles}} mi • ${{p.put_in}} → ${{p.take_out}}</span><br>
+          <span style="color:#cbd5e1; font-size:10px;">${{p.season}}</span>
+        </div>`, {{ sticky: true, opacity: 0.97 }});
+      line.on('mouseover', () => line.setStyle({{ weight: 8.5 }}));
+      line.on('mouseout', () => line.setStyle({{ weight: 6 }}));
+      line.on('click', () => selectRafting(p));
+      line.addTo(raftingLayerGroup);
+      foam.addTo(raftingLayerGroup);
+      [[p.put_in_coords, '#22c55e', 'Put-in', p.put_in], [p.take_out_coords, '#ef4444', 'Take-out', p.take_out]].forEach(([c, col, kind, label]) => {{
+        L.circleMarker([c[1], c[0]], {{ radius: 5.5, color: '#ffffff', weight: 2, fillColor: col, fillOpacity: 1 }})
+          .bindTooltip(`<strong>${{kind}}:</strong> ${{label}}<br><span style='font-size:10.5px;color:#94a3b8'>${{p.name}}</span>`, {{ direction: 'top', offset: [0, -6] }})
+          .on('click', () => selectRafting(p))
+          .addTo(raftingLayerGroup);
+      }});
+    }});
+    raftingLayerGroup.addTo(map);
+
     markerLayerGroup.addTo(map);
     ringsLayerGroup.addTo(map);
 
@@ -739,9 +1087,12 @@ html_content = f"""<!DOCTYPE html>
     }};
     const overlayLayers = {{
       "🌲 Park & Wilderness Boundaries": boundaryLayerGroup,
-      "🥾 Prominent Hiking Trails": trailsLayerGroup,
+      "🌳 National Forests": forestLayerGroup,
+      "🥾 Hiking Trails (PCT, JMT, TRT & hikes)": trailsLayerGroup,
       "🌐 Waymarked Trails (Global Hiking Overlay)": waymarkedTrailsOverlay,
-      "⛰️ Peaks, Lakes & Rivers": landmarksLayerGroup,
+      "⌖ Peaks & Lakes": landmarksLayerGroup,
+      "〰 Rivers (zoom 10+)": riversToggle,
+      "🛶 American River Rafting Runs": raftingLayerGroup,
       "📍 Campsite Markers": markerLayerGroup,
       "⭕ Distance Rings": ringsLayerGroup
     }};
@@ -982,8 +1333,8 @@ html_content = f"""<!DOCTYPE html>
     }}
 
     function selectLandmark(p, coords) {{
-      const typeIcons = {{ peak: "⛰️", lake: "💧", river: "🌊" }};
-      const icon = typeIcons[p.type] || "📍";
+      const typeIcons = {{ peak: "▲", lake: "◉", river: "〰" }};
+      const icon = typeIcons[p.type] || "⌖";
       
       document.getElementById("card-region").textContent = p.type.toUpperCase();
       document.getElementById("card-park-badge").textContent = p.elevation_ft ? `${{Number(p.elevation_ft).toLocaleString()}} ft elevation` : "California Waterway";
@@ -1021,6 +1372,53 @@ html_content = f"""<!DOCTYPE html>
       document.getElementById("card-google-maps").href = `https://www.google.com/maps/search/${{mapsQuery}}`;
 
       map.panTo(coords, {{ animate: true, duration: 0.5 }});
+    }}
+
+    function selectRiver(p, latlng) {{
+      selectLandmark({{ ...p, elevation_ft: null }}, [latlng.lat, latlng.lng]);
+      document.getElementById("card-park-badge").textContent = `${{p.miles_mapped}} mi mapped`;
+      document.getElementById("card-capacity").textContent = `${{p.miles_mapped}} river miles mapped`;
+    }}
+
+    function selectRafting(p) {{
+      document.getElementById("card-region").textContent = "Whitewater Rafting";
+      document.getElementById("card-park-badge").textContent = p.river;
+      document.getElementById("card-title").textContent = p.name;
+      document.getElementById("card-agency").textContent = `${{p.put_in}} → ${{p.take_out}}`;
+      document.getElementById("card-score").textContent = p['class'].replace('Class ', '');
+      document.getElementById("card-score-label").textContent = "Whitewater Class";
+
+      document.getElementById("card-metrics-title").textContent = "Run Specifications";
+      document.getElementById("card-comp-badge").textContent = p['class'];
+      document.getElementById("metric-label-1").textContent = "Length";
+      document.getElementById("card-rating-hiking").textContent = `${{p.length_miles}} mi`;
+      document.getElementById("metric-label-2").textContent = "Difficulty";
+      document.getElementById("card-rating-views").textContent = p['class'];
+      document.getElementById("metric-label-3").textContent = "Season";
+      document.getElementById("card-rating-comfort").textContent = p.season.split('(')[0].trim();
+
+      document.getElementById("card-stat1-label").textContent = "Put-in";
+      document.getElementById("card-drive").textContent = p.put_in;
+      document.getElementById("card-stat2-label").textContent = "Take-out";
+      document.getElementById("card-capacity").textContent = p.take_out;
+
+      document.getElementById("card-seasonal-box").style.display = "block";
+      document.getElementById("card-peak-season").textContent = p.season;
+      document.getElementById("card-light-season").textContent = "Check flows (CDEC / Dreamflows) before launching";
+      document.getElementById("card-winter-profile").textContent = "Cold snowmelt and fast flows: go with a licensed outfitter unless you have Class-appropriate experience, PFD, helmet and rescue skills.";
+
+      document.getElementById("card-reservation-box").style.display = "none";
+
+      document.getElementById("card-hikes-title").textContent = "Run Description";
+      document.getElementById("card-hikes-icon").textContent = "🛶";
+      document.getElementById("card-hikes").textContent = p.description;
+
+      document.getElementById("card-reserve-btn").style.display = "none";
+      document.getElementById("card-inspect-btn").href = `https://www.google.com/search?q=${{encodeURIComponent(p.name + ' rafting')}}`;
+      document.getElementById("card-btn2-text").textContent = "Outfitters & Flows ↗";
+
+      const [lng, lat] = p.put_in_coords;
+      document.getElementById("card-google-maps").href = `https://www.google.com/maps/dir/Grace+Cathedral,+1100+California+St,+San+Francisco,+CA+94108/${{lat}},${{lng}}`;
     }}
 
     function selectPark(p) {{
@@ -1206,4 +1604,4 @@ with open("campground_map_dashboard.html", "w") as f:
     f.write(html_content)
 
 
-print(f"Generated campground_map_dashboard.html ({len(html_content):,} bytes)!")
+print(f"Generated campground_map_dashboard.html ({len(html_content):,} bytes)")

@@ -65,6 +65,20 @@ python3 generate_svg_map.py
 python3 generate_guide_markdown.py
 ```
 
+### 3. Rebuild Map Layers (boundaries, trails, peaks/lakes, rivers, rafting)
+Map overlays are built from [Overture Maps](https://overturemaps.org) (OpenStreetMap-derived GeoParquet on public S3) plus the Halfmile PCT survey track:
+
+```bash
+pip install pyarrow shapely scipy
+python3 build_overture_map_layers.py --fetch   # one-time ~1.1 GB download into .overture_cache/
+python3 build_overture_map_layers.py           # writes park_boundaries / prominent_trails / prominent_landmarks / rivers / rafting_sections .geojson
+python3 generate_final_dashboard.py            # embeds everything into campground_map_dashboard.html
+```
+
+- `trail_catalog.py`: ~100 curated hikes; each is routed along the real OSM trail network between its waypoints.
+- `landmark_catalog.py`: peaks & lakes (snapped to surveyed positions), rivers, and American River rafting runs.
+- Boundaries cover National Parks/Monuments, State Parks, ~55 Wilderness Areas, 16 National Forests, and regional/county parks.
+
 ---
 
 ## 🗺️ Covered Regions
