@@ -342,6 +342,14 @@ html_content = f"""<!DOCTYPE html>
               </div>
             </div>
 
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full bg-slate-300 inline-block ring-1 ring-slate-900"></span>
+                <span class="text-slate-200 font-medium">Campsites (101)</span>
+              </div>
+              <span class="text-[10px] text-slate-400 font-mono">Agency color</span>
+            </div>
+
             <!-- Trails & Landmarks Styling -->
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2">
@@ -412,55 +420,55 @@ html_content = f"""<!DOCTYPE html>
 
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center gap-2">
-                  <span class="w-3 h-3 rounded-full bg-emerald-400 inline-block ring-1 ring-slate-900"></span>
-                  <span class="text-slate-300">State Parks</span>
+                  <span class="w-3 h-3 rounded-full inline-block ring-1 ring-slate-900" style="background:#6ee7b7;"></span>
+                  <span class="text-slate-200">State Parks</span>
                 </div>
-                <span class="text-[10px] text-emerald-400 px-1 py-0.5 rounded bg-emerald-950/60 border border-emerald-600/40 font-mono">Detailed</span>
+                <span class="text-[10px] text-emerald-300 px-1 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30 font-mono">Pastel Mint</span>
               </div>
 
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center gap-2">
-                  <span class="w-3 h-3 rounded-full bg-sky-400 inline-block ring-1 ring-slate-900"></span>
-                  <span class="text-slate-300">National Parks / NRA</span>
+                  <span class="w-3 h-3 rounded-full inline-block ring-1 ring-slate-900" style="background:#7dd3fc;"></span>
+                  <span class="text-slate-200">National Parks / NRA</span>
                 </div>
-                <span class="text-[10px] text-sky-400 px-1 py-0.5 rounded bg-sky-950/60 border border-sky-600/40 font-mono">Detailed</span>
+                <span class="text-[10px] text-sky-300 px-1 py-0.5 rounded bg-sky-950/60 border border-sky-500/30 font-mono">Powder Blue</span>
               </div>
 
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center gap-2">
-                  <span class="w-3 h-3 rounded-full bg-purple-400 inline-block ring-1 ring-slate-900"></span>
-                  <span class="text-slate-300">Wilderness Areas</span>
+                  <span class="w-3 h-3 rounded-full inline-block ring-1 ring-slate-900" style="background:#d8b4fe;"></span>
+                  <span class="text-slate-200">Wilderness Areas</span>
                 </div>
-                <span class="text-[10px] text-purple-400 px-1 py-0.5 rounded bg-purple-950/60 border border-purple-600/40 font-mono">[- -]</span>
+                <span class="text-[10px] text-purple-300 px-1 py-0.5 rounded bg-purple-950/60 border border-purple-500/30 font-mono">Lilac [- -]</span>
               </div>
 
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center gap-2">
-                  <span class="w-3 h-3 rounded-full bg-amber-400 inline-block ring-1 ring-slate-900"></span>
-                  <span class="text-slate-300">National Monuments / NRA / BLM</span>
+                  <span class="w-3 h-3 rounded-full inline-block ring-1 ring-slate-900" style="background:#fde047;"></span>
+                  <span class="text-slate-200">Monuments / BLM / Scenic</span>
                 </div>
-                <span class="text-[10px] text-amber-400 px-1 py-0.5 rounded bg-amber-950/60 border border-amber-600/40 font-mono">Detailed</span>
+                <span class="text-[10px] text-amber-300 px-1 py-0.5 rounded bg-amber-950/60 border border-amber-500/30 font-mono">Buttercup</span>
               </div>
 
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center gap-2">
-                  <span class="w-3 h-3 rounded-full bg-pink-400 inline-block ring-1 ring-slate-900"></span>
-                  <span class="text-slate-300">Regional / County Parks</span>
+                  <span class="w-3 h-3 rounded-full inline-block ring-1 ring-slate-900" style="background:#f472b6;"></span>
+                  <span class="text-slate-200">Regional / County Parks</span>
                 </div>
-                <span class="text-[10px] text-pink-400 px-1 py-0.5 rounded bg-pink-950/60 border border-pink-600/40 font-mono">Detailed</span>
+                <span class="text-[10px] text-pink-300 px-1 py-0.5 rounded bg-pink-950/60 border border-pink-500/30 font-mono">Pastel Rose</span>
               </div>
 
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center gap-2">
-                  <span class="w-3 h-3 rounded-full bg-lime-400 inline-block ring-1 ring-slate-900"></span>
-                  <span class="text-slate-300">National Forests (USFS)</span>
+                  <span class="w-3 h-3 rounded-full inline-block ring-1 ring-slate-900" style="background:#bef264;"></span>
+                  <span class="text-slate-200">National Forests (USFS)</span>
                 </div>
-                <span class="text-[10px] text-lime-400 px-1 py-0.5 rounded bg-lime-950/60 border border-lime-600/40 font-mono">[- -]</span>
+                <span class="text-[10px] text-lime-300 px-1 py-0.5 rounded bg-lime-950/60 border border-lime-500/30 font-mono">Soft Sage</span>
               </div>
             </div>
 
             <div class="pt-1.5 text-[10px] text-slate-400 border-t border-slate-800 leading-tight">
-              Hover boundary or trail for info; click to zoom or view in inspector card. Toggle layers in top-left control.
+              Dashed wilderness &amp; forest borders automatically soften into clean hairlines when zoomed out to reduce clutter.
             </div>
           </div>
         </div>
@@ -738,24 +746,104 @@ html_content = f"""<!DOCTYPE html>
 
     satelliteHybrid.addTo(map);
 
-    // 3. Boundaries: parks/wilderness and national forests (canvas renderer keeps thousands of vertices fast)
+    // 3. Boundaries: parks/wilderness and national forests with zoom-responsive pastel styling
     const polyRenderer = L.canvas({{ padding: 0.3 }});
+
+    function getBoundaryStyle(feature) {{
+      const p = feature.properties;
+      const isForest = p.layer === 'forests';
+      const cat = p.category || '';
+      const isWilderness = cat.includes('Wilderness');
+      const zoom = (typeof map !== 'undefined' && map && map.getZoom) ? map.getZoom() : 7;
+      const isZoomedOut = zoom <= 8;
+
+      let color = p.color || '#6ee7b7';
+      let fillColor = p.fillColor || color;
+      let fillOpacity = 0.18;
+      let strokeOpacity = 0.90;
+      let weight = 1.8;
+      let dashArray = null;
+
+      if (isForest) {{
+        // National Forests: large regional backdrop in soft pastel sage
+        color = '#bef264';
+        fillColor = '#bef264';
+        if (isZoomedOut) {{
+          // When zoomed out, make forests very subtle without distracting dashes
+          weight = 0.8;
+          strokeOpacity = 0.35;
+          fillOpacity = 0.05;
+          dashArray = null;
+        }} else {{
+          weight = 1.4;
+          strokeOpacity = 0.70;
+          fillOpacity = 0.09;
+          dashArray = '8, 6';
+        }}
+      }} else if (isWilderness) {{
+        // Wilderness Areas: Pastel Lilac / Lavender
+        color = '#d8b4fe';
+        fillColor = '#d8b4fe';
+        if (isZoomedOut) {{
+          // When zoomed out, remove distracting flickering dashes; gentle clean hairline
+          weight = 1.0;
+          strokeOpacity = 0.50;
+          fillOpacity = 0.13;
+          dashArray = null;
+        }} else {{
+          // When zoomed in, show distinct cartographic dashed border
+          weight = 1.9;
+          strokeOpacity = 0.88;
+          fillOpacity = 0.18;
+          dashArray = '6, 5';
+        }}
+      }} else if (cat.includes('National Park') || cat.includes('National Monument') || cat.includes('Recreation Area')) {{
+        if (cat.includes('Scenic Area') || (p.agency && p.agency.includes('BLM'))) {{
+          color = '#fde047';    // Pastel Buttercup
+          fillColor = '#fde047';
+        }} else {{
+          color = '#7dd3fc';    // Pastel Powder Blue
+          fillColor = '#7dd3fc';
+        }}
+        weight = isZoomedOut ? 1.2 : 1.9;
+        strokeOpacity = isZoomedOut ? 0.75 : 0.92;
+        fillOpacity = isZoomedOut ? 0.16 : 0.22;
+        dashArray = null;
+      }} else if (cat.includes('Regional') || cat.includes('County')) {{
+        color = '#f472b6';      // Pastel Rose
+        fillColor = '#f472b6';
+        weight = isZoomedOut ? 1.2 : 1.9;
+        strokeOpacity = isZoomedOut ? 0.75 : 0.92;
+        fillOpacity = isZoomedOut ? 0.18 : 0.22;
+        dashArray = null;
+      }} else {{
+        // State Parks / State Beaches / State Reserves: Pastel Mint / Seafoam
+        color = '#6ee7b7';
+        fillColor = '#6ee7b7';
+        weight = isZoomedOut ? 1.2 : 1.9;
+        strokeOpacity = isZoomedOut ? 0.80 : 0.95;
+        fillOpacity = isZoomedOut ? 0.16 : 0.22;
+        dashArray = null;
+      }}
+
+      return {{
+        color: color,
+        weight: weight,
+        opacity: strokeOpacity,
+        fillColor: fillColor,
+        fillOpacity: fillOpacity,
+        dashArray: dashArray
+      }};
+    }}
+
+    let forestsGeoJson = null;
+    let boundariesGeoJson = null;
+
     function makeBoundaryLayer(filterFn) {{
       const gj = L.geoJSON(parkBoundaries, {{
         renderer: polyRenderer,
         filter: filterFn,
-        style: function(feature) {{
-          const p = feature.properties;
-          const isForest = p.layer === 'forests';
-          return {{
-            color: p.color || '#10b981',
-            weight: (isForest || p.category.includes('Wilderness')) ? 2.0 : 1.8,   // forests match wilderness
-            opacity: 0.9,
-            fillColor: p.fillColor || '#10b981',
-            fillOpacity: p.fillOpacity || 0.18,
-            dashArray: p.dashArray || null
-          }};
-        }},
+        style: getBoundaryStyle,
         onEachFeature: function(feature, layer) {{
           const p = feature.properties;
           const acresStr = p.acres ? `${{Number(p.acres).toLocaleString()}} acres` : '';
@@ -767,10 +855,11 @@ html_content = f"""<!DOCTYPE html>
           `;
           layer.bindTooltip(tooltipContent, {{ sticky: true, opacity: 0.95 }});
           layer.on('mouseover', function() {{
-            layer.setStyle({{ weight: 3.2, fillOpacity: (p.fillOpacity || 0.18) + 0.12 }});
+            const base = getBoundaryStyle(feature);
+            layer.setStyle({{ weight: base.weight + 1.8, opacity: 1.0, fillOpacity: base.fillOpacity + 0.14 }});
           }});
           layer.on('mouseout', function() {{
-            gj.resetStyle(layer);
+            layer.setStyle(getBoundaryStyle(feature));
           }});
           layer.on('click', function() {{
             map.fitBounds(layer.getBounds(), {{ padding: [40, 40], maxZoom: 12 }});
@@ -781,13 +870,19 @@ html_content = f"""<!DOCTYPE html>
       return gj;
     }}
 
-    const forestsGeoJson = makeBoundaryLayer(f => f.properties.layer === 'forests');
+    forestsGeoJson = makeBoundaryLayer(f => f.properties.layer === 'forests');
     forestLayerGroup.addLayer(forestsGeoJson);
     forestLayerGroup.addTo(map);
 
-    const boundariesGeoJson = makeBoundaryLayer(f => f.properties.layer !== 'forests');
+    boundariesGeoJson = makeBoundaryLayer(f => f.properties.layer !== 'forests');
     boundaryLayerGroup.addLayer(boundariesGeoJson);
     boundaryLayerGroup.addTo(map);
+
+    function updateBoundaryStyles() {{
+      if (boundariesGeoJson) boundariesGeoJson.setStyle(getBoundaryStyle);
+      if (forestsGeoJson) forestsGeoJson.setStyle(getBoundaryStyle);
+    }}
+    map.on('zoomend', updateBoundaryStyles);
 
     // 4. Hiking trails. PCT (gold), JMT (cyan, dashed so the shared PCT tread shows through),
     //    Tahoe Rim Trail (white) get a dark casing; all other hikes are orange.
@@ -1099,11 +1194,12 @@ html_content = f"""<!DOCTYPE html>
     L.control.layers(baseLayers, overlayLayers, {{ position: 'topleft' }}).addTo(map);
 
     function getAgencyColor(agency, name = "") {{
-      if (agency.includes("National Park") || agency.includes("NPS")) return "#38bdf8"; // sky blue
-      if (agency.includes("State Park") || agency.includes("State Rec") || agency.includes("Nevada State")) return "#34d399"; // emerald green
-      if (agency.includes("Wilderness") || name.includes("Wilderness")) return "#c084fc"; // purple
-      if (agency.includes("Forest") || agency.includes("BLM")) return "#fbbf24"; // amber
-      return "#f472b6"; // pink for regional/county
+      if (agency.includes("National Park") || agency.includes("NPS")) return "#7dd3fc"; // powder blue
+      if (agency.includes("State Park") || agency.includes("State Rec") || agency.includes("Nevada State") || agency.includes("State Beach")) return "#6ee7b7"; // mint
+      if (agency.includes("Wilderness") || name.includes("Wilderness")) return "#d8b4fe"; // lilac
+      if (agency.includes("Forest") || agency.includes("USFS")) return "#bef264"; // soft sage
+      if (agency.includes("BLM") || agency.includes("Reclamation") || agency.includes("Corps")) return "#fde047"; // buttercup
+      return "#f472b6"; // rose for regional/county
     }}
 
     // Draw Distance Rings with SIMPLE clean labels Southwest over ocean
