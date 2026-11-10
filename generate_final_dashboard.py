@@ -780,6 +780,13 @@ html_content = f"""<!DOCTYPE html>
           fillOpacity = 0.09;
           dashArray = '8, 6';
         }}
+      }} else if (cat.includes('Regional') || cat.includes('County') || cat.includes('City Park')) {{
+        color = '#f472b6';      // Pastel Rose
+        fillColor = '#f472b6';
+        weight = isZoomedOut ? 1.2 : 1.9;
+        strokeOpacity = isZoomedOut ? 0.75 : 0.92;
+        fillOpacity = isZoomedOut ? 0.18 : 0.22;
+        dashArray = null;
       }} else if (isWilderness) {{
         // Wilderness Areas: Pastel Lilac / Lavender
         color = '#d8b4fe';
@@ -797,7 +804,7 @@ html_content = f"""<!DOCTYPE html>
           fillOpacity = 0.18;
           dashArray = '6, 5';
         }}
-      }} else if (cat.includes('National Park') || cat.includes('National Monument') || cat.includes('Recreation Area')) {{
+      }} else if (cat.includes('National Park') || cat.includes('National Monument') || (cat.includes('Recreation Area') && !cat.includes('State'))) {{
         if (cat.includes('Scenic Area') || (p.agency && p.agency.includes('BLM'))) {{
           color = '#fde047';    // Pastel Buttercup
           fillColor = '#fde047';
@@ -808,13 +815,6 @@ html_content = f"""<!DOCTYPE html>
         weight = isZoomedOut ? 1.2 : 1.9;
         strokeOpacity = isZoomedOut ? 0.75 : 0.92;
         fillOpacity = isZoomedOut ? 0.16 : 0.22;
-        dashArray = null;
-      }} else if (cat.includes('Regional') || cat.includes('County')) {{
-        color = '#f472b6';      // Pastel Rose
-        fillColor = '#f472b6';
-        weight = isZoomedOut ? 1.2 : 1.9;
-        strokeOpacity = isZoomedOut ? 0.75 : 0.92;
-        fillOpacity = isZoomedOut ? 0.18 : 0.22;
         dashArray = null;
       }} else {{
         // State Parks / State Beaches / State Reserves: Pastel Mint / Seafoam

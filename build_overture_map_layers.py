@@ -61,7 +61,7 @@ def _bbox_filter(xmin, ymin, xmax, ymax):
     return (F("xmin") <= xmax) & (F("xmax") >= xmin) & (F("ymin") <= ymax) & (F("ymax") >= ymin)
 
 
-def fetch():
+def fetch(only=None):
     os.makedirs(CACHE, exist_ok=True)
     f = _bbox_filter(*REGION_BBOX)
     jobs = [
@@ -81,6 +81,8 @@ def fetch():
               "residential", "service", "tertiary", "secondary", "living_street", "unknown"])),
     ]
     for fname, theme, typ, cols, flt in jobs:
+        if only and fname not in only:
+            continue
         t = time.time()
         sc = _s3_dataset(theme, typ).scanner(columns=cols, filter=flt, batch_size=50000)
         writer, n = None, 0
@@ -405,6 +407,201 @@ BOUNDARY_SPECS = [
      "Bridgeport and Carson Ranger Districts on the eastern Sierra: Hoover Wilderness, Twin Lakes, and Sonora/Monitor Passes."),
 ]
 
+
+# ---------------------------------------------------------------------------------------------
+# Regional parks, county parks, recreation areas & open space preserves (Bay Area focus).
+# (overture name regex, display name, category, agency, description) -> style "regional"
+# ---------------------------------------------------------------------------------------------
+_EB = "East Bay Regional Park District"
+_SC = "Santa Clara County Parks"
+_SM = "San Mateo County Parks"
+_MP = "Midpeninsula Regional Open Space District"
+_SO = "Sonoma County Regional Parks"
+_MA = "Marin County Parks"
+_RP, _RW, _RR, _RS, _RO, _CP = ("Regional Park", "Regional Wilderness", "Regional Recreation Area",
+                                 "Regional Shoreline", "Regional Open Space Preserve", "County Park")
+
+REGIONAL_SPECS = [
+    # --- East Bay Regional Park District: Alameda County -------------------------------------
+    (r"^(Reinhardt )?Redwood Regional Park$", "Redwood Regional Park", _RP, _EB,
+     "Second-growth coast redwoods in the Oakland hills, the East Bay's tallest remaining grove; Stream, Canyon and Prince trails, and a seasonal creek with rainbow trout."),
+    (r"^Las Trampas Regional Wilderness$", "Las Trampas Regional Wilderness", _RW, _EB,
+     "Grassy ridges and oak canyons above Lafayette and San Ramon: Las Trampas Ridge, Rocky Ridge and Eagle's Nest views, with a backpack camp."),
+    (r"^Lake Chabot Regional Park$", "Lake Chabot Regional Park", _RP, _EB,
+     "Fishing, rowing and the Lake Chabot loop trail; the park's drive-in campground sits on the Anthony Chabot ridge above."),
+    (r"^Joaquin Miller Park$", "Joaquin Miller Park", "City Park", "City of Oakland",
+     "Redwood-filled Oakland hills park with the Woodminster amphitheater, Sequoia Bayview trail and connections to Redwood Regional."),
+    (r"^Sibley Volcanic Regional Preserve$", "Sibley Volcanic Regional Preserve", _RO, _EB,
+     "Extinct volcano on the Berkeley-Orinda ridge with a self-guided volcanic trail, Round Top summit and Bay views."),
+    (r"^Tilden Regional Park$|^Tilden Nature Area$", "Tilden Regional Park", _RP, _EB,
+     "Berkeley's 2,000-acre hill park: Lake Anza swimming, Nature Area, botanic garden, the carousel and steam trains, and Wildcat Peak."),
+    (r"^Wildcat Canyon Regional Park$", "Wildcat Canyon Regional Park", _RP, _EB,
+     "Open grassland ridges between Richmond and Orinda, linked to Tilden by the Nimitz Way and Wildcat Peak trails."),
+    (r"^Briones Regional Park$", "Briones Regional Park", _RP, _EB,
+     "Rolling oak-and-bay hills above Martinez and Lafayette with 60 miles of trail, Briones Crest, and a backpack camp (permit)."),
+    (r"^San Pablo Reservoir Recreation Area$", "San Pablo Reservoir Recreation Area", _RR, "East Bay MUD",
+     "Reservoir in the Orinda hills with rainbow-trout fishing, boating (permit), and a shoreline picnic area."),
+    (r"^Lafayette Reservoir Recreation Area$", "Lafayette Reservoir Recreation Area", _RR, "City of Lafayette / East Bay MUD",
+     "Paved 2.7-mile loop around a small reservoir with fishing, canoe/kayak/rowboat rentals, picnic lawns and wooded hillside trails."),
+    (r"^Pleasanton Ridge Regional Park", "Pleasanton Ridge Regional Park", _RP, _EB,
+     "Long grassy ridge with panoramic views of the Livermore Valley, oak woodlands and a network of fire roads."),
+    (r"^Garin Regional Park", "Garin Regional Park", _RP, _EB,
+     "Hayward-hills ranch park with Dry Creek and Quarry trails; neighbors Dry Creek Pioneer Regional Park."),
+    (r"^Dry Creek Pioneer Regional Park$", "Dry Creek Pioneer Regional Park", _RP, _EB,
+     "Wooded canyon and ridgeline hikes above Union City with long views across the South Bay."),
+    (r"^Mission Peak Regional Preserve$", "Mission Peak Regional Preserve", _RO, _EB,
+     "Fremont's iconic 2,517-ft summit with the famous pole at the top; Ohlone Wilderness Trail connects to Sunol."),
+    (r"^Vargas Plateau Regional Park$", "Vargas Plateau Regional Park", _RP, _EB,
+     "Open ridge park above Niles Canyon with 360-degree views and a long loop trail."),
+    (r"^Coyote Hills Regional Park$", "Coyote Hills Regional Park", _RP, _EB,
+     "Baylands park with Ohlone shell mounds, marsh boardwalks, a hilltop loop and a hike-in bay-view campground."),
+    (r"^Hayward Regional Shoreline$", "Hayward Regional Shoreline", _RS, _EB,
+     "Salt marsh and tidal flats along the Bay, prime bird-watching and a long shoreline trail."),
+    (r"^Martin Luther King Jr\. Regional Shoreline$", "Martin Luther King Jr. Regional Shoreline", _RS, _EB,
+     "Oakland bayshore park along Arrowhead Marsh with a boardwalk, bird sanctuary and Damon Slough."),
+    (r"^Cull Canyon Regional Recreation Area$", "Cull Canyon Regional Recreation Area", _RR, _EB,
+     "Small reservoir in the Castro Valley hills with a swim lagoon, fishing and a family picnic area."),
+    (r"^Dublin Hills Regional Park$", "Dublin Hills Regional Park", _RP, _EB,
+     "Grassy ridge park above Dublin and Pleasanton with views of Mount Diablo and Mount Hamilton."),
+    (r"^Quarry Lakes Regional Recreation Area$|^Quarry Lakes Regional Park$", "Quarry Lakes Regional Recreation Area", _RR, _EB,
+     "Former gravel quarries turned lakes near Fremont: swimming, fishing, windsurfing and a hike-in campground."),
+    (r"^Shadow Cliffs Regional Recreation Area$", "Shadow Cliffs Regional Recreation Area", _RR, _EB,
+     "Pleasanton quarry lake with a beach, swim lagoon, water slides and fishing."),
+    (r"^Brushy Peak Regional Preserve$|^Brushy Peak Regional Park$", "Brushy Peak Regional Preserve", _RO, _EB,
+     "Livermore hills grassland preserve sacred to the Ohlone, with rare wildflowers and a short summit trail."),
+    (r"^Vasco Caves Regional Preserve$", "Vasco Caves Regional Preserve", _RO, _EB,
+     "Sandstone caves and wind-carved outcrops in the Altamont hills; Native American rock art."),
+
+    # --- East Bay Regional Park District: Contra Costa County --------------------------------
+    (r"^Black Diamond Mines Regional Preserve$", "Black Diamond Mines Regional Preserve", _RO, _EB,
+     "Antioch's old coal- and sand-mining district: Hazel-Atlas silica mine tours, Rose Hill Cemetery and Mount Diablo views."),
+    (r"^Morgan Territory Regional Preserve$", "Morgan Territory Regional Preserve", _RO, _EB,
+     "Remote ridges and oak canyons in the Diablo Range with long Mount Diablo views and a backpack camp."),
+    (r"^Round Valley Regional Preserve$", "Round Valley Regional Preserve", _RO, _EB,
+     "Secluded grassy valley south of Brentwood with creek hikes and abundant spring wildflowers."),
+    (r"^Diablo Foothills Regional Park$", "Diablo Foothills Regional Park", _RP, _EB,
+     "Foothill oak woodlands bordering Mount Diablo State Park near Walnut Creek, with Hidden Valley and Castle Rock trails."),
+    (r"^Contra Loma Regional Park$", "Contra Loma Regional Park", _RP, _EB,
+     "Antioch reservoir with a swim lagoon, fishing and hilltop trails."),
+    (r"^Thurgood Marshall Regional Park$", "Thurgood Marshall Regional Park", _RP, _EB,
+     "Former Concord Naval Weapons Station land near Pittsburg, now a large regional park with hills and wetlands."),
+    (r"^Point Pinole Regional Shoreline$", "Point Pinole Regional Shoreline", _RS, _EB,
+     "Point on San Pablo Bay with eucalyptus groves, a fishing pier and miles of shoreline; hike-in group camps."),
+    (r"^Crockett Hills Regional Park$", "Crockett Hills Regional Park", _RP, _EB,
+     "Ridge-top park overlooking Carquinez Strait with sweeping Delta views."),
+    (r"^Carquinez Strait Regional Shoreline$|^Carquinez Regional Shoreline$", "Carquinez Strait Regional Shoreline", _RS, _EB,
+     "Shoreline trails on Carquinez Strait near Martinez, with Bay and rail views."),
+    (r"^Big Break Regional Shoreline$", "Big Break Regional Shoreline", _RS, _EB,
+     "Delta shoreline park in Oakley with a fishing pier, tule marsh and bird-watching."),
+    (r"^Miller/Knox Regional Shoreline$", "Miller/Knox Regional Shoreline", _RS, _EB,
+     "Richmond bayshore park with a lagoon, hill trails, picnic lawns and San Francisco views."),
+    (r"^Sobrante Ridge Regional Preserve$", "Sobrante Ridge Regional Preserve", _RO, _EB,
+     "Rare pallid manzanita chaparral on a ridge above El Sobrante, with views toward San Pablo Bay."),
+
+    # --- Santa Clara County Parks ------------------------------------------------------------
+    (r"^Joseph D\. Grant County Park$", "Joseph D. Grant County Park", _CP, _SC,
+     "Largest Santa Clara County park (10,000+ acres) on Mount Hamilton's flank: lakes, oak savanna, 50 miles of trail and a campground."),
+    (r"^Coyote Lake - Harvey Bear Ranch County Park$", "Coyote Lake-Harvey Bear Ranch County Park", _CP, _SC,
+     "Gilroy-area reservoir for fishing and boating, with a campground, ranch trails and horseback riding."),
+    (r"^Anderson Lake County Park$", "Anderson Lake County Park", _CP, _SC,
+     "Morgan Hill's largest reservoir for boating and fishing, with lakeshore and hillside trails."),
+    (r"^Calero County Park$", "Calero County Park", _CP, _SC,
+     "Oak and chaparral hills above Calero Reservoir; mountain biking, hiking and equestrian trails."),
+    (r"^Almaden Quicksilver County Park$", "Almaden Quicksilver County Park", _CP, _SC,
+     "Historic mercury-mining landscape in the Santa Cruz foothills with mine ruins, a mining museum and 30+ miles of trails."),
+    (r"^Santa Teresa County Park$", "Santa Teresa County Park", _CP, _SC,
+     "Grassy ridges above San Jose with Hidden Springs, Bernal-Gulnac Joice Ranch and Pueblo trail views."),
+    (r"^Stevens Creek County Park$|^Upper Stevens Creek County Park$", "Stevens Creek County Park", _CP, _SC,
+     "Redwood-and-oak canyon above Cupertino with Stevens Creek Reservoir, Skyline trails and 30 miles of path."),
+    (r"^Lexington Reservoir County Park$", "Lexington Reservoir County Park", _CP, _SC,
+     "Los Gatos reservoir for fishing and kayaking, with Los Gatos Creek Trail access."),
+    (r"^Ed R\. Levin County Park$", "Ed R. Levin County Park", _CP, _SC,
+     "Milpitas hills park popular for hang gliding, with Sandy Wool Lake, Monument Peak and Calaveras Ridge trails."),
+    (r"^Uvas Reservoir County Park$", "Uvas Reservoir County Park", _CP, _SC,
+     "Gilroy-area reservoir for fishing and kayaking, with trails and picnic areas."),
+
+    # --- San Mateo County Parks --------------------------------------------------------------
+    (r"^Pescadero Creek County Park$", "Pescadero Creek County Park", _CP, _SM,
+     "Dense old-second-growth redwoods in the Santa Cruz Mountains; remote backpacking sites on the Old Haul Road and Pescadero Creek."),
+    (r"^Sam McDonald County Park$", "Sam McDonald County Park", _CP, _SM,
+     "Redwood picnic and hike-in camping area at the heart of the Pescadero Creek trail system."),
+    (r"^Huddart County Park$", "Huddart County Park", _CP, _SM,
+     "Woodside redwood park with a connecting trail to Skyline and group camping."),
+    (r"^Wunderlich County Park$", "Wunderlich County Park", _CP, _SM,
+     "Woodside redwood and tanoak park once a logging estate, with equestrian-friendly trails and the Alambique Creek."),
+    (r"^San Bruno Mountain State and County Park$", "San Bruno Mountain County Park", _CP, _SM,
+     "Last large open grassland in the Peninsula; rare butterfly habitat and 360-degree Bay views."),
+
+    # --- Midpeninsula Regional Open Space District -------------------------------------------
+    (r"^Purisima Creek Redwoods Open Space Preserve", "Purisima Creek Redwoods Open Space Preserve", _RO, _MP,
+     "Redwood canyons dropping from Skyline to Half Moon Bay: Purisima Creek, Whittemore Gulch and Harkins Ridge trails."),
+    (r"^El Corte de Madera Creek Open Space Preserve$", "El Corte de Madera Creek Open Space Preserve", _RO, _MP,
+     "Redwood and tanoak forest on Skyline Ridge with Tafoni sandstone formations and a 30-mile mountain-biking network."),
+    (r"^Skyline Ridge Open Space Preserve", "Skyline Ridge Open Space Preserve", _RO, _MP,
+     "Skyline crest preserve around Horseshoe Lake and Alpine Pond, with Christmas tree farm and Ward Road trails."),
+    (r"^Russian Ridge Open Space Preserve", "Russian Ridge Open Space Preserve", _RO, _MP,
+     "Open ridge on Skyline with spring wildflowers, Borel Hill views and the Ancient Oaks Trail."),
+    (r"^Monte Bello Open Space Preserve$", "Monte Bello Open Space Preserve", _RO, _MP,
+     "Skyline preserve with Black Mountain summit, Canyon Trail and backcountry Stevens Creek hikes."),
+    (r"^Rancho San Antonio Open Space Preserve$", "Rancho San Antonio Open Space Preserve", _RO, _MP,
+     "Popular Cupertino foothills preserve with Deer Hollow Farm, PG&E trail and Black Mountain access."),
+    (r"^Windy Hill Open Space Preserve$", "Windy Hill Open Space Preserve", _RO, _MP,
+     "Portola Valley hill preserve with bald summit views over the Peninsula and Bay."),
+    (r"^Long Ridge Open Space Preserve", "Long Ridge Open Space Preserve", _RO, _MP,
+     "Skyline ridge preserve with Peters Creek trails and views to the Pacific."),
+    (r"^Saratoga Gap Open Space Preserve$", "Saratoga Gap Open Space Preserve", _RO, _MP,
+     "Skyline preserve linking to Castle Rock and Big Basin via the Saratoga Gap Trail."),
+    (r"^Fremont Older Open Space Preserve$", "Fremont Older Open Space Preserve", _RO, _MP,
+     "Saratoga ridge preserve with Hunters Point, Maisie's Peak and Vista Loop views."),
+    (r"^Bear Creek Redwoods Open Space Preserve$", "Bear Creek Redwoods Open Space Preserve", _RO, _MP,
+     "Redwood canyon preserve near Los Gatos with Alma College ruins and the Bear Creek Trail."),
+    (r"^La Honda Creek Open Space Preserve", "La Honda Creek Open Space Preserve", _RO, _MP,
+     "Coastal-slope grassland and forest above La Honda with Driscoll Ranch trails and Pacific views."),
+    (r"^Sierra Azul Open Space Preserve$", "Sierra Azul Open Space Preserve", _RO, _MP,
+     "18,000+ acre preserve around Mount Umunhum with the Mount Umunhum summit, Bald Mountain and Woods Trail."),
+
+    # --- Marin County Parks (open space preserves) -------------------------------------------
+    (r"^Mount Burdell Open Space Preserve$", "Mount Burdell Open Space Preserve", _RO, _MA,
+     "Novato's wildflower ridge with a 1,558-ft summit and Olompali State Historic Park access."),
+    (r"^Ring Mountain Open Space Preserve$", "Ring Mountain Open Space Preserve", _RO, _MA,
+     "Tiburon Peninsula ridge with rare serpentine wildflowers, Native American petroglyphs and Bay views."),
+    (r"^Gary Giacomini Open Space Preserve$", "Gary Giacomini Open Space Preserve", _RO, _MA,
+     "Fairfax-area redwood and fir canyon above Kent Lake with the Maurice Thorner trail."),
+    (r"^Terra Linda - Sleepy Hollow Open Space Preserve$", "Terra Linda-Sleepy Hollow Open Space Preserve", _RO, _MA,
+     "San Rafael ridge trails to Big Rock and Loma Alta with panoramic Marin views."),
+    (r"^Loma Alta Open Space Preserve$", "Loma Alta Open Space Preserve", _RO, _MA,
+     "Marin ridge above San Rafael with a steady summit climb and wide views over Marin and the Bay."),
+
+    # --- Sonoma County Regional Parks --------------------------------------------------------
+    (r"^Hood Mountain Regional Park and Preserve$", "Hood Mountain Regional Park", _RP, _SO,
+     "Steep oak-and-madrone slopes above Sonoma Valley with Gray Pine trail to Hood Mountain summit (2,700 ft); hike-in camping."),
+    (r"^Sonoma Valley Regional Park$", "Sonoma Valley Regional Park", _RP, _SO,
+     "Glen Ellen valley park linking Sonoma Valley's trails to Jack London State Park."),
+    (r"^Shiloh Ranch Regional Park$", "Shiloh Ranch Regional Park", _RP, _SO,
+     "Windsor foothills park with oak-woodland trails and spring wildflowers."),
+    (r"^Taylor Mountain Regional Park and Open Space Preserve$", "Taylor Mountain Regional Park", _RP, _SO,
+     "Santa Rosa grassland and oak hills with a wide-ranging trail system and Pacific views."),
+    (r"^Tolay Lake Regional Park$", "Tolay Lake Regional Park", _RP, _SO,
+     "Historic Tolay Valley ranch near Petaluma with a spring-fed lake, Miwok heritage sites and wide-open hiking."),
+    (r"^Monte Rio Redwoods Regional Park and Open Space Preserve$", "Monte Rio Redwoods Regional Park", _RP, _SO,
+     "Redwood hills above the Russian River near Monte Rio with a mix of ridge and river views."),
+    (r"^North Sonoma Mountain Regional Park and Open Space Preserve$", "North Sonoma Mountain Regional Park", _RP, _SO,
+     "Forested slopes of Sonoma Mountain with ridge views over the Santa Rosa and Sonoma Valleys."),
+    (r"^Riverfront Regional Park$", "Riverfront Regional Park", _RP, _SO,
+     "Russian River floodplain park near Healdsburg with lakes, swimming and paddling."),
+    (r"^Spring Lake Park$", "Spring Lake Park", _RP, "City of Santa Rosa / Sonoma County",
+     "Santa Rosa's Spring Lake with a swim lagoon, fishing, paddleboats and the Howarth Park–Annadel connector."),
+
+    # --- Other regional / county recreation areas --------------------------------------------
+    (r"^Frank Raines Regional Park$", "Frank Raines Regional Park", _RP, "Stanislaus County Parks",
+     "Del Puerto Canyon park in the Diablo Range with off-highway vehicle area, camping and equestrian trails."),
+    (r"^Los Vaqueros Reservoir and Watershed$", "Los Vaqueros Reservoir and Watershed", _RR, "Contra Costa Water District",
+     "Reservoir and watershed east of Brentwood with fishing, boating and golden-eagle and kit-fox habitat; hiking and biking trails."),
+    (r"^Loch Lomond Recreation Area$|^Loch Lomond City Recreation Area$", "Loch Lomond Recreation Area", _RR, "City of Santa Cruz",
+     "Reservoir in the Santa Cruz Mountains with fishing, boat rentals and picnic areas."),
+]
+
+
 # Simplification tolerance (degrees) by size; ~0.0002 deg is ~20 m.
 def _simplify_tol(geom):
     a = geom.area
@@ -430,6 +627,9 @@ def build_boundaries():
     rows += pq.read_table(os.path.join(CACHE, "land_use.parquet"),
                           columns=["id", "names", "subtype", "class", "source_tags", "geometry"],
                           filters=ds.field("class") == "park").to_pylist()
+    rows += pq.read_table(os.path.join(CACHE, "land_use.parquet"),
+                          columns=["id", "names", "subtype", "class", "source_tags", "geometry"],
+                          filters=ds.field("subtype") == "recreation").to_pylist()
     by_name = {}
     for r in rows:
         by_name.setdefault(primary_name(r["names"]), []).append(r)
@@ -446,7 +646,10 @@ def build_boundaries():
         f["properties"]["source"] = "Official agency GIS (NPS LRD / CSP EnterpriseGIS / Wilderness Connect)"
         out.append(f)
 
-    for pattern, disp, cat, agency, style, desc in BOUNDARY_SPECS:
+    all_specs = list(BOUNDARY_SPECS) + [
+        (pat, disp, cat, ag, "csp" if ag == "California State Parks" else "regional", desc)
+        for pat, disp, cat, ag, desc in REGIONAL_SPECS]
+    for pattern, disp, cat, agency, style, desc in all_specs:
         rx = re.compile(pattern)
         polys = []
         for nm, rs in by_name.items():
@@ -472,6 +675,11 @@ def build_boundaries():
             geom = shapely.MultiPolygon(keep) if len(keep) > 1 else keep[0]
         props = {"name": disp, "category": cat, "agency": agency, "acres": acres, **STYLES[style],
                  "description": desc, "source": "OpenStreetMap via Overture Maps"}
+        if disp in old_feats:  # keep hand-tuned styling already shipped for existing features
+            op = old_feats[disp]["properties"]
+            for k in ("color", "fillColor", "fillOpacity", "dashArray"):
+                if k in op:
+                    props[k] = op[k]
         out.append({"type": "Feature", "properties": props, "geometry": to_geojson_geom(geom)})
 
     # Drawing order: forests underneath, then wilderness, then monuments/BLM, NPS, state, regional.
@@ -1020,6 +1228,9 @@ BUILDERS = {
 
 if __name__ == "__main__":
     args = sys.argv[1:]
+    if "--fetch-landuse" in args:      # parks/boundaries only (small); skips trails/water/roads
+        fetch(only={"land_use.parquet"})
+        args = [a for a in args if a != "--fetch-landuse"]
     if "--fetch" in args:
         fetch()
         args = [a for a in args if a != "--fetch"]
