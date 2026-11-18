@@ -1,0 +1,112 @@
+{
+  "sources": [
+    {
+      "id": "resort_official",
+      "name": "Resort Mountain Report",
+      "provider": "Palisades Tahoe Operations",
+      "type": "official_telemetry_and_operations",
+      "description": "Daily official snow stake readings (24h, 48h, 7-day, season-to-date), base depths, open lift and trail counts, surface conditions, and current mountain wind holds.",
+      "update_frequency_minutes": 30,
+      "consensus_weight": 0.25,
+      "metrics_provided": [
+        "snow_24h_inches",
+        "snow_48h_inches",
+        "snow_7d_inches",
+        "snow_season_inches",
+        "base_depth_base_inches",
+        "base_depth_summit_inches",
+        "lifts_open",
+        "lifts_total",
+        "trails_open",
+        "trails_total",
+        "surface_condition",
+        "weather_summary"
+      ]
+    },
+    {
+      "id": "open_meteo",
+      "name": "Open-Meteo High-Resolution Ensemble",
+      "provider": "Open-Meteo Weather API",
+      "type": "numerical_weather_models",
+      "description": "Multi-model atmospheric forecast integrating ECMWF IFS (9km), GFS (13km), and HRRR (3km). Provides elevation-adjusted hourly snowfall, cumulative curves, freezing levels (0°C isotherm), sustained wind, and gust profiles.",
+      "update_frequency_minutes": 60,
+      "consensus_weight": 0.35,
+      "api_base": "https://api.open-meteo.com/v1/forecast",
+      "metrics_provided": [
+        "forecast_snow_24h_inches",
+        "forecast_snow_48h_inches",
+        "forecast_snow_72h_inches",
+        "forecast_snow_7d_inches",
+        "hourly_snowfall_timeline",
+        "hourly_cumulative_snow",
+        "hourly_freezing_level_ft",
+        "hourly_wind_sustained_mph",
+        "hourly_wind_gusts_mph",
+        "base_vs_summit_accumulation_spread"
+      ]
+    },
+    {
+      "id": "noaa_nws",
+      "name": "NOAA National Weather Service (NWS)",
+      "provider": "NWS Reno Weather Forecast Office (REV)",
+      "type": "government_meteorological_office",
+      "description": "Official meteorologist forecasts, winter storm warnings/watches, quantitative precipitation forecasts (QPF), and snow accumulation probability grids from the Reno weather office.",
+      "update_frequency_minutes": 60,
+      "consensus_weight": 0.25,
+      "api_base": "https://api.weather.gov",
+      "metrics_provided": [
+        "synoptic_discussion",
+        "active_hazard_alerts",
+        "forecast_periods",
+        "quantitative_snowfall_amount_inches",
+        "precipitation_probability"
+      ]
+    },
+    {
+      "id": "cdec_snotel",
+      "name": "California Data Exchange (CDEC) & SNOTEL",
+      "provider": "CA DWR / USDA NRCS",
+      "type": "automated_ground_sensors",
+      "description": "Automated physical telemetry stations measuring real-time ultrasonic snow depth, snow pillow Snow Water Equivalent (SWE), and air temperature at high-altitude mountain locations (SQV at 8,010' and WC3 at 6,750').",
+      "update_frequency_minutes": 60,
+      "consensus_weight": 0.15,
+      "api_base": "https://cdec.water.ca.gov/dynamicapp/req/JSONDataServlet",
+      "metrics_provided": [
+        "sensor_snow_depth_inches",
+        "sensor_snow_water_equivalent_inches",
+        "sensor_air_temp_f",
+        "density_snow_to_liquid_ratio"
+      ]
+    },
+    {
+      "id": "caltrans_cwwp2",
+      "name": "Caltrans Highway Operations (QuickMap & CWWP2)",
+      "provider": "California Department of Transportation District 3 & 10",
+      "type": "road_conditions_and_traction_controls",
+      "description": "Official real-time highway chain controls (R-0, R-1, R-2, R-3) and mountain pass closures across I-80, SR-89, SR-28, SR-267, and US-50.",
+      "update_frequency_minutes": 5,
+      "consensus_weight": 0.0,
+      "api_base": "https://cwwp2.dot.ca.gov/data/d3/cc/ccStatusD03.json",
+      "metrics_provided": [
+        "chain_control_status",
+        "pass_closure_alerts",
+        "checkpoint_locations",
+        "travel_impact_severity"
+      ]
+    }
+  ],
+  "ensemble_settings": {
+    "snow_to_liquid_ratio_defaults": {
+      "cold_storm_powder": 18.0,
+      "average_sierra_snow": 12.0,
+      "warm_atmospheric_river_sierra_cement": 8.5
+    },
+    "alert_thresholds": {
+      "powder_day_inches": 6.0,
+      "epic_storm_cycle_inches": 18.0,
+      "high_wind_hold_mph": 45.0,
+      "severe_wind_hold_mph": 65.0,
+      "rain_snow_line_critical_elevation_ft": 7500
+    }
+  }
+}

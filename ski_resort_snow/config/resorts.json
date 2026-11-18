@@ -1,0 +1,236 @@
+{
+  "active_resorts": ["palisades_tahoe", "alpine_meadows"],
+  "resorts": [
+    {
+      "id": "palisades_tahoe",
+      "name": "Palisades Tahoe (Olympic Valley)",
+      "short_name": "Palisades",
+      "slug": "palisades-tahoe",
+      "region": "Lake Tahoe - Sierra Crest",
+      "description": "Legendary big mountain terrain in Olympic Valley, featuring 2,850' vertical drop, KT-22, the Funitel, and massive alpine bowls.",
+      "coordinates": {
+        "latitude": 39.1970,
+        "longitude": -120.2356
+      },
+      "elevations": {
+        "base": {
+          "feet": 6200,
+          "meters": 1890,
+          "name": "The Village at Palisades (Base)"
+        },
+        "mid": {
+          "feet": 8010,
+          "meters": 2441,
+          "name": "Gold Coast / High Camp (Mid-Mtn)"
+        },
+        "summit": {
+          "feet": 9050,
+          "meters": 2758,
+          "name": "Granite Chief / KT-22 / Sibir (Summit)"
+        }
+      },
+      "stats": {
+        "vertical_drop_ft": 2850,
+        "skiable_acres": 3600,
+        "total_lifts": 29,
+        "total_trails": 170,
+        "annual_avg_snowfall_inches": 400
+      },
+      "cdec_station": {
+        "station_id": "SQV",
+        "station_name": "Squaw Valley Gold Coast",
+        "elevation_ft": 8010,
+        "county": "Placer",
+        "basin": "Truckee",
+        "sensors": {
+          "swe_sensor": 3,
+          "snow_depth_sensor": 82,
+          "air_temp_sensor": 6
+        }
+      },
+      "snotel_site": {
+        "site_id": 784,
+        "name": "Palisades Tahoe",
+        "elevation_ft": 8010
+      },
+      "nws_forecast": {
+        "wfo": "REV",
+        "grid_x": 41,
+        "grid_y": 82,
+        "forecast_url": "https://api.weather.gov/gridpoints/REV/41,82/forecast",
+        "hourly_url": "https://api.weather.gov/gridpoints/REV/41,82/forecast/hourly",
+        "grid_data_url": "https://api.weather.gov/gridpoints/REV/41,82"
+      },
+      "urls": {
+        "resort_home": "https://www.palisadestahoe.com",
+        "mountain_report": "https://www.palisadestahoe.com/mountain-information/snow-and-weather-report",
+        "snowfall_tracker": "https://www.palisadestahoe.com/mountain-information/snowfall-tracker",
+        "webcams": "https://www.palisadestahoe.com/mountain-information/webcams"
+      },
+      "key_lifts": [
+        "KT-22 Express",
+        "Aerial Tram",
+        "Funitel",
+        "Gold Coast 6",
+        "Shirley Lake Express",
+        "Granite Chief",
+        "Wa She Shu",
+        "Silverado",
+        "Headwall Express",
+        "Far East Express",
+        "Base to Base Gondola"
+      ],
+      "wind_hold_vulnerable_lifts": [
+        "KT-22 Express",
+        "Headwall Express",
+        "Granite Chief",
+        "Silverado",
+        "Aerial Tram",
+        "Base to Base Gondola"
+      ],
+      "webcams": [
+        {
+          "title": "Gold Coast (8,000')",
+          "category": "Mid-Mountain",
+          "view": "Live view from Gold Coast complex overlooking Siberian Ridge & KT-22",
+          "embed_page": "https://www.palisadestahoe.com/mountain-information/webcams"
+        },
+        {
+          "title": "KT-22 Peak (8,070')",
+          "category": "Summit Ridge",
+          "view": "KT-22 top terminal looking down the West Face and Chutes",
+          "embed_page": "https://www.palisadestahoe.com/mountain-information/webcams"
+        },
+        {
+          "title": "Olympic Village Base (6,200')",
+          "category": "Base Area",
+          "view": "Village plaza, Funitel base, and tram building",
+          "embed_page": "https://www.palisadestahoe.com/mountain-information/webcams"
+        }
+      ]
+    },
+    {
+      "id": "alpine_meadows",
+      "name": "Alpine Meadows",
+      "short_name": "Alpine",
+      "slug": "alpine-meadows",
+      "region": "Lake Tahoe - Sierra Crest",
+      "description": "Pure skier/rider haven featuring steeper ridgelines, wide bowls, Sherwood backside cruising, and a high 6,835' base.",
+      "coordinates": {
+        "latitude": 39.1644,
+        "longitude": -120.2386
+      },
+      "elevations": {
+        "base": {
+          "feet": 6835,
+          "meters": 2083,
+          "name": "Alpine Base Lodge (Base)"
+        },
+        "mid": {
+          "feet": 7800,
+          "meters": 2377,
+          "name": "Roundhouse / Mid Chalet (Mid-Mtn)"
+        },
+        "summit": {
+          "feet": 8637,
+          "meters": 2633,
+          "name": "Ward Peak / Summit 6 (Summit)"
+        }
+      },
+      "stats": {
+        "vertical_drop_ft": 1802,
+        "skiable_acres": 2400,
+        "total_lifts": 13,
+        "total_trails": 100,
+        "annual_avg_snowfall_inches": 400
+      },
+      "cdec_station": {
+        "station_id": "WC3",
+        "station_name": "Ward Creek #3",
+        "elevation_ft": 6750,
+        "county": "Placer",
+        "basin": "Truckee",
+        "sensors": {
+          "swe_sensor": 3,
+          "snow_depth_sensor": 82,
+          "air_temp_sensor": 6
+        }
+      },
+      "snotel_site": {
+        "site_id": 848,
+        "name": "Ward Creek #3",
+        "elevation_ft": 6750
+      },
+      "nws_forecast": {
+        "wfo": "REV",
+        "grid_x": 41,
+        "grid_y": 80,
+        "forecast_url": "https://api.weather.gov/gridpoints/REV/41,80/forecast",
+        "hourly_url": "https://api.weather.gov/gridpoints/REV/41,80/forecast/hourly",
+        "grid_data_url": "https://api.weather.gov/gridpoints/REV/41,80"
+      },
+      "urls": {
+        "resort_home": "https://www.palisadestahoe.com",
+        "mountain_report": "https://www.palisadestahoe.com/mountain-information/snow-and-weather-report",
+        "snowfall_tracker": "https://www.palisadestahoe.com/mountain-information/snowfall-tracker",
+        "webcams": "https://www.palisadestahoe.com/mountain-information/webcams"
+      },
+      "key_lifts": [
+        "Summit 6",
+        "Roundhouse 4",
+        "Treeline Cirque",
+        "Scott Chair",
+        "Sherwood Express",
+        "Lakeview Chair",
+        "Alpine Bowl Chair",
+        "Base to Base Gondola"
+      ],
+      "wind_hold_vulnerable_lifts": [
+        "Summit 6",
+        "Scott Chair",
+        "Sherwood Express",
+        "Base to Base Gondola"
+      ],
+      "webcams": [
+        {
+          "title": "Alpine Base Lodge (6,835')",
+          "category": "Base Area",
+          "view": "Base lodge, Roundhouse base, and Treeline Cirque bottom terminal",
+          "embed_page": "https://www.palisadestahoe.com/mountain-information/webcams"
+        },
+        {
+          "title": "Ward Peak / Summit 6 (8,637')",
+          "category": "Summit Ridge",
+          "view": "Alpine ridge line looking into Wolverine Bowl and Beaver Bowl",
+          "embed_page": "https://www.palisadestahoe.com/mountain-information/webcams"
+        }
+      ]
+    }
+  ],
+  "potential_extensions": [
+    {
+      "id": "sugar_bowl",
+      "name": "Sugar Bowl Resort",
+      "coordinates": {"latitude": 39.3056, "longitude": -120.3344},
+      "base_elevation_ft": 6883,
+      "summit_elevation_ft": 8383,
+      "cdec_station": "DAN"
+    },
+    {
+      "id": "kirkwood",
+      "name": "Kirkwood Mountain Resort",
+      "coordinates": {"latitude": 38.6847, "longitude": -120.0658},
+      "base_elevation_ft": 7800,
+      "summit_elevation_ft": 9800,
+      "cdec_station": "KIR"
+    },
+    {
+      "id": "mammoth",
+      "name": "Mammoth Mountain",
+      "coordinates": {"latitude": 37.6308, "longitude": -119.0326},
+      "base_elevation_ft": 7953,
+      "summit_elevation_ft": 11053,
+      "cdec_station": "MMS"
+    }
+  ]
+}

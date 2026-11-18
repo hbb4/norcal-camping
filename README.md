@@ -16,6 +16,8 @@ An outdoor planning repository and interactive toolkit for exploring, planning, 
   Comprehensive JSON database covering NPS, CA State Parks, USFS, BLM, and regional parks with precise GPS coordinates, site counts, elevation, and direct links.
 - **Automated Data & Map Generation Pipeline**  
   Python automation scripts to build, validate, and render all guide assets from the master dataset.
+- **Sierra Crest Ski Resort Snow Intelligence (`ski_resort_snow/`)**  
+  Live multi-source snow forecast and observation dashboard for Palisades Tahoe and Alpine Meadows, integrating resort reports, Open-Meteo high-res models, NOAA/NWS alerts, and CDEC/SNOTEL automated ground sensors.
 
 ---
 
@@ -26,6 +28,13 @@ An outdoor planning repository and interactive toolkit for exploring, planning, 
 ├── campground_map_dashboard.html     # Interactive Leaflet web dashboard
 ├── campgrounds_data.json             # Master campground JSON database
 ├── norcal_campground_map.svg         # Standalone SVG regional map
+├── ski_resort_snow/                  # Multi-source ski resort snow forecast & telemetry dashboard
+│   ├── dashboard.html                # Interactive snow intelligence dashboard
+│   ├── update_snow_data.py           # Pipeline runner to fetch & synthesize snow totals
+│   ├── server.py                     # Local web server & dynamic live API
+│   ├── config/                       # Resort coordinates, elevation profiles, & source weights
+│   ├── collectors/                   # Open-Meteo, NOAA/NWS, CDEC/SNOTEL, and Resort scrapers
+│   └── data/                         # Consolidated live snow dataset (live_snow_data.json)
 ├── build_campgrounds_data.py         # Script to compile & validate campgrounds dataset
 ├── generate_map_dashboard.py         # Script to generate HTML dashboard
 ├── generate_svg_map.py               # Script to generate SVG map
