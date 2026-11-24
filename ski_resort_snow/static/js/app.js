@@ -227,7 +227,7 @@ function renderModelBar(resort) {
   };
   box.innerHTML = list.map(m => `<button class="model-chip${m.id === cur ? " active" : ""}" role="tab" data-model="${m.id}" ${m.status !== "success" ? "disabled" : ""}
       title="${m.provider} · ${m.grid} · sounding: ${m.sounding_label}${m.sounding_has_vertical_velocity ? "" : " (no vertical velocity)"} · ${m.hours_available ?? "?"} h">
-      <b>${m.label}</b><small>${runOf(m)}${m.hours_available && m.hours_available < 160 ? ` · ${Math.round(m.hours_available / 24 * 10) / 10} d` : ""}</small></button>`).join("");
+      <b>${m.label}</b><small>${m.members ? `${m.members.length} models` : runOf(m)}${m.hours_available && m.hours_available < 160 ? ` · ${Math.round(m.hours_available / 24 * 10) / 10} d` : ""}</small></button>`).join("");
   box.querySelectorAll(".model-chip").forEach(b => b.addEventListener("click", () => { Prefs.set("model", b.dataset.model); renderDashboard(); }));
   const om = resort.sources.open_meteo || {};
   const note = document.getElementById("model-note");
@@ -664,6 +664,14 @@ function renderHourlyDualAxisChart(resort) {
       const sel = t === currentTier;
       if (sel) {
         s += `<path d="${pathFor(arr)} L${xMid(arr.length - 1)},${p.top + p.h} L${xMid(0)},${p.top + p.h} Z" fill="rgba(125,211,252,0.14)"/>`;
+        // blend: range of the members' own totals (lowest to highest member at each hour)
+        const tt = tls[t].slice(0, n);
+        if (tt.length && tt[0].member_cum_snow_max != null) {
+          const hiA = tt.map(x => U.snowNum(x.member_cum_snow_max || 0)), loA = tt.map(x => U.snowNum(x.member_cum_snow_min || 0));
+          s += `<path d="${pathFor(hiA)} ${loA.map((v, i) => `L${xMid(i).toFixed(1)},${yv(v).toFixed(1)}`).reverse().join(" ")} Z" fill="rgba(167,139,250,0.2)" stroke="rgba(167,139,250,0.55)" stroke-width="0.8"/>`;
+          const a = loA[loA.length - 1], b = hiA[hiA.length - 1];
+          endLabels.push({ y: yv(b) + 4, txt: `members ${a.toFixed(a >= 10 ? 0 : 1)}–${b.toFixed(b >= 10 ? 0 : 1)}${U.snowSuffix()}`, fill: "#c4b5fd", size: 10, weight: 600 });
+        }
       }
       s += `<path d="${pathFor(arr)}" fill="none" stroke="${sel ? "#f8fafc" : "rgba(203,213,225,0.45)"}" stroke-width="${sel ? 2.4 : 1.4}"/>`;
       const v = arr[arr.length - 1];
@@ -879,26 +887,12 @@ function renderSounding(resort) {
   const om = (resort.sources && resort.sources.open_meteo) || {};
   const snd = om.atmospheric_sounding || {};
   if (snd.available === false) {
-    ["dgz-thickness-val", "dgz-layer-val", "dgz-pres-val", "dgz-rh-val", "dgz-lift-val", "dgz-hours-val", "dgz-crystal-val", "mixing-ratio-val", "crest-jet-val", "oro-lift-val", "moisture-cat-val"].forEach(id => { const e = document.getElementById(id); if (e) e.textContent = "n/a"; });
+    ["dgz-thickness-val", "dgz-layer-val", "dgz-pres-val", "dgz-rh-val", "dgz-lift-val", "dgz-hours-val", "dgz-crystal-val"].forEach(id => { const e = document.getElementById(id); if (e) e.textContent = "n/a"; });
     const b = document.getElementById("dgz-badge"); if (b) { b.textContent = "No profile"; b.className = "chip"; b.title = snd.reason || ""; }
-    const ch = document.getElementById("oro-chip"); if (ch) ch.textContent = "No profile";
     const eb = document.getElementById("atmo-eyebrow"); if (eb) eb.textContent = snd.reason || "No vertical profile for this model";
     const pr = document.getElementById("phase-risk-badge"); if (pr) { pr.textContent = "NBM snow level"; pr.className = "chip"; }
     ["dgz-rh-bar", "dgz-lift-bar"].forEach(id => { const e = document.getElementById(id); if (e) e.style.width = "0"; });
-    // Surface-only moisture and crest wind still apply (NBM has T, dew point and wind at the grid point)
-    const md0 = snd.moisture_and_dynamics || {};
-    const set0 = (id, v, html) => { const el = document.getElementById(id); if (el && v != null) el[html ? "innerHTML" : "textContent"] = v; };
-    const mr0 = md0.surface_mixing_ratio_g_kg;
-    if (mr0 != null) {
-      set0("mixing-ratio-val", `${mr0}<small>g/kg mixing ratio</small>`, true);
-      set0("moisture-cat-val", md0.moisture_category);
-      const mk = document.getElementById("mr-marker"); if (mk) mk.style.left = `calc(${Math.min(100, (mr0 / 8) * 100)}% - 2px)`;
-    }
-    if (md0.summit_wind_avg_mph != null) {
-      set0("crest-jet-val", `${md0.summit_wind_avg_mph} mph from ${md0.summit_wind_dir_deg}° (${md0.summit_wind_dir})`);
-      set0("oro-lift-val", md0.orographic_flow);
-      if (ch) ch.textContent = md0.orographic_flow.split(" (")[0];
-    }
+    // moisture and crest wind come from the surface fields and follow the slider (panels.js renderMoisture)
     return;
   }
   const dgz = snd.dgz || {}, ph = snd.precipitation_phase_analysis || {}, md = snd.moisture_and_dynamics || {};
@@ -942,14 +936,7 @@ function renderSounding(resort) {
     pr.title = ph.base_rain_risk_criteria || "";
   }
 
-  // Moisture
-  const mr = md.surface_mixing_ratio_g_kg;
-  set("mixing-ratio-val", mr != null ? `${mr}<small>g/kg mixing ratio</small>` : "--", true);
-  set("moisture-cat-val", md.moisture_category || "--");
-  set("crest-jet-val", md.summit_wind_avg_mph != null ? `${md.summit_wind_avg_mph} mph from ${md.summit_wind_dir_deg}° (${md.summit_wind_dir})` : "n/a");
-  set("oro-lift-val", md.orographic_flow || "--");
-  set("oro-chip", md.orographic_flow ? md.orographic_flow.split(" (")[0] : "--");
-  const m = document.getElementById("mr-marker"); if (m && mr != null) m.style.left = `calc(${Math.min(100, (mr / 8) * 100)}% - 2px)`;
+  // Moisture and crest wind: hourly, see panels.js renderMoisture
 }
 
 /* ==========================================================================
@@ -1019,6 +1006,7 @@ function initRoadMap() {
     const div = L.DomUtil.create("div", "map-legend");
     div.innerHTML = `<div class="map-legend-title">Caltrans chain control</div>` +
       R_LEVELS.map(([lvl, c, txt]) => `<div class="map-legend-row"><span class="map-legend-line${lvl === "CLOSED" ? " dashed" : ""}" style="--c:${c}"></span><b>${lvl}</b><span>${txt}</span></div>`).join("") +
+      `<div class="map-legend-row"><span class="map-legend-line" style="--c:#64748b"></span><b>NV</b><span>Nevada road, no live feed</span></div>` +
       `<div class="map-legend-row"><span class="map-legend-pass"></span><b>▲</b><span>Mountain pass</span></div><div class="map-legend-foot">Full definitions below the map</div>`;
     L.DomEvent.disableClickPropagation(div);
     return div;
@@ -1094,16 +1082,17 @@ function renderRoadList() {
   const segments = rc.segments || [];
   const sum = document.getElementById("roads-summary");
   if (sum) {
-    const active = segments.filter(s => !["R-0", "UNKNOWN"].includes(s.status));
+    const active = segments.filter(s => !["R-0", "UNKNOWN", "NO FEED"].includes(s.status));
+    const noFeed = segments.filter(s => s.status === "NO FEED").length;
     const fresh = rc.status !== "stale" && rc.is_live_feed;
     sum.innerHTML = `${fresh ? `Fetched ${new Date(rc.fetched_at_utc).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} (${Fmt.ago(rc.fetched_at_utc)})` : `<span class="warn-text">Not current: last successful fetch ${Fmt.ago(rc.fetched_at_utc)}${rc.stale_reason ? ` (${rc.stale_reason})` : ""}</span>`}` +
-      ` · ${active.length ? `${active.length} of ${segments.length} corridors under controls` : `no chain controls on ${segments.length} corridors`} · server re-checks every 5 min`;
+      ` · ${active.length ? `${active.length} of ${segments.length - noFeed} corridors under controls` : `no chain controls on ${segments.length - noFeed} Caltrans corridors`}${noFeed ? ` · ${noFeed} Nevada road${noFeed > 1 ? "s" : ""} without a live feed` : ""} · server re-checks every 5 min`;
   }
   container.innerHTML = segments.map(seg => `
     <div class="road-card" onclick="focusRoadSegment('${seg.id}')">
       <span class="road-card-name">${window.routeShield ? routeShield(seg.route, 20) : ""}${seg.common_name || seg.name}</span>
       <span class="road-card-badge" style="background:${seg.status_color}22;color:${seg.status_color};border:1px solid ${seg.status_color}55;">${seg.status}</span>
-      <span class="road-card-chk">${seg.status === "R-0" ? seg.checkpoint : `${seg.status_label} · ${seg.checkpoint}`}</span>
+      <span class="road-card-chk">${seg.status === "NO FEED" ? `No live feed · ${seg.feed_note || ""}` : seg.status === "R-0" ? seg.checkpoint : `${seg.status_label} · ${seg.checkpoint}`}</span>
     </div>`).join("");
 }
 

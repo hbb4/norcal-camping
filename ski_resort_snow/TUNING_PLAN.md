@@ -15,6 +15,7 @@ Goal: replace every hand-set choice in the pipeline with values fit on several w
 | 5 | Open-Meteo models: snow/liquid ratio | Cobb-style habit × lift, unadjusted | wind effect, near-0 °C effect, habit curve scale, riming term (original plan, sections 5–6) |
 | 6 | Open-Meteo models: rain/snow transition | snow level = WBZ − 500 ft; linear over 1,000 ft | WBZ offset, transition depth, surface wet-bulb thresholds |
 | 7 | Wind per tier | 10 m (base), free-air (summit), 60% blend (mid) | blend weights per tier against the resort stations |
+| 8 | Blend weights | equal weights for the six single models (`config/sources.json` → `blends`) | Weight members by skill per lead-time bucket (inverse MAE against SNOTEL and the stations, leave-one-winter-out); keep equal weights unless the fitted weights win out of sample. |
 
 ## 2. Ground truth (confirmed Nov 24, 2026, by test requests)
 
@@ -189,7 +190,7 @@ Non-SNOTEL CDEC stations with hourly snow sensors nearby: HYS Huysink (6,600 ft)
 | Alpine mid 8,120 ft | 33 °F | 24 °F | 36 °F |
 | Alpine summit 8,543 ft | 25 °F | 22.6 °F | 34 °F |
 
-By late morning (mixed boundary layer) every method was within about 4 °F. The cause is not the elevation adjustment: each model cell has its own calm-night surface layer, while real slopes and ridges above the valley cold pool are ventilated by wind. No re-fit of the 2 m field can create an inversion it doesn't have. The SQV SNOTEL sensor (8,010 ft, near Palisades mid) read 34 °F at 01:00 PST, the same as the mid station, while WC3 in its valley read 21 °F, so SNOTEL can stand in for the mid tier when hindcasting past winters.
+Correction (Nov 24, later): the "free air" values for Palisades base and Alpine base and mid were below the HRRR/GFS column's own terrain (about 8,000 ft at the summit point), where pressure-level values are the model's surface temperature extrapolated downward, not free air; the page now leaves free air blank below the column's ground, and the coupling weights for those stations need a column whose terrain is below them. The mid and summit comparisons stand. By late morning (mixed boundary layer) every method was within about 4 °F. The cause is not the elevation adjustment: each model cell has its own calm-night surface layer, while real slopes and ridges above the valley cold pool are ventilated by wind. No re-fit of the 2 m field can create an inversion it doesn't have. The SQV SNOTEL sensor (8,010 ft, near Palisades mid) read 34 °F at 01:00 PST, the same as the mid station, while WC3 in its valley read 21 °F, so SNOTEL can stand in for the mid tier when hindcasting past winters.
 
 **Correction to fit.** A coupling weight per tier:
 

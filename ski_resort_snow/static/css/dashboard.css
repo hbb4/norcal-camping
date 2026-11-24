@@ -816,3 +816,18 @@ kbd { font-family: var(--font-mono); font-size: 11px; padding: 2px 6px; border-r
 .habit-tiers li { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .habit-tiers li b { color: var(--ink); font-weight: 600; }
 .habit-tiers i { display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 50%; color: #0b1220; font: 800 10px/1 var(--font-sans); font-style: normal; flex: none; transform: translateY(3px); }
+
+/* v10: sky follows the sun; color changes ease over one playback step */
+#skyFill stop { transition: stop-color var(--sky-ms, 260ms) linear; }
+#sky-stars { transition: opacity var(--sky-ms, 260ms) linear; }
+
+/* v10: profile cards keep one line per value as the slider moves; slider sits between the cards and the skew-T */
+.atmo header h3 { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.atmo header .chip { flex: none; white-space: nowrap; }
+.dgz-stats .mini-label, .dgz-stats b, .dgz-stats small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dgz-stats b { font-variant-numeric: tabular-nums; }
+.kv dd { font-variant-numeric: tabular-nums; }
+.scrubber-atmo { margin: 14px 0 0; }
+.dgz-stats { grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
+.dgz-stats > div { padding: 8px 9px; }
+.dgz-stats b { font-size: 14.5px; letter-spacing: -0.01em; }

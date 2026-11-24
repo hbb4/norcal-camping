@@ -743,3 +743,91 @@ class TestElevationMethods(unittest.TestCase):
         std = c._build_tier({"hourly": hourly}, self._profile(False), "Summit", 2600)["_steps"][0]
         self.assertAlmostEqual(std["temp_f"], cell_f - 6.5 * 0.6 * 1.8, delta=0.1)
         self.assertLessEqual(inv["dew_point_f"], inv["temp_f"])
+
+
+class TestColumnGroundAndRoads(unittest.TestCase):
+    """Nov 24, 2026: freezing level from the highest crossing (no below-ground dips), free air only above the
+    model's ground, and Nevada roads shown as having no live feed instead of defaulting to open."""
+
+    def _upper(self, p_sfc):
+        # 800 hPa is below the model's ground and carries the cold surface temperature extrapolated downward
+        lv = {1000: (100, 13.0), 850: (1570, 2.2), 800: (2064, -0.5), 750: (2592, 6.2), 700: (3154, 3.9), 650: (3753, 1.3),
+              600: (4391, -2.9), 550: (5073, -7.0), 500: (5806, -12.5), 450: (6600, -18.5), 400: (7460, -25.0)}
+        h = {"time": ["2026-11-26T12:00"], "surface_pressure": [p_sfc]}
+        for p, (z, t) in lv.items():
+            h[f"geopotential_height_{p}hPa"] = [z]; h[f"temperature_{p}hPa"] = [t]; h[f"relative_humidity_{p}hPa"] = [80.0]
+            h[f"vertical_velocity_{p}hPa"] = [0.0]; h[f"wind_speed_{p}hPa"] = [20.0]; h[f"wind_direction_{p}hPa"] = [250.0]
+        return {"hourly": h}
+
+    def test_freezing_level_ignores_below_ground_crossing(self):
+        from collectors.open_meteo_client import OpenMeteoClient, _highest_crossing
+        self.assertAlmostEqual(_highest_crossing([0, 1, 2, 3], [1, -1, 1, -1], 0.0), 2.5)
+        prof = OpenMeteoClient()._build_vertical_profile(self._upper(761.0))[0]
+        self.assertGreater(prof["freezing_level_ft"], 12000)          # top of the warm layer, not ~6,500 ft
+        self.assertFalse(prof["freezing_level_below_ground"])
+        self.assertAlmostEqual(prof["ground_ft"], 2440 * 3.28084, delta=250)
+        self.assertIsNotNone(prof["dgz_base_ft"])
+
+    def test_free_air_blank_below_model_ground(self):
+        from collectors.open_meteo_client import OpenMeteoClient
+        c = OpenMeteoClient()
+        prof = c._build_vertical_profile(self._upper(761.0))
+        hourly = {"time": ["2026-11-26T12:00"], "temperature_2m": [30.0], "dew_point_2m": [20.0], "relative_humidity_2m": [65],
+                  "precipitation": [0.0], "snowfall": [0.0], "precipitation_probability": [0], "surface_pressure": [800.0],
+                  "wind_speed_10m": [5.0], "wind_gusts_10m": [9.0], "wind_direction_10m": [250.0], "cloud_cover": [0], "visibility": [20000]}
+        base = c._build_tier({"hourly": hourly}, prof, "Base", 1890)["_steps"][0]
+        summit = c._build_tier({"hourly": hourly}, prof, "Summit", 2758)["_steps"][0]
+        self.assertIsNone(base["free_air_temp_f"])
+        self.assertIsNotNone(summit["free_air_temp_f"])
+
+    def test_roads_without_feed(self):
+        from unittest import mock
+        from collectors.caltrans_client import CaltransClient
+        line = [[39.0 + i * 0.001, -119.95] for i in range(100)]
+        roads = [{"id": "nv", "route": "NV 28", "name": "NV", "feed": "none", "feed_note": "no feed", "polyline": line},
+                 {"id": "us", "route": "50", "name": "US", "feed": "partial", "feed_note": "part", "polyline": line},
+                 {"id": "ca", "route": "89", "name": "CA", "polyline": line}]
+        rec = {"route": "50", "lat": 39.05, "lon": -119.95, "ccStatus": {"status": "R-2", "description": "chains"}, "locationName": "x"}
+        c = CaltransClient()
+        with mock.patch.object(c, "fetch_district_chain_controls", lambda district=3: []):
+            seg = {s["id"]: s for s in c.get_road_conditions(roads)["segments"]}
+        self.assertEqual((seg["nv"]["status"], seg["us"]["status"], seg["ca"]["status"]), ("NO FEED", "NO FEED", "R-0"))
+        with mock.patch.object(c, "fetch_district_chain_controls", lambda district=3: [rec] if district == 3 else []):
+            seg = {s["id"]: s for s in c.get_road_conditions(roads)["segments"]}
+        self.assertEqual(seg["us"]["status"], "R-2")
+        self.assertIn("California part only", seg["us"]["checkpoint"])
+        self.assertEqual(seg["nv"]["status"], "NO FEED")
+
+
+class TestBlend(unittest.TestCase):
+    """Static model blend: weighted hourly mean, increments for totals, stop rule, SLR consistency, spread."""
+
+    @staticmethod
+    def _member(n, snow, liq, temp, wdir, frac=1.0):
+        out, cum, k = [], 0.0, 0.0
+        for i in range(n):
+            cum += snow
+            k += snow * 1.5
+            out.append({"time": f"2026-11-24T{i:02d}:00Z", "precip_in": liq, "snowfall_rate_in_hr": snow, "model_snowfall_in_hr": liq * 7,
+                        "cumulative_snow_inches": cum, "kuchera_cumulative_inches": k, "experimental_cumulative_inches": cum,
+                        "slr": snow / (liq * frac) if liq else 10, "snow_fraction": frac, "precip_probability": 90, "temp_f": temp,
+                        "dew_point_f": temp - 4, "wind_mph": 20.0, "wind_dir_deg": wdir, "precip_phase": "snow"})
+        return out
+
+    def test_blend_steps(self):
+        from collectors.open_meteo_client import OpenMeteoClient
+        a = self._member(6, 1.0, 0.10, 20.0, 350)     # 10:1
+        b = self._member(4, 2.0, 0.10, 30.0, 10)      # 20:1, ends after 4 hours
+        c = self._member(2, 0.0, 0.00, 25.0, 0)       # ends after 2 hours
+        steps = OpenMeteoClient._blend_steps({"a": a, "b": b, "c": c}, {"a": 1, "b": 1, "c": 1}, 1.5)
+        self.assertEqual(len(steps), 4)                         # hour 5 has only "a" (weight 1 < 1.5): stop
+        h0, h3 = steps[0], steps[3]
+        self.assertAlmostEqual(h0["snowfall_rate_in_hr"], 1.0, places=2)    # (1 + 2 + 0) / 3
+        self.assertAlmostEqual(h3["snowfall_rate_in_hr"], 1.5, places=2)    # c gone: (1 + 2) / 2
+        self.assertAlmostEqual(h3["cumulative_snow_inches"], 1.0 + 1.0 + 1.5 + 1.5, places=2)   # no jump when c ends
+        self.assertAlmostEqual(h3["kuchera_cumulative_inches"], 1.5 * (1.0 + 1.0 + 1.5 + 1.5), places=2)
+        self.assertAlmostEqual(h3["slr"], 15.0, places=1)       # blended snow / blended liquid: 1.5 / 0.1
+        self.assertEqual(h0["temp_f"], 25.0)
+        self.assertTrue(h0["wind_dir_deg"] in (0, 360) or h0["wind_dir_deg"] <= 1)   # 350 and 10 average to north
+        self.assertEqual((h3["members"], h3["member_cum_snow_min"], h3["member_cum_snow_max"]), (2, 4.0, 8.0))
+        self.assertEqual(h3["precip_phase"], "snow")

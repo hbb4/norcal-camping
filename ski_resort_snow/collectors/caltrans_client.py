@@ -45,6 +45,12 @@ class CaltransClient:
             "color": "#ef4444",
             "description": "Chains required on ALL vehicles without exception. (Very rare; highway typically closed before R-3 is implemented)."
         },
+        "NO FEED": {
+            "label": "No live feed",
+            "short_code": "NO FEED",
+            "color": "#64748b",
+            "description": "No live road-condition data for this road."
+        },
         "CLOSED": {
             "label": "Highway Closed",
             "short_code": "CLOSED",
@@ -121,9 +127,16 @@ class CaltransClient:
             route_num = str(road.get("route", "")).strip().upper()
             seg_id = road["id"]
 
-            matched_cc = self._find_matching_controls(route_num, seg_id, all_raw_cc)
+            feed = road.get("feed", "caltrans")
+            matched_cc = [] if feed == "none" else self._find_matching_controls(route_num, seg_id, all_raw_cc)
 
-            if matched_cc:
+            if feed == "none" or (feed == "partial" and not matched_cc):
+                # no Caltrans coverage (Nevada roads): say so instead of defaulting to "open"
+                status_code = "NO FEED"
+                checkpoint = road.get("key_pass", "")
+                direction = "Both Directions"
+                desc = road.get("feed_note", "No live road-condition feed for this road.")
+            elif matched_cc:
                 # Use most restrictive control found on segment
                 highest_status = self._get_highest_severity(matched_cc)
                 primary_rec = matched_cc[0]
@@ -143,6 +156,8 @@ class CaltransClient:
                 desc = self.STATUS_DEFINITIONS["R-0"]["description"]
 
             info = self.STATUS_DEFINITIONS.get(status_code, self.STATUS_DEFINITIONS["R-0"])
+            if feed == "partial" and matched_cc:
+                checkpoint = f"{checkpoint} (California part only)" if checkpoint else "California part only"
 
             segments_status.append({
                 "id": seg_id,
@@ -162,6 +177,8 @@ class CaltransClient:
                 "shield_label": road.get("shield_label", road.get("common_name", "")),
                 "shield_coords": road.get("shield_coords"),
                 "checkpoints_matched": len(matched_cc) if matched_cc else 0,
+                "feed": feed,
+                "feed_note": road.get("feed_note", ""),
                 "polyline": road.get("polyline", [])
             })
 

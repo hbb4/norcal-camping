@@ -67,7 +67,11 @@ class SnowAggregator:
         self.resorts_cfg = self._load_json(self.config_dir / "resorts.json")
         self.roads_cfg = self._load_json(self.config_dir / "roads.json")
 
-        self.open_meteo = OpenMeteoClient()
+        try:
+            blends = json.loads((Path(config_dir) / "sources.json").read_text()).get("blends")
+        except Exception:
+            blends = None
+        self.open_meteo = OpenMeteoClient(blends=blends)
         self.nws = NWSClient()
         self.cdec = CDECSnotelClient()
         self.resort_scraper = ResortScraper()

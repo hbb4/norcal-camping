@@ -56,6 +56,16 @@ LEVEL_VARS = ["temperature", "relative_humidity", "geopotential_height", "vertic
 TIMELINE_HOURS = 168
 FORECAST_HOURS = 168
 DEFAULT_MODEL = "nbm"
+# Static blends shown as their own entries in the model selector (config/sources.json "blends" overrides).
+# NBM is left out: it is already a blend that includes GFS and ECMWF.
+DEFAULT_BLENDS = [{"id": "blend", "label": "Blend", "members": {"ecmwf_hres": 1, "aifs": 1, "hrrr_gfs": 1, "icon": 1, "ukmo": 1, "gem": 1},
+                   "profile_from": "ecmwf_hres", "min_weight_share": 0.5}]
+BLEND_MEAN_KEYS = {   # key -> rounding
+    "precip_in": 3, "snowfall_rate_in_hr": 2, "model_snowfall_in_hr": 2, "slr_kuchera": 1, "slr_experimental": 1, "snow_fraction": 2,
+    "precip_probability": 0, "temp_f": 1, "free_air_temp_f": 1, "wet_bulb_f": 1, "dew_point_f": 1, "relative_humidity_pct": 0,
+    "mixing_ratio_g_kg": 2, "visibility_mi": 2, "cloud_cover_pct": 0, "wind_mph": 1, "gust_mph": 1, "model_10m_wind_mph": 1,
+    "free_air_wind_mph": 1, "freezing_level_ft": 0, "snow_level_ft": 0, "wet_bulb_zero_ft": 0,
+}
 
 MODELS = [
     {"id": "nbm", "om": None, "label": "NBM", "provider": "NOAA/NWS (NOMADS, native GRIB2)", "grid": "2.5 km",
@@ -194,6 +204,24 @@ def _interp_height_for_value(heights: List[float], values: List[float], target: 
     return None
 
 
+def _highest_crossing(heights: List[float], values: List[float], target: float) -> Optional[float]:
+    """Highest height (m) where `values` crosses `target`, scanning top-down.
+
+    Freezing level and wet-bulb zero use the highest crossing: the top of any warm layer,
+    above which the column stays below 0 C. The lowest crossing jumped on calm nights to
+    levels below the model's terrain, where pressure-level values are extrapolated
+    downward from the model's cold surface (HRRR/GFS at the Palisades summit, Nov 26-29,
+    2026: 12,800 ft -> 6,500 ft -> 13,500 ft within hours)."""
+    for i in range(len(heights) - 2, -1, -1):
+        v0, v1 = values[i], values[i + 1]
+        if v0 is None or v1 is None:
+            continue
+        if (v0 - target) * (v1 - target) <= 0 and v0 != v1:
+            frac = (target - v0) / (v1 - v0)
+            return heights[i] + frac * (heights[i + 1] - heights[i])
+    return None
+
+
 def _interp_at_height(heights: List[float], values: List[float], h: float) -> Optional[float]:
     pts = [(z, v) for z, v in zip(heights, values) if z is not None and v is not None]
     if not pts:
@@ -244,7 +272,8 @@ class OpenMeteoClient:
     META_URL = "https://api.open-meteo.com/data/{model}/static/meta.json"
     USER_AGENT = "SierraSnowDashboard/3.0"
 
-    def __init__(self, timeout_sec: int = 20):
+    def __init__(self, timeout_sec: int = 20, blends: Optional[List[Dict[str, Any]]] = None):
+        self.blends = DEFAULT_BLENDS if blends is None else blends
         self.timeout_sec = timeout_sec
         self._meta_cache: Dict[str, Any] = {}
 
@@ -288,7 +317,7 @@ class OpenMeteoClient:
                     sensor_surface = None
 
             now = datetime.now(timezone.utc).isoformat()
-            outputs = {}
+            outputs, parsed_by_model = {}, {}
             for m in MODELS:
                 say(f"model {m['label']}")
                 if m["id"] == "nbm":
@@ -301,6 +330,7 @@ class OpenMeteoClient:
                     outputs[m["id"]] = {"status": "error", "model": self._model_card(m, w_ok, None), "error_message": "no data for this location"}
                     continue
                 parsed = {k: self._build_tier(parts[k], prof, labels[k], tiers[k]["elevation_m"], exposure[k], ensembles[k], w_ok) for k in tiers}
+                parsed_by_model[m["id"]] = parsed
                 out = self._assemble(m, parsed, prof, tiers, w_ok, now)
                 if sensor and sensor_surface and m["id"] == "hrrr_gfs":
                     try:
@@ -315,10 +345,24 @@ class OpenMeteoClient:
                         pass
                 outputs[m["id"]] = out
 
+            # static blends (before the column details are dropped: the blend's profile panels use one of them)
+            for bl in self.blends:
+                try:
+                    bo = self._blend_output(bl, outputs, parsed_by_model, profiles, has_w, tiers, labels, ensembles, now)
+                except Exception as e:  # a failed blend never takes the members down
+                    bo = {"status": "error", "model": {"id": bl["id"], "label": bl.get("label", "Blend"), "provider": "blend", "grid": "",
+                                                        "runs": [], "hours_available": None}, "error_message": f"{type(e).__name__}: {e}"}
+                if bo:
+                    outputs[bl["id"]] = bo
+            # selector order: NBM, the blends, then the single models
+            first = [k for k in ["nbm"] + [b["id"] for b in self.blends] if k in outputs]
+            outputs = {k: outputs[k] for k in first + [k for k in outputs if k not in first]}
+
             for p in profiles.values():
                 for x in p:
                     x.pop("_levels", None)
                     x.pop("_skewt", None)
+                    x.pop("_ground_m", None)
             self._attach_profile(outputs.get("nbm"), outputs.get("hrrr_gfs"))
 
             comparison = [{**o["model"], **(o.get("summit_summary") or {}), **({"error": o.get("error_message")} if o.get("status") == "error" else {})}
@@ -342,6 +386,117 @@ class OpenMeteoClient:
                 "timestamp_utc": datetime.now(timezone.utc).isoformat(),
                 "error_message": f"{type(e).__name__}: {e}",
             }
+
+    @staticmethod
+    def _blend_steps(member_steps: Dict[str, List[Dict[str, Any]]], weights: Dict[str, float], min_weight: float) -> List[Dict[str, Any]]:
+        """Hourly weighted mean of the members present; stops when less than min_weight of them remain.
+
+        Accumulations are averaged as hourly increments (a member that ends early can't make a total jump);
+        the snow/liquid ratio is the ratio of the blended snow to the blended snow-fraction liquid, so
+        snow = liquid x fraction x SLR still holds; wind direction is a speed-weighted vector mean."""
+        idx = {mid: {s["time"]: s for s in steps} for mid, steps in member_steps.items()}
+        times = sorted(set().union(*[set(d) for d in idx.values()])) if idx else []
+        prev = {mid: {} for mid in idx}
+        cum = {"cumulative_snow_inches": 0.0, "model_cumulative_inches": 0.0, "kuchera_cumulative_inches": 0.0, "experimental_cumulative_inches": 0.0}
+        out = []
+        for t in times:
+            present = {mid: idx[mid][t] for mid in idx if t in idx[mid]}
+            wsum = sum(weights[mid] for mid in present)
+            if wsum < min_weight:
+                break
+
+            def mean(key):
+                vals = [(weights[mid], s[key]) for mid, s in present.items() if s.get(key) is not None]
+                sw = sum(a for a, _ in vals)
+                return sum(a * v for a, v in vals) / sw if sw else None
+
+            x = {"time": t}
+            for key, nd in BLEND_MEAN_KEYS.items():
+                v = mean(key)
+                x[key] = (round(v) if nd == 0 else round(v, nd)) if v is not None else None
+            # accumulations: mean of each member's hourly increment
+            for key in ("kuchera_cumulative_inches", "experimental_cumulative_inches"):
+                inc = []
+                for mid, s in present.items():
+                    c = s.get(key)
+                    if c is not None:
+                        inc.append((weights[mid], c - prev[mid].get(key, 0.0)))
+                        prev[mid][key] = c
+                sw = sum(a for a, _ in inc)
+                cum[key] += sum(a * v for a, v in inc) / sw if sw else 0.0
+            cum["cumulative_snow_inches"] += x["snowfall_rate_in_hr"] or 0.0
+            cum["model_cumulative_inches"] += x["model_snowfall_in_hr"] or 0.0
+            for key, v in cum.items():
+                x[key] = round(v, 2)
+            for mid, s in present.items():   # each member's own running total, for the spread
+                prev[mid]["snow"] = s.get("cumulative_snow_inches", prev[mid].get("snow", 0.0))
+            # snow/liquid ratio consistent with the blended amounts
+            num = sum(weights[mid] * (s.get("snowfall_rate_in_hr") or 0.0) for mid, s in present.items())
+            den = sum(weights[mid] * (s.get("precip_in") or 0.0) * (s.get("snow_fraction") or 0.0) for mid, s in present.items())
+            slr_mean = mean("slr")
+            x["slr"] = round(num / den, 1) if den > 0.0005 else (round(slr_mean, 1) if slr_mean is not None else None)
+            # wind direction
+            u = sum(weights[mid] * (s.get("wind_mph") or 0) * math.sin(math.radians(s.get("wind_dir_deg") or 0)) for mid, s in present.items())
+            v = sum(weights[mid] * (s.get("wind_mph") or 0) * math.cos(math.radians(s.get("wind_dir_deg") or 0)) for mid, s in present.items())
+            x["wind_dir_deg"] = round(math.degrees(math.atan2(u, v)) % 360) % 360
+            # phase from the blended snow fraction; ice when at least half the weight says ice
+            frac, pop = x["snow_fraction"] or 0.0, x["precip_probability"] or 0
+            ice_w = sum(weights[mid] for mid, s in present.items() if s.get("precip_phase") == "ice")
+            if (x["precip_in"] or 0) < 0.005 and pop < 20:
+                ph = "dry"
+            elif ice_w >= wsum / 2:
+                ph = "ice"
+            else:
+                ph = "snow" if frac >= 0.9 else ("rain" if frac <= 0.1 else "mix")
+            x["precip_phase"] = ph
+            x["precip_phase_label"] = {"dry": "None", "snow": "Snow", "mix": "Rain/snow", "rain": "Rain", "ice": "Sleet/freezing rain risk"}[ph]
+            x["pop_source"] = "blend"
+            x["chance_snow_pct"] = round(pop * frac)
+            x["chance_rain_pct"] = round(pop * (1 - frac))
+            if x["temp_f"] is not None and x["dew_point_f"] is not None:
+                x["dew_point_depression_f"] = round(x["temp_f"] - x["dew_point_f"], 1)
+            x["warm_layer_aloft"] = sum(weights[mid] for mid, s in present.items() if s.get("warm_layer_aloft")) >= wsum / 2
+            # spread across the members present
+            snows = [prev[mid]["snow"] for mid in present]
+            temps = [s["temp_f"] for s in present.values() if s.get("temp_f") is not None]
+            x["members"] = len(present)
+            x["member_cum_snow_min"], x["member_cum_snow_max"] = round(min(snows), 2), round(max(snows), 2)
+            x["member_temp_min"], x["member_temp_max"] = (round(min(temps), 1), round(max(temps), 1)) if temps else (None, None)
+            out.append(x)
+        return out
+
+    def _blend_output(self, bl: Dict[str, Any], outputs: Dict[str, Any], parsed_by_model: Dict[str, Any], profiles: Dict[str, Any],
+                      has_w: Dict[str, bool], tiers: Dict[str, Any], labels: Dict[str, str], ensembles: Dict[str, Any], now: str) -> Optional[Dict[str, Any]]:
+        nominal = {mid: float(wt) for mid, wt in (bl.get("members") or {}).items() if wt and wt > 0}
+        w = {mid: wt for mid, wt in nominal.items() if mid in parsed_by_model and (outputs.get(mid) or {}).get("status") == "success"}
+        if len(w) < 2:
+            return None
+        min_w = float(bl.get("min_weight_share", 0.5)) * sum(nominal.values())
+        parsed = {}
+        for k in tiers:
+            steps = self._blend_steps({mid: parsed_by_model[mid][k]["_steps"] for mid in w}, w, min_w)
+            if not steps:
+                return None
+            p = self._summarize_tier(steps, labels[k], round(tiers[k]["elevation_m"] * M_TO_FT), ensembles.get(k), True)
+            p["hourly_timeline_48h"] = steps[:TIMELINE_HOURS]
+            parsed[k] = p
+        src = next((x for x in MODELS if x["id"] == bl.get("profile_from", "ecmwf_hres")), None) or next(x for x in MODELS if x["id"] == "ecmwf_hres")
+        prof = profiles.get(src["sounding"]) or []
+        names = {x["id"]: x["label"] for x in MODELS}
+        equal = len(set(w.values())) == 1
+        m = {"id": bl["id"], "label": bl.get("label", "Blend"), "om": None, "provider": f"{'Equal-weight mean' if equal else 'Weighted mean'} of {len(w)} models",
+             "grid": "mean of " + ", ".join(names.get(mid, mid) for mid in w), "sounding": src["sounding"],
+             "sounding_label": f"{src['label']} column", "meta": []}
+        out = self._assemble(m, parsed, prof, tiers, has_w.get(src["sounding"], False), now)
+        out["model"]["runs"] = [{"model": names.get(mid, mid), **r} for mid in w for r in ((outputs[mid].get("model") or {}).get("runs") or [])[:1]]
+        out["model"]["members"] = [{"id": mid, "label": names.get(mid, mid), "weight": round(wt / sum(w.values()), 3)} for mid, wt in w.items()]
+        missing = [names.get(mid, mid) for mid in nominal if mid not in w]
+        out["blend"] = {"members": out["model"]["members"], "missing": missing, "profile_from": src["label"],
+                        "rule": f"hourly weighted mean of the members present; stops when under {round(100 * float(bl.get('min_weight_share', 0.5)))}% of the member weight remains"}
+        out["primary_model"]["label"] = f"{m['label']} ({len(w)} models)"
+        out["source"] = f"Blend of {len(w)} Open-Meteo models"
+        out["methodology"]["blend"] = out["blend"]["rule"]
+        return out
 
     @staticmethod
     def _attach_profile(nbm_out: Optional[Dict[str, Any]], src: Optional[Dict[str, Any]], src_label: str = "HRRR/GFS") -> None:
@@ -513,7 +668,9 @@ class OpenMeteoClient:
         s_tl = summit["hourly_timeline_48h"]
         fl = [p["freezing_level_ft"] for p in prof[:48] if p.get("freezing_level_ft")]
         sounding = self._summarize_sounding(prof, parsed, tiers)
-        sounding_hourly = [{"time": p["time"], "levels": p["_skewt"]} for p in prof[:TIMELINE_HOURS]] if prof else []
+        sounding_hourly = [{"time": p["time"], "levels": p["_skewt"],
+                            "ground_m": round(p["_ground_m"]) if p.get("_ground_m") is not None else None}
+                           for p in prof[:TIMELINE_HOURS]] if prof else []
         card = self._model_card(m, has_w, summit["hours_available"])
         out = {
             "status": "success",
@@ -587,9 +744,10 @@ class OpenMeteoClient:
         }, timeout=self.timeout_sec * 2)
 
     def _query_upper_air(self, lat: float, lon: float, om_ids: List[str]) -> Dict[str, Any]:
-        hourly = [f"{v}_{p}hPa" for p in PRESSURE_LEVELS for v in LEVEL_VARS]
+        hourly = [f"{v}_{p}hPa" for p in PRESSURE_LEVELS for v in LEVEL_VARS] + ["surface_pressure"]   # model ground
         return self._get(self.BASE_URL, {
-            "latitude": f"{lat:.4f}", "longitude": f"{lon:.4f}",
+            # elevation=nan: surface_pressure is the model's own ground, not downscaled to the point's height
+            "latitude": f"{lat:.4f}", "longitude": f"{lon:.4f}", "elevation": "nan",
             "hourly": ",".join(hourly), "models": ",".join(om_ids),
             "forecast_hours": str(FORECAST_HOURS), "past_hours": "0", "timezone": "GMT",
             "wind_speed_unit": "mph",   # heights stay in meters, temperatures in C
@@ -642,17 +800,22 @@ class OpenMeteoClient:
                                "ws": _val(uh.get(f"wind_speed_{p}hPa"), i), "wd": _val(uh.get(f"wind_direction_{p}hPa"), i)})
             levels.sort(key=lambda lv: lv["z"])
             zs = [lv["z"] for lv in levels]
+            # the model's ground at the column point: levels below it are extrapolations, not air
+            p_sfc = _val(uh.get("surface_pressure"), i)
+            ground_m = _height_at_pressure(levels, p_sfc) if (levels and p_sfc) else None
+            air = [lv for lv in levels if ground_m is None or lv["z"] >= ground_m - 1.0]
+            za = [lv["z"] for lv in air]
 
-            wbz_m = _interp_height_for_value(zs, [lv["tw"] for lv in levels], 0.0)
-            fzl_m = _interp_height_for_value(zs, [lv["t"] for lv in levels], 0.0)
+            wbz_m = _highest_crossing(zs, [lv["tw"] for lv in levels], 0.0)
+            fzl_m = _highest_crossing(zs, [lv["t"] for lv in levels], 0.0)
             column_cold = bool(levels) and levels[0]["tw"] <= 0 and wbz_m is None
 
-            dgz_bot = _interp_height_for_value(zs, [lv["t"] for lv in levels], -12.0)
-            dgz_top = _interp_height_for_value(zs, [lv["t"] for lv in levels], -18.0)
+            dgz_bot = _interp_height_for_value(za, [lv["t"] for lv in air], -12.0)
+            dgz_top = _interp_height_for_value(za, [lv["t"] for lv in air], -18.0)
             dgz = {}
             if dgz_bot is not None and dgz_top is not None and dgz_top > dgz_bot:
                 samples = (dgz_bot, (dgz_bot + dgz_top) / 2, dgz_top)
-                avg = lambda key: sum(_interp_at_height(zs, [lv[key] for lv in levels], h) for h in samples) / 3
+                avg = lambda key: sum(_interp_at_height(za, [lv[key] for lv in air], h) for h in samples) / 3
                 dgz = {"rh": avg("rh"), "rhi": avg("rhi"), "w": avg("w"),
                        "p_bot": _pressure_at_height(levels, dgz_bot), "p_top": _pressure_at_height(levels, dgz_top)}
 
@@ -665,6 +828,9 @@ class OpenMeteoClient:
                 "freezing_level_ft": ft(fzl_m),
                 "wet_bulb_zero_ft": wbz_ft,
                 "wbz_below_lowest_level": column_cold,
+                "ground_ft": ft(ground_m),
+                "freezing_level_below_ground": bool(fzl_m is not None and ground_m is not None and fzl_m < ground_m),
+                "wbz_below_ground": bool(wbz_m is not None and ground_m is not None and wbz_m < ground_m),
                 "snow_level_ft": (wbz_ft - 500) if wbz_ft is not None else None,
                 "dgz_base_ft": ft(dgz_bot) if dgz else None,
                 "dgz_top_ft": ft(dgz_top) if dgz else None,
@@ -675,6 +841,7 @@ class OpenMeteoClient:
                 "dgz_rhi_pct": round(dgz["rhi"]) if dgz else None,
                 "dgz_lift_cm_s": round(dgz["w"] * 100, 1) if dgz else None,
                 "_levels": levels,
+                "_ground_m": ground_m,
                 "_skewt": [[lv["p"], round(lv["z"]), round(lv["t"], 1), round(lv["td"], 1),
                             round(lv["wd"]) if lv["wd"] is not None else None,
                             round(lv["ws"]) if lv["ws"] is not None else None,
@@ -709,7 +876,8 @@ class OpenMeteoClient:
             t = times[i]
             prof = profile[i] if i < len(profile) else {}
             levels = prof.get("_levels", [])
-            above = [lv for lv in levels if lv["z"] >= elevation_m]
+            ground = prof.get("_ground_m")
+            above = [lv for lv in levels if lv["z"] >= elevation_m and (ground is None or lv["z"] >= ground - 1.0)]
 
             precip = _val(h.get("precipitation"), i, 0.0)
             model_snow = _val(h.get("snowfall"), i, 0.0)
@@ -803,7 +971,10 @@ class OpenMeteoClient:
             gust_factor = max(1.15, min(1.4, g10 / ws10)) if ws10 > 3 else 1.3
             gust = max(g10, ws * gust_factor)
             zt = [lv["z"] for lv in levels]
-            fa_t = _interp_at_height(zt, [lv["t"] for lv in levels], elevation_m) if levels and levels[0]["z"] <= elevation_m else None
+            # free air only where the tier is above the column's ground (50 m tolerance); below it the
+            # pressure-level values are the model's surface temperature extrapolated downward
+            fa_ok = levels and levels[0]["z"] <= elevation_m and (ground is None or elevation_m >= ground - 50.0)
+            fa_t = _interp_at_height(zt, [lv["t"] for lv in levels], elevation_m) if fa_ok else None
 
             # Primary SLR: Cobb-style, no empirical adjustment (bounded to a physical range)
             slr = max(3.0, min(30.0, slr_cobb))

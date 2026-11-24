@@ -15,7 +15,62 @@
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   let state = { resort: null, hour: 0, playing: null, tl: {}, profile: [] };
-  const SPEEDS = [1, 2, 4], STEP_MS = 260;   // one forecast hour every 260 ms at 1x
+  const SPEEDS = [1, 2, 4, 8], STEP_MS = 260;   // one forecast hour every 260 ms at 1x
+
+  // ---- sky: color from the sun's elevation at the resort for the hour shown ----
+  function sunElevation(date, lat, lon) {
+    const rad = Math.PI / 180, d = date.getTime() / 86400000 - 10957.5;   // days from J2000.0
+    const g = (357.529 + 0.98560028 * d) * rad, q = 280.459 + 0.98564736 * d;
+    const L = (q + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad, e = (23.439 - 0.00000036 * d) * rad;
+    const ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L)), dec = Math.asin(Math.sin(e) * Math.sin(L));
+    const gmst = ((18.697374558 + 24.06570982441908 * d) % 24 + 24) % 24;
+    const ha = (gmst * 15 + lon) * rad - ra;
+    return Math.asin(Math.sin(lat * rad) * Math.sin(dec) + Math.cos(lat * rad) * Math.cos(dec) * Math.cos(ha)) / rad;
+  }
+  // [sun elevation (deg), top, middle, horizon]
+  const SKY = [
+    [-18, "#050a16", "#08111f", "#0c1729"],
+    [-10, "#08132a", "#0d1c38", "#16264a"],
+    [-4, "#13254b", "#2a3561", "#6b4a63"],
+    [0, "#24407a", "#4d5d8c", "#c27a5e"],
+    [5, "#2f5d9a", "#5f87bb", "#e2ae82"],
+    [14, "#2b5f9e", "#4f88c2", "#93bde2"],
+    [40, "#2a62a8", "#4a8acb", "#8dbbe6"],
+  ];
+  const hex = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+  const mix = (a, b, f) => { const x = hex(a), y = hex(b); return `rgb(${x.map((v, i) => Math.round(v + (y[i] - v) * f)).join(",")})`; };
+  const mixRgb = (rgb, b, f) => { const x = rgb.match(/\d+/g).map(Number), y = hex(b); return `rgb(${x.map((v, i) => Math.round(v + (y[i] - v) * f)).join(",")})`; };
+  function skyColors(elev, cloud) {
+    let k = 0;
+    while (k < SKY.length - 2 && elev > SKY[k + 1][0]) k++;
+    const a = SKY[k], b = SKY[k + 1];
+    const f = Math.max(0, Math.min(1, (elev - a[0]) / (b[0] - a[0])));
+    let cols = [1, 2, 3].map(i => mix(a[i], b[i], f));
+    if (cloud > 0) {   // overcast flattens the sky toward gray, more so in daylight
+      const gray = elev > 0 ? "#6b7685" : "#141a24", w = Math.min(0.75, cloud / 100 * (elev > 0 ? 0.75 : 0.5));
+      cols = cols.map(c => mixRgb(c, gray, w));
+    }
+    return cols;
+  }
+  function paintSky(time, resort, cloud) {
+    const c = (resort && resort.coordinates) || { latitude: 39.2, longitude: -120.24 };
+    const el = sunElevation(time, c.latitude, c.longitude);
+    const cols = skyColors(el, cloud ?? 0);
+    ["sky-top", "sky-mid", "sky-hor"].forEach((id, i) => { const s = $(id); if (s) s.style.stopColor = cols[i]; });
+    const stars = $("sky-stars");
+    if (stars) stars.style.opacity = (Math.max(0, Math.min(1, (-el - 6) / 10)) * (1 - Math.min(1, (cloud ?? 0) / 85))).toFixed(2);
+    const stage = $("scene-stage");
+    if (stage) stage.dataset.sun = el > 0 ? "day" : el > -6 ? "twilight" : "night";
+    return el;
+  }
+  function starField() {
+    let s = "";
+    for (let i = 0; i < 46; i++) {
+      const x = (Math.sin(i * 12.9898) * 43758.5453 % 1 + 1) % 1 * 800, y = (Math.sin(i * 78.233) * 12543.123 % 1 + 1) % 1 * 190;
+      s += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(0.5 + (i % 3) * 0.35).toFixed(2)}" fill="#e2e8f0" opacity="${(0.35 + (i % 5) * 0.12).toFixed(2)}"/>`;
+    }
+    return s;
+  }
   state.speed = (() => { try { const v = +localStorage.getItem("snow.playSpeed"); return SPEEDS.includes(v) ? v : 1; } catch (e) { return 1; } })();
 
   // ---------------------------------------------------------------- helpers
@@ -123,6 +178,7 @@
 
     svg.innerHTML = `
       <defs>
+        <linearGradient id="skyFill" x1="0" y1="0" x2="0" y2="1"><stop id="sky-top" offset="0" style="stop-color:#08111f"/><stop id="sky-mid" offset=".55" style="stop-color:#0e1c33"/><stop id="sky-hor" offset="1" style="stop-color:#13233c"/></linearGradient>
         <linearGradient id="mtnFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#26364f"/><stop offset="1" stop-color="#0d1626"/></linearGradient>
         <linearGradient id="backFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b2a42"/><stop offset="1" stop-color="#101b2e"/></linearGradient>
         <linearGradient id="snowFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f8fbff" stop-opacity=".92"/><stop offset=".55" stop-color="#d6ecfb" stop-opacity=".62"/><stop offset="1" stop-color="#a9d3f0" stop-opacity=".4"/></linearGradient>
@@ -133,6 +189,8 @@
         <pattern id="dgzHatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="7" stroke="#e0f2fe" stroke-width="1.4" stroke-opacity=".35"/></pattern>
       </defs>
 
+      <rect x="0" y="0" width="800" height="${VB_H}" fill="url(#skyFill)"/>
+      <g id="sky-stars" style="opacity:0">${starField()}</g>
       <g opacity=".9">${ticks.map(t => `<line x1="34" x2="800" y1="${yOf(t)}" y2="${yOf(t)}" stroke="rgba(255,255,255,0.035)"/>
         <text x="8" y="${yOf(t) + 3}" fill="#52627a" font-size="9" font-family="JetBrains Mono, monospace">${t / 1000}k</text>`).join("")}
         <path d="M24,${yOf(10000) + 3} l6,-3 M24,${yOf(10000) + 7} l6,-3" stroke="#52627a"/>
@@ -205,6 +263,7 @@
     // readout chips + dynamic title
     const sm = (tl.summit || [])[h] || {}, bs = (tl.base || [])[h] || {};
     const d = new Date(sm.time || Date.now());
+    paintSky(d, r, sm.cloud_cover_pct);
     const rate = sm.snowfall_rate_in_hr || 0;
     const tier = window.__snowTier || "summit";
     const ts = (tl[tier] || [])[h] || sm;
@@ -608,6 +667,8 @@
   function setSpeed(s) {
     state.speed = SPEEDS.includes(s) ? s : 1;
     try { localStorage.setItem("snow.playSpeed", String(state.speed)); } catch (e) { /* private mode */ }
+    const stage = $("scene-stage");
+    if (stage) stage.style.setProperty("--sky-ms", `${Math.round(STEP_MS / state.speed)}ms`);
     document.querySelectorAll("[data-speed]").forEach(b => {
       b.textContent = `${state.speed}×`;
       b.setAttribute("aria-label", `Playback speed ${state.speed}×`);

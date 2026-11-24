@@ -72,6 +72,16 @@
         <path d="M3.6,2.2 H20.4 Q21.8,2.2 21.8,4.2 Q21.8,6.4 20.9,7.8 Q22.2,10 21.9,13.2 Q21.4,19.4 12,22.3 Q2.6,19.4 2.1,13.2 Q1.8,10 3.1,7.8 Q2.2,6.4 2.2,4.2 Q2.2,2.2 3.6,2.2 Z" fill="#fff"/>
         <text x="12" y="${num.length >= 3 ? 15.4 : 16}" font-size="${num.length >= 3 ? 8.5 : 10.5}" fill="#111" ${font}>${num}</text></svg>`;
     }
+    if (r.startsWith("NV")) {
+      // Nevada State Route: white outline of the state on a black square, black numerals
+      const nv = [[0, 0], [1, 0], [1, 0.843], [0.88, 0.857], [0.899, 1], [0, 0.429]];
+      const hgt = 20.4, wid = hgt * 0.66, x0 = (24 - wid) / 2, y0 = 1.8;
+      const pts = nv.map(([x, y]) => `${(x0 + x * wid).toFixed(2)},${(y0 + y * hgt).toFixed(2)}`).join(" ");
+      return `<svg class="shield" width="${size}" height="${size}" viewBox="0 0 24 24" aria-label="Nevada State Route ${num}" role="img">
+        <rect x="0" y="0" width="24" height="24" rx="2" fill="#111"/>
+        <polygon points="${pts}" fill="#fff" stroke="#fff" stroke-width="0.6" stroke-linejoin="round"/>
+        <text x="${(x0 + wid * 0.5).toFixed(2)}" y="9.6" font-size="${num.length >= 3 ? 6.4 : 8}" fill="#111" ${font}>${num}</text></svg>`;
+    }
     // California State Route: green spade, white border, CALIFORNIA across the top
     return `<svg class="shield" width="${size}" height="${h}" viewBox="0 0 24 26" aria-label="California State Route ${num}" role="img">
       <path d="M2.6,1.2 H21.4 Q23,1.2 23,2.9 V8.6 C23,15.3 17.7,21.3 12,25.2 C6.3,21.3 1,15.3 1,8.6 V2.9 Q1,1.2 2.6,1.2 Z" fill="#fff"/>
@@ -358,13 +368,24 @@
     let sup = 0, sub = 0;
     if (m) {
       m.levels.forEach(l => {
-        const [p, , t, td] = l;
+        const [p, z, t, td] = l;
         if (td == null || t > 0 || t < -30 || (baseP && p > baseP)) return;
         const si = rhIce(t, td) - 100;
         si >= 0 ? sup++ : sub++;
-        s += `<circle cx="${X(si)}" cy="${Y(t)}" r="3.6" fill="none" stroke="#f9a8d4" stroke-width="1.4"/>
-          <text x="${X(si) + 6}" y="${Y(t) - 4}" fill="#f9a8d4" font-size="9" font-family="var(--font-mono)">${p}</text>`;
+        const kft = z != null ? `${(z * FT / 1000).toFixed(1)}k` : `${p}`;
+        s += `<g><circle cx="${X(si)}" cy="${Y(t)}" r="3.6" fill="none" stroke="#f9a8d4" stroke-width="1.4"/>
+          <text x="${X(si) + 6}" y="${Y(t) - 4}" fill="#f9a8d4" font-size="9" font-family="var(--font-mono)">${kft}</text>
+          <title>Model level ${p} hPa${z != null ? `, ${Math.round(z * FT).toLocaleString()} ft` : ""}: ${t.toFixed(1)} °C, ${si >= 0 ? "+" : ""}${si.toFixed(0)}% over ice</title></g>`;
       });
+    }
+    // the dendritic growth zone: its mean supersaturation over ice, drawn across -12 to -18 C
+    const pv = (om().vertical_profile || [])[state.hour] || {};
+    const dgz = pv.dgz_rhi_pct != null && pv.dgz_base_ft != null ? { si: pv.dgz_rhi_pct - 100, lift: pv.dgz_lift_cm_s, base: pv.dgz_base_ft, top: pv.dgz_top_ft } : null;
+    if (dgz) {
+      const x = X(dgz.si), y0 = Y(-12), y1 = Y(-18);
+      s += `<g><rect x="${x - 6}" y="${y0}" width="12" height="${y1 - y0}" rx="6" fill="#22d3ee" fill-opacity="0.85" stroke="#0b1220" stroke-width="2"/>
+        <text x="${x + 11}" y="${Y(-15) + 4}" fill="#a5f3fc" font-size="11" font-weight="800" style="paint-order:stroke" stroke="#0b1220" stroke-width="3">DGZ</text>
+        <title>Dendritic growth zone ${(dgz.base / 1000).toFixed(1)}–${(dgz.top / 1000).toFixed(1)}k ft: ${dgz.si >= 0 ? "+" : ""}${dgz.si.toFixed(0)}% over ice${dgz.lift != null ? `, lift ${dgz.lift} cm/s` : ""}</title></g>`;
     }
     // tiers
     const COL = { base: "#34d399", mid: "#a78bfa", summit: "#fb7185" };
@@ -376,9 +397,10 @@
         <title>${pt.t}: ${pt.tc.toFixed(1)} °C${pt.si != null ? `, ${pt.si.toFixed(1)}% over ice` : ""} → ${pt.habit ? pt.habit.name : ""}</title></g>`;
     });
     box.innerHTML = s + `</svg>
-      <ul class="habit-tiers">${pts.slice().reverse().map(pt => `<li><i style="background:${COL[pt.t]}">${pt.t[0].toUpperCase()}</i><b>${{ base: "Base", mid: "Mid", summit: "Summit" }[pt.t]}${pt.ft ? ` ${pt.ft.toLocaleString()} ft` : ""}</b>
+      <ul class="habit-tiers">${dgz ? `<li><i style="background:#22d3ee;border-radius:6px">D</i><b>DGZ ${(dgz.base / 1000).toFixed(1)}–${(dgz.top / 1000).toFixed(1)}k ft</b>
+        −12 to −18 °C, ${dgz.si >= 0 ? "+" : "−"}${Math.abs(dgz.si).toFixed(0)}% over ice${dgz.lift != null ? `, lift ${dgz.lift >= 0 ? "+" : "−"}${Math.abs(Math.round(dgz.lift))} cm/s` : ""} → <b>${esc((habitAt(-15, dgz.si) || {}).name || "–")}</b>${dgz.si >= 0 && (dgz.lift ?? 0) >= 10 ? " (growing fast: saturated and rising)" : dgz.si < 0 ? "" : " (weak lift: slow growth)"}</li>` : ""}${pts.slice().reverse().map(pt => `<li><i style="background:${COL[pt.t]}">${pt.t[0].toUpperCase()}</i><b>${{ base: "Base", mid: "Mid", summit: "Summit" }[pt.t]}${pt.ft ? ` ${pt.ft.toLocaleString()} ft` : ""}</b>
         ${U.temp(pt.tf)}${pt.obs ? "*" : ""} (${pt.tc.toFixed(1)} °C)${pt.si != null ? `, ${pt.si >= 0 ? "+" : ""}${pt.si.toFixed(1)}% over ice` : ""} → <b>${esc(pt.habit ? pt.habit.name : "–")}</b></li>`).join("")}</ul>
-      <p class="habit-status">${m ? `${new Date(m.time).toLocaleString([], { weekday: "short", hour: "numeric" })}. Circles: tiers (2 m values of ${esc(((om().model || {}).label) || "the selected model")}${pts.some(p => p.obs) ? "; * resort station readings at hour 0" : ""}). Rings: ${(om().profile_model || {}).label || "model"} column levels between 0 and −30 °C above the base, labeled in hPa (${sup} ice-supersaturated, ${sub} subsaturated). Snow reaching a tier mostly grew in the cloud layers above it, so the rings show where today's crystals form; the tier circle shows how they change on the way down.` : `No model profile for ${esc(((om().model || {}).label) || "this model")}; tier circles only.`}</p>`;
+      <p class="habit-status">${m ? `${new Date(m.time).toLocaleString([], { weekday: "short", hour: "numeric" })}. Circles: tiers (2 m values of ${esc(((om().model || {}).label) || "the selected model")}${pts.some(p => p.obs) ? "; * resort station readings at hour 0" : ""}). Bar: the dendritic growth zone (−12 to −18 °C) at its mean supersaturation; most snow grows aloft, and the DGZ is where dendrites (high snow/liquid ratio) form, so it matters more than the tiers. Rings: ${(om().profile_model || {}).label || "model"} column levels between 0 and −30 °C above the base, labeled by height in thousands of feet (${sup} ice-supersaturated, ${sub} subsaturated; levels drier than −20% sit on the left edge). Tier circles show how crystals change on the way down.` : `No model profile for ${esc(((om().model || {}).label) || "this model")}; tier circles only.`}</p>`;
   }
 
   // ---------------------------------------------------------------- precip type by elevation
@@ -403,7 +425,7 @@
     hi = Math.min(top + 7000, Math.ceil(hi / 1000) * 1000);
 
     const W = Math.max(300, Math.round(box.clientWidth || 360)), narrow = W < 440;
-    const H = 300, T = 24, B = 10, PH = H - T - B;
+    const H = 210, T = 10, B = 8, PH = H - T - B;
     const axW = 28, barX = axW + 6, barW = narrow ? 18 : 28, barR = barX + barW;
     const tblX = barR + (narrow ? 20 : 36);
     const Y = ft => T + PH * (1 - (Math.max(lo, Math.min(hi, ft)) - lo) / (hi - lo));
@@ -430,16 +452,21 @@
     const nameW = Math.round(nameW0 * Math.min(k, 1.2));
     let cx = tblX + nameW;
     const colX = cols.map(([, w]) => { cx += w; return cx; });   // right edges
-    s += cols.map(([lbl], i) => `<text x="${i === 4 ? colX[i] - cols[i][1] + 6 : colX[i]}" y="12" text-anchor="${i === 4 ? "start" : "end"}" fill="#64748b" font-size="10.5" font-weight="600">${lbl}</text>`).join("");
-    if (narrow) s += `<text x="${tblX}" y="12" fill="#64748b" font-size="10.5" font-weight="600">Tier</text>`;
+    const headY = () => (rowsTop != null ? rowsTop - 19 : 12);
+    let rowsTop = null;
 
     // rows positioned at their elevation, spread so they never overlap
     const tiers = ["summit", "mid", "base"].filter(t => elevs[`${t}_ft`]);
     const rows = tiers.map(t => ({ t, ft: elevs[`${t}_ft`], y: Y(elevs[`${t}_ft`]) }));
-    const gapY = 36;
-    rows.forEach((rw, i) => { rw.ry = Math.max(rw.y, T + 14, i ? rows[i - 1].ry + gapY : 0); });
-    const over = rows.length ? rows[rows.length - 1].ry - (H - 22) : 0;
+    const gapY = 32;
+    rows.forEach((rw, i) => { rw.ry = Math.max(rw.y, T + 26, i ? rows[i - 1].ry + gapY : 0); });
+    const over = rows.length ? rows[rows.length - 1].ry - (H - 20) : 0;
     if (over > 0) rows.forEach(rw => { rw.ry -= over; });
+    // column headers sit right above the first row
+    rowsTop = rows.length ? rows[0].ry - 4 : null;
+    s += cols.map(([lbl], i) => `<text x="${i === 4 ? colX[i] - cols[i][1] + 6 : colX[i]}" y="${headY()}" text-anchor="${i === 4 ? "start" : "end"}" fill="#64748b" font-size="10.5" font-weight="600">${lbl}</text>`).join("");
+    s += `<line x1="${tblX}" x2="${colX[colX.length - 1]}" y1="${headY() + 5}" y2="${headY() + 5}" stroke="rgba(255,255,255,0.08)"/>`;
+    if (narrow) s += `<text x="${tblX}" y="${headY()}" fill="#64748b" font-size="10.5" font-weight="600">Tier</text>`;
     const fmtT = v => (v == null ? "--" : tF(v));
     const phaseCol = { snow: "#7dd3fc", mix: "#c084fc", rain: "#4ade80", ice: "#fb7185", dry: "#64748b" };
     const obsList = [];
@@ -500,11 +527,12 @@
     const kind = x => x.dgz_base_ft == null ? "none" : (x.dgz_rhi_pct ?? 0) >= 100 ? ((x.dgz_lift_cm_s ?? -1) >= 10 ? "act" : "sat") : "dry";
     const k = kind(p);
     const badge = $("dgz-badge");
-    if (badge) { badge.textContent = { act: "Saturated and rising", sat: "Ice-saturated, weak lift", dry: "Subsaturated", none: "Not found" }[k]; badge.className = "chip " + (k === "act" ? "chip-ice" : ""); }
+    if (badge) { badge.textContent = { act: "Saturated, rising", sat: "Saturated, weak lift", dry: "Subsaturated", none: "Not found" }[k]; badge.className = "chip " + (k === "act" ? "chip-ice" : ""); }
     set("dgz-height", p.dgz_base_ft != null ? `${(p.dgz_base_ft / 1000).toFixed(1)}–${(p.dgz_top_ft / 1000).toFixed(1)}k ft` : "n/a");
-    set("dgz-pres", p.dgz_base_hpa != null ? `${p.dgz_base_hpa}–${p.dgz_top_hpa} hPa · ${(p.dgz_thickness_ft || 0).toLocaleString()} ft thick` : "");
+    set("dgz-pres", p.dgz_base_hpa != null ? `${p.dgz_base_hpa}–${p.dgz_top_hpa} hPa` : "");
+    const dp = $("dgz-pres"); if (dp && dp.parentElement) dp.parentElement.title = p.dgz_base_ft != null ? `Layer between −12 and −18 °C, ${(p.dgz_thickness_ft || 0).toLocaleString()} ft thick` : "";
     set("dgz-rhi", p.dgz_rhi_pct != null ? `${p.dgz_rhi_pct}%` : "n/a");
-    set("dgz-w", p.dgz_lift_cm_s != null ? `${Math.abs(p.dgz_lift_cm_s).toFixed(0)} cm/s ${p.dgz_lift_cm_s >= 0.5 ? "up" : p.dgz_lift_cm_s <= -0.5 ? "down" : ""}` : "n/a");
+    set("dgz-w", p.dgz_lift_cm_s != null ? `${p.dgz_lift_cm_s >= 0.5 ? "+" : p.dgz_lift_cm_s <= -0.5 ? "−" : ""}${Math.abs(p.dgz_lift_cm_s).toFixed(0)} cm/s` : "n/a");
     const next = prof.slice(h, h + 24);
     set("dgz-hours-val", `${next.filter(x => kind(x) === "act").length} of ${next.length} h`);
     const st = ((o.elevation_timelines || {}).summit || []).slice(h, h + 24).filter(x => (x.precip_in || 0) >= 0.01 && x.slr);
@@ -561,7 +589,7 @@
     const cur = (o.model || {}).id;
     (o.model_comparison || o.available_models || []).forEach(m => {
       const sm = m.summary || m;
-      const runs = (m.runs || []).map(run).join(" / ");
+      const runs = m.members ? `latest run of each (${m.members.length} models)` : (m.runs || []).map(run).join(" / ");
       if (m.error || m.status === "error") { rows.push(`<tr><td><b>${esc(m.label)}</b></td><td>${esc(m.provider || "")}</td><td>${esc(m.grid || "")}</td><td colspan="7" class="muted">${esc(m.error || "unavailable")}</td></tr>`); return; }
       rows.push(`<tr${m.id === cur ? ' class="row-primary"' : ""}><td><b>${esc(m.label)}</b>${m.id === cur ? "<small>selected</small>" : ""}</td><td>${esc(m.provider)}</td><td>${esc(m.grid)}${m.cell_elevation_ft ? `<small>summit cell ${m.cell_elevation_ft.toLocaleString()} ft</small>` : ""}</td>
         <td>${esc(m.sounding_label || "")}${m.sounding_has_vertical_velocity || /^none/.test(m.sounding_label || "") ? "" : '<small>no vertical velocity: SLR weighted by layer depth</small>'}</td>
@@ -634,11 +662,14 @@
     const col0 = (() => {
       const t0 = (tl0("summit") || {}).time;
       const sh = (o.sounding_hourly || []).find(x => x.time === t0) || (o.sounding_hourly || [])[0];
-      return sh ? (sh.levels || []).map(l => ({ z: l[1], t: l[2] })).filter(l => l.z != null && l.t != null).sort((a, b) => a.z - b.z) : [];
+      const lv = sh ? (sh.levels || []).map(l => ({ z: l[1], t: l[2] })).filter(l => l.z != null && l.t != null).sort((a, b) => a.z - b.z) : [];
+      lv.ground = sh ? sh.ground_m : null;
+      return lv;
     })();
     const freeAirF = ft => {
       if (!col0.length || ft == null) return null;
       const z = ft * 0.3048;
+      if (col0.ground != null && z < col0.ground - 50) return "below";   // under the model's terrain: no free air there
       if (z <= col0[0].z) return col0[0].t * 9 / 5 + 32;
       for (let i = 1; i < col0.length; i++) if (z <= col0[i].z) {
         const a = col0[i - 1], b = col0[i];
@@ -654,7 +685,7 @@
       const fa = freeAirF(w.elevation_ft);
       return `<tr><td><b>${esc(nm)}</b><small>${w.elevation_ft ? w.elevation_ft.toLocaleString() + " ft · " : ""}observed ${at && !isNaN(at) ? at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "n/a"}</small></td>
         <td>${tF(w.temp_f)} <small>model 2 m ${tF(m.temp_f)} (Δ ${diff(w.temp_f, m.temp_f)}°F)</small></td>
-        <td>${fa != null ? `${tF(fa)} <small>Δ ${diff(w.temp_f, fa)}°F</small>` : "–"}</td>
+        <td>${fa === "below" ? `<small>below the column's terrain (${Math.round(col0.ground * 3.28084).toLocaleString()} ft)</small>` : fa != null ? `${tF(fa)} <small>Δ ${diff(w.temp_f, fa)}°F</small>` : "–"}</td>
         <td>${tF(w.dew_point_f)} <small>model ${tF(m.dew_point_f)}</small></td>
         <td>${w.wind_dir || ""} ${w.wind_mph ?? "–"} g ${w.gust_mph ?? "–"} mph <small>model ${Math.round(m.wind_mph || 0)} g ${Math.round(m.gust_mph || 0)}</small></td>
         <td>${esc(w.skies || "")}<small>model cloud ${m.cloud_cover_pct != null ? Math.round(m.cloud_cover_pct) + "%" : "–"}</small></td></tr>`;
@@ -808,9 +839,41 @@
   }
 
   // ---------------------------------------------------------------- wiring
-  function renderAll() { renderSkewT(); renderHabit(); renderPhase(); renderDGZ(); renderSources(); renderBands(); }
+  function renderAll() { renderSkewT(); renderHabit(); renderPhase(); renderDGZ(); renderMoisture(); renderSources(); renderBands(); }
+
+  // ---------------------------------------------------------------- moisture and crest wind (follows the slider)
+  const mixingRatio = (tdf, ft) => {
+    if (tdf == null || ft == null) return null;
+    const td = (tdf - 32) * 5 / 9, p = 1013.25 * Math.pow(1 - 2.25577e-5 * ft * 0.3048, 5.25588), e = esW(td);
+    return 621.97 * e / Math.max(1, p - e);
+  };
+  const flowClass = deg => deg == null ? null : (deg >= 200 && deg <= 290 ? "upslope (within 45° of crest-normal)" : deg >= 160 && deg <= 320 ? "oblique" : "downslope / parallel");
+  const moistCat = mr => mr == null ? null : mr >= 5 ? "high (≥ 5 g/kg)" : mr >= 2.5 ? "moderate (2.5–5 g/kg)" : "low (< 2.5 g/kg)";
+  const compass16 = deg => ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"][Math.round(deg / 22.5) % 16];
+  function renderMoisture() {
+    if (!state.resort) return;
+    const r = state.resort, o = om(), tls = o.elevation_timelines || {}, el = r.elevations || {}, h = state.hour;
+    const set = (id, v, html) => { const e = $(id); if (e) e[html ? "innerHTML" : "textContent"] = v; };
+    const b = (tls.base || [])[h] || {}, s = (tls.summit || [])[h] || {};
+    const obB = h === 0 && window.Obs ? Obs.forTier(r, "base") : null, obS = h === 0 && window.Obs ? Obs.forTier(r, "summit") : null;
+    const mr = obB ? mixingRatio(obB.dew_point_f, obB.elevation_ft || el.base_ft) : (b.mixing_ratio_g_kg ?? mixingRatio(b.dew_point_f, el.base_ft));
+    const dirDeg = { N: 0, NNE: 22.5, NE: 45, ENE: 67.5, E: 90, ESE: 112.5, SE: 135, SSE: 157.5, S: 180, SSW: 202.5, SW: 225, WSW: 247.5, W: 270, WNW: 292.5, NW: 315, NNW: 337.5 };
+    const wind = obS ? obS.wind_mph : s.wind_mph, wdir = obS ? dirDeg[obS.wind_dir] : s.wind_dir_deg;
+    set("mixing-ratio-val", mr != null ? `${mr.toFixed(1)}${obB ? "*" : ""}<small>g/kg mixing ratio</small>` : "--", true);
+    set("moisture-cat-val", moistCat(mr) || "--");
+    const mk = $("mr-marker"); if (mk && mr != null) mk.style.left = `calc(${Math.min(100, (mr / 8) * 100)}% - 2px)`;
+    set("crest-jet-val", wind != null ? `${Math.round(wind)} mph${wdir != null ? ` from ${Math.round(wdir)}° (${compass16(wdir)})` : ""}${obS ? "*" : ""}` : "--");
+    const fc = flowClass(wdir);
+    set("oro-lift-val", fc || "--");
+    set("oro-chip", fc ? fc.split(" (")[0] : "--");
+    const next = (tls.base || []).slice(h, h + 24), nextS = (tls.summit || []).slice(h, h + 24);
+    const mrs = next.map(x => x.mixing_ratio_g_kg ?? mixingRatio(x.dew_point_f, el.base_ft)).filter(v => v != null);
+    const ws = nextS.map(x => x.wind_mph).filter(v => v != null);
+    set("moist-24h-val", mrs.length ? `${(mrs.reduce((a, v) => a + v, 0) / mrs.length).toFixed(1)} g/kg · ${ws.length ? Math.round(ws.reduce((a, v) => a + v, 0) / ws.length) : "?"} mph` : "--");
+    set("moisture-desc", `Water-vapor mixing ratio at the base for the selected hour${obB ? " (* resort station reading at hour 0)" : ""}. Higher values mean more water available for precipitation and usually denser snow.`);
+  }
   window.Panels = {
-    onHour(h) { state.hour = h; renderPhase(); renderDGZ(); renderHabit(); if (state.skewSrc === "model") renderSkewT(); },
+    onHour(h) { state.hour = h; renderPhase(); renderDGZ(); renderHabit(); renderMoisture(); if (state.skewSrc === "model") renderSkewT(); },
   };
   document.addEventListener("snow:render", e => { state.resort = e.detail.resort; renderAll(); });
   document.addEventListener("snow:prefs", () => { if (state.resort) renderAll(); });

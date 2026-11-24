@@ -108,5 +108,22 @@
       "severe_wind_hold_mph": 65.0,
       "rain_snow_line_critical_elevation_ft": 7500
     }
-  }
+  },
+  "blends": [
+    {
+      "id": "blend",
+      "label": "Blend",
+      "description": "Equal-weight mean of the six single models (NBM is left out: it is already a blend). Members missing at an hour are dropped from that hour; the blend stops when under half the member weight remains. Profile panels use the ECMWF IFS column.",
+      "members": {
+        "ecmwf_hres": 1,
+        "aifs": 1,
+        "hrrr_gfs": 1,
+        "icon": 1,
+        "ukmo": 1,
+        "gem": 1
+      },
+      "profile_from": "ecmwf_hres",
+      "min_weight_share": 0.5
+    }
+  ]
 }

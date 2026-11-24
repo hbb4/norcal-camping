@@ -85,6 +85,16 @@ Open-Meteo selects a model grid cell near the coordinates. Its own downscaling w
 
 Earlier versions queried all tiers at the village coordinates.
 
+### 3.0 Blend (`config/sources.json` → `blends`)
+A static blend is a selectable entry beside the single models. The default is the equal-weight mean of ECMWF HRES, ECMWF AIFS, HRRR/GFS, ICON, UKMO and GEM; NBM is left out because it is already a blend that includes GFS and ECMWF. Each tier is blended hour by hour from the members' own elevation-adjusted timelines:
+- plain weighted mean of the members present for precipitation, snowfall, temperature, dew point, humidity, wind speed, cloud, visibility, chance of precipitation, snow fraction, freezing level, wet-bulb zero and snow level;
+- accumulations (snow, Kuchera, experimental, the 7:1 field) are the mean of each member's hourly increment, so a member that ends early (UKMO ~150 h, ICON ~180 h) does not make a total jump;
+- snow/liquid ratio = blended snowfall ÷ blended snow-fraction liquid, so snow = liquid × fraction × SLR still holds;
+- wind direction is a speed-weighted vector mean; precipitation type follows the blended snow fraction (sleet/freezing rain when at least half the member weight flags it);
+- the blend ends when less than half of the member weight remains;
+- the range of the members' own snow totals (lowest to highest member) is kept every hour and drawn as a band on the accumulation chart.
+Profile panels (skew-T, DGZ, freezing level) use the ECMWF IFS column, labeled. The weights are equal until the verification sample can rank the members (TUNING_PLAN.md).
+
 ### 3.1 NBM elevation adjustment (`nbm_downscale.py`)
 A 2.5 km cell rarely sits at a tier's height. Palisades mid (8,010 ft) and summit (9,050 ft) are nearest to one cell at 7,726 ft; Alpine's base (6,835 ft) is nearest to a 7,772 ft cell. No lapse rate or snowfall-elevation rule is assumed. Instead, at every forecast hour, NBM's own relationship with terrain is fit over the cells within 7 km of the tier (Gaussian distance weights, σ = 3 km, typically 22–26 cells), and the fitted line is evaluated at the tier's own height:
 
@@ -113,7 +123,9 @@ Elevation beyond the neighbors' range is capped at 1,000 ft of extrapolation; Pa
 - **Derived per level:** dew point (Magnus), RH w.r.t. ice, wet bulb from the psychrometric equation solved with pressure.
 - **Used for:** wet-bulb zero / snow level, freezing level, DGZ, sleet/freezing-rain check, SLR, free-air wind and free-air temperature at each tier height, skew-T, crystal-habit diagram.
 - **Surface-only models:** NBM has no column; its profile panels (skew-T, DGZ, freezing level, wet-bulb zero, free-air temperature) use the HRRR/GFS column and say so, while the snow level stays NBM's own. ECMWF HRES uses the ECMWF IFS 0.25° column.
-- Levels below the terrain are model extrapolations; the skew-T shades everything below the base.
+- Levels below the terrain are model extrapolations; the skew-T shades everything below the base. The model's ground at the column point comes from its own surface pressure (`elevation=nan`) on the column, every hour.
+- **Freezing level and wet-bulb zero** are the highest 0 °C crossing: the top of any warm layer. The lowest crossing jumped on calm nights to below-ground levels (extrapolated from the model's cold surface), e.g. HRRR/GFS at the Palisades summit 12,800 → 6,500 → 13,500 ft within hours (fixed Nov 24, 2026). When the whole column above the ground is below freezing, the level is the extrapolated one and is flagged as below the model's terrain.
+- **Free-air temperature** at a tier or station is left blank when that height is below the column's ground.
 
 ### 4.1b Tier temperature: 2 m vs. free air
 For the Open-Meteo models the pipeline takes the model's own grid-cell 2 m temperature and dew point (`elevation=nan`), finds the cell's height on the model column from the cell's surface pressure (log-pressure interpolation of the column's geopotential heights, every hour, so the HRRR-to-GFS handover is followed), and moves both by the column's own change between the cell height and the tier height: T_tier = T_2m,cell + T_col(z_tier) − T_col(z_cell). Wet bulb and RH are recomputed at the tier. This keeps any inversion the model has between the two heights; if an hour has no column, the fixed 6.5 °C/km is used and flagged. For the Palisades summit (9,049 ft) the cells are at 8,038 ft (HRRR), 7,127 (GEM), 7,002 (UKMO), 6,984 (ECMWF), 6,829 (AIFS) and 6,739 ft (ICON); the page lists each model's summit cell. Both forms still carry the model's own near-surface layer at the cell. The free-air temperature at the tier height doesn't: on Nov 23–24, 2026 (06Z, HRRR column) the free-air temperature at 8,000 ft was 36 °F against 35 °F at the Palisades mid-mountain station, while the 2 m value was 28 °F. But free air was badly wrong in the valley cold pool (40.5 °F vs 24 °F at the base station) and at Alpine's summit station (35 °F vs 26 °F). The page therefore shows both (solid 2 m, dashed free air) in the elevation time series, and the stations table lists the free-air temperature at each station's own height beside the 2 m value. Blending them with a coupling weight per tier, T = T_free_air + c · (T_2m − T_free_air), is a calibration item (TUNING_PLAN.md section 9; `station_bias.py` fits c from the logged station pairs).
