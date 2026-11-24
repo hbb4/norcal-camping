@@ -10,7 +10,7 @@ let snowData = null;
 /* ---------------- Preferences & units (saved per browser) ---------------- */
 const Prefs = (() => {
   const KEY = "sierraSnowPrefs.v1";
-  const defaults = { temp: "F", snow: "in", favResort: "palisades_tahoe", alerts: true, alertThreshold: 12 };
+  const defaults = { temp: "F", snow: "in", favResort: "palisades_tahoe", alerts: true, alertThreshold: 12, model: "nbm" };
   let v = { ...defaults };
   try { v = { ...defaults, ...JSON.parse(localStorage.getItem(KEY) || "{}") }; } catch (e) {}
   return {
@@ -27,21 +27,21 @@ const U = {
   metricSnow: () => Prefs.get("snow") === "cm",
   celsius: () => Prefs.get("temp") === "C",
   snowNum: inches => (inches == null ? null : (Prefs.get("snow") === "cm" ? inches * 2.54 : inches)),
-  /** 12" / 30 cm. Values >= 10 are rounded to whole numbers. */
+  /** "12 in" / "30 cm". Values >= 10 are rounded to whole numbers. */
   snow(inches, digits) {
     if (inches == null || isNaN(inches)) return "--";
     const v = U.snowNum(inches);
     const d = digits ?? (Math.abs(v) >= 10 ? 0 : 1);
-    return U.metricSnow() ? `${v.toFixed(d)} cm` : `${v.toFixed(d)}"`;
+    return `${v.toFixed(d)} ${U.metricSnow() ? "cm" : "in"}`;
   },
   snowBare(inches, digits) {
     if (inches == null || isNaN(inches)) return "--";
     const v = U.snowNum(inches);
     return v.toFixed(digits ?? (Math.abs(v) >= 10 ? 0 : 1));
   },
-  snowSuffix: () => (Prefs.get("snow") === "cm" ? " cm" : '"'),
+  snowSuffix: () => (Prefs.get("snow") === "cm" ? " cm" : " in"),
   snowAxisUnit: () => (Prefs.get("snow") === "cm" ? "cm" : "in"),
-  liquid: inches => (inches == null ? "--" : U.metricSnow() ? `${(inches * 25.4).toFixed(1)} mm` : `${inches.toFixed(2)}"`),
+  liquid: inches => (inches == null ? "--" : U.metricSnow() ? `${(inches * 25.4).toFixed(1)} mm` : `${inches.toFixed(2)} in`),
   tempNum: f => (f == null ? null : U.celsius() ? (f - 32) * 5 / 9 : f),
   temp: (f, digits = 0) => (f == null ? "n/a" : `${U.tempNum(f).toFixed(digits)}°${U.celsius() ? "C" : "F"}`),
   tempShort: f => (f == null ? "--" : `${Math.round(U.tempNum(f))}°`),
@@ -86,6 +86,7 @@ const Live = {
       if (fresh) {
         const first = !snowData;
         snowData = fresh;
+        for (const k in ModelCache) delete ModelCache[k];
         renderDashboard();
         if (first) initRoadMap(); else updateRoadMapData();
       }
@@ -152,9 +153,72 @@ function setupTabs() {
   });
 }
 
-function renderDashboard() {
+/* ---------------- Forecast model selection ----------------
+   The main dataset carries the default model (NBM). Other models live in
+   data/models/<resort>/<model>.json and are loaded when selected. */
+const ModelCache = {};
+
+async function ensureModel(resort) {
+  if (!resort._omDefault) { resort._omDefault = resort.sources.open_meteo; resort._consDefault = resort.consensus_forecast; }
+  const def = resort._omDefault;
+  const defId = (def.model || {}).id || "nbm";
+  const avail = (def.available_models || []).filter(m => m.status === "success").map(m => m.id);
+  let want = Prefs.get("model") || defId;
+  if (avail.length && !avail.includes(want)) want = defId;
+  resort._modelError = null;
+  if (want === defId) {
+    resort.sources.open_meteo = def; resort.consensus_forecast = resort._consDefault; resort._modelId = defId;
+    return;
+  }
+  const key = `${resort.id}|${want}|${snowData.metadata.generated_at_utc}`;
+  if (!ModelCache[key]) {
+    try {
+      const r = await fetch(`data/models/${resort.id}/${want}.json`, { cache: "no-store" });
+      if (r.ok) ModelCache[key] = await r.json();
+    } catch (e) { /* static file mode */ }
+  }
+  const m = ModelCache[key];
+  if (!m) {
+    resort._modelError = "Other models need the server (python3 server.py); showing the default model.";
+    resort.sources.open_meteo = def; resort.consensus_forecast = resort._consDefault; resort._modelId = defId;
+    return;
+  }
+  m.available_models = def.available_models;
+  m.scales = def.scales;
+  resort.sources.open_meteo = m;
+  resort.consensus_forecast = m.consensus_forecast || resort._consDefault;
+  resort._modelId = want;
+}
+
+function renderModelBar(resort) {
+  const box = document.getElementById("model-chips");
+  if (!box) return;
+  const def = resort._omDefault || resort.sources.open_meteo || {};
+  const list = def.available_models || [];
+  const cur = resort._modelId;
+  const runOf = m => {
+    const r = (m.runs || []).find(x => x.run_init_utc);
+    return r ? `${r.run_init_utc.slice(5, 10).replace("-", "/")} ${r.run_init_utc.slice(11, 13)}Z` : "run n/a";
+  };
+  box.innerHTML = list.map(m => `<button class="model-chip${m.id === cur ? " active" : ""}" role="tab" data-model="${m.id}" ${m.status !== "success" ? "disabled" : ""}
+      title="${m.provider} · ${m.grid} · sounding: ${m.sounding_label}${m.sounding_has_vertical_velocity ? "" : " (no vertical velocity)"} · ${m.hours_available ?? "?"} h">
+      <b>${m.label}</b><small>${runOf(m)}${m.hours_available && m.hours_available < 160 ? ` · ${Math.round(m.hours_available / 24 * 10) / 10} d` : ""}</small></button>`).join("");
+  box.querySelectorAll(".model-chip").forEach(b => b.addEventListener("click", () => { Prefs.set("model", b.dataset.model); renderDashboard(); }));
+  const om = resort.sources.open_meteo || {};
+  const note = document.getElementById("model-note");
+  const gp = om.nbm_grid_points;
+  const shared = gp && gp.mid && gp.summit && gp.mid.grid_lat === gp.summit.grid_lat && gp.mid.grid_lon === gp.summit.grid_lon;
+  if (note) note.textContent = resort._modelError || `${(om.primary_model || {}).label || ""} · ${(om.model || {}).hours_available ?? "?"} h · fetched ${Fmt.ago(om.fetched_at_utc)}${shared ? " · mid and summit share one 2.5 km grid point" : ""}`;
+}
+
+let renderSeq = 0;
+async function renderDashboard() {
   const resort = activeResort();
   if (!resort) return;
+  const seq = ++renderSeq;
+  await ensureModel(resort);
+  if (seq !== renderSeq) return;   // a newer render started while loading
+  renderModelBar(resort);
   renderHeader(snowData.metadata, resort);
   renderKPIs(resort);
   renderSynopticDiscussion(resort);
@@ -234,7 +298,16 @@ function renderKPIs(resort) {
   const bar7 = document.getElementById("kpi-7d-bar");
   if (bar7 && e7) { const sc = Math.max(e7.p90 * 1.15, 1); bar7.style.left = `${(e7.p10 / sc) * 100}%`; bar7.style.width = `${((e7.p90 - e7.p10) / sc) * 100}%`; }
   const srcNote = document.getElementById("range-source");
-  if (srcNote) srcNote.textContent = (c.range_source && c.range_source.startsWith("ensemble") ? `Ranges: 10th–90th percentile of ${(c.range_source.match(/\((\d+) members/) || [])[1] || "~120"} ensemble members. ` : "Ranges unavailable (no ensemble). ") + `24/48 h values: ${c.blend_sources || "blend"}.`;
+  const nMem = (c.range_source && (c.range_source.match(/\((\d+) members/) || [])[1]) || null;
+  if (srcNote) srcNote.textContent = nMem ? `Shapes: ${nMem} ensemble members (GEFS, ECMWF ENS, ICON-EPS), each converted to snow with the ${(om.model || {}).label || "selected model"}'s hourly snow fraction and snow/liquid ratio. Tick: ${(om.model || {}).label || "model"} value. Axis is fixed across models and elevations.` : "Ensemble unavailable.";
+  const nwsEl = document.getElementById("nws-line");
+  const ng = c.nws_gridded || {};
+  const sn = v => `${U.snowBare(v ?? 0)} ${U.snowAxisUnit()}`;
+  const thru = iso => { if (!iso) return ""; const d = new Date(iso); return ` through ${d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "America/Los_Angeles" })}, ${d.toLocaleTimeString("en-US", { hour: "numeric", timeZone: "America/Los_Angeles" })}`; };
+  const cellTxt = cl => cl && cl.office ? `${cl.office} cell ${cl.elevation_ft ? cl.elevation_ft.toLocaleString() + " ft" : ""}: 24 h ${sn(cl["24h"])}, 48 h ${sn(cl["48h"])}, ${sn(cl.total)}${thru(cl.through_utc) || " grid total"}` : null;
+  if (nwsEl) nwsEl.textContent = [cellTxt(ng.summit_cell), cellTxt(ng.base_cell)].filter(Boolean).length
+    ? `NWS gridded forecast (shown separately, not blended): ${[cellTxt(ng.summit_cell), cellTxt(ng.base_cell)].filter(Boolean).join(" · ")}` : "";
+  renderDistribution(resort);
   const pdef = document.getElementById("powder-def");
   if (pdef && c.powder_score_definition) pdef.title = c.powder_score_definition;
 
@@ -288,6 +361,85 @@ function renderKPIs(resort) {
 
 const NWS_OFFICES = { REV: "Reno", STO: "Sacramento" };
 
+/* Ensemble distribution: one row per window (24 h, 48 h, 7 d); summit density above
+   the axis, base density mirrored below; tick = selected model's value. */
+function renderDistribution(resort) {
+  const box = document.getElementById("dist-chart");
+  if (!box) return;
+  window.__distResort = resort;
+  const c = resort.consensus_forecast || {};
+  const om = resort.sources.open_meteo || {};
+  const sc = (om.scales || {}).distribution_in;
+  const rows = [["24h", "h24", "24 h"], ["48h", "h48", "48 h"], ["7d", "d7", "7 days"]];
+  const tiers = [["summit", "#7dd3fc", "Summit"], ["base", "#fbbf24", "Base"]];
+  const unit = U.snowAxisUnit();
+  const fmt = v => `${U.snowBare(v ?? 0)} ${unit}`;
+  // Fixed axis from the server (95th percentile of members across all models, or the largest model value),
+  // so it never changes with the model; members beyond it are counted at the right edge.
+  const allMax = sc ? Math.max(1, sc) : Math.max(1, ...rows.flatMap(([k, m]) => tiers.flatMap(([t]) => [((c[t] || {})[k] || {}).value || 0, ...((((c[t] || {}).members || {})[m]) || [])])));
+  // Draw at the container's real pixel width so text stays at its set size.
+  const W = Math.max(280, Math.round(box.clientWidth || 360));
+  const narrow = W < 420;
+  const L = narrow ? 44 : 60, R = 8, rowH = narrow ? 70 : 86, top = 18, PW = W - L - R;
+  const dt = document.getElementById("dist-title");
+  const nMembers = ((c.summit || {}).members || {}).d7 ? c.summit.members.d7.length : 0;
+  if (dt) dt.textContent = `${nMembers ? nMembers + " ensemble members" : "Ensemble"} vs. ${(om.model || {}).label || "selected model"}, next 24 h, 48 h and 7 days`;
+  const H = top + rows.length * rowH + 20;
+  const maxIn = (() => { const v = U.snowNum(allMax) * 1.05; const st = niceStep(v, 4); return Math.ceil(v / st) * st; })();
+  const X = inches => L + PW * Math.min(1, U.snowNum(inches) / maxIn);
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" font-family="var(--font-sans)">`;
+  const tickStep = niceStep(maxIn, narrow ? 3 : 4);
+  for (let v = 0; v <= maxIn + 1e-6; v += tickStep) {
+    const x = L + PW * v / maxIn;
+    const last = v + tickStep > maxIn + 1e-6;
+    s += `<line x1="${x}" x2="${x}" y1="${top}" y2="${top + rows.length * rowH}" stroke="rgba(255,255,255,0.06)"/>
+      <text x="${x}" y="${H - 4}" text-anchor="${last ? "end" : "middle"}" fill="#94a3b8" font-size="11" style="font-variant-numeric:tabular-nums">${+v.toFixed(1)}${last ? " " + unit : ""}</text>`;
+  }
+  rows.forEach(([k, mk, label], r) => {
+    const y0 = top + r * rowH + rowH / 2;
+    s += `<line x1="${L}" x2="${L + PW}" y1="${y0}" y2="${y0}" stroke="rgba(255,255,255,0.18)"/>
+      <text x="${L - 8}" y="${y0 + 4}" text-anchor="end" fill="#cbd5e1" font-size="12" font-weight="600">${label}</text>`;
+    tiers.forEach(([t, col], ti) => {
+      const mem = (((c[t] || {}).members || {})[mk]) || [];
+      const dir = ti === 0 ? -1 : 1, hMax = rowH / 2 - 8;
+      if (mem.length >= 5) {
+        // Gaussian kernel density, bandwidth from Silverman's rule with a floor of 2% of the axis,
+        // reflected at zero so the curve does not leak below 0.
+        const vals = mem.map(v => U.snowNum(v)).sort((a, b) => a - b);
+        const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+        const sd = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length);
+        const bw = Math.max(maxIn * 0.02, 1.06 * sd * Math.pow(vals.length, -0.2));
+        const n = 160;
+        const xs = Array.from({ length: n + 1 }, (_, i) => maxIn * i / n);
+        const dens = xs.map(x => vals.reduce((a, v) => a + Math.exp(-0.5 * ((x - v) / bw) ** 2) + Math.exp(-0.5 * ((x + v) / bw) ** 2), 0));
+        const dmax = Math.max(...dens) || 1;
+        const pts = xs.map((x, i) => `${(L + PW * x / maxIn).toFixed(1)},${(y0 + dir * hMax * dens[i] / dmax).toFixed(1)}`);
+        s += `<path d="M${L},${y0} L${pts.join(" L")} L${L + PW},${y0} Z" fill="${col}" fill-opacity="${ti === 0 ? 0.32 : 0.22}" stroke="${col}" stroke-width="1.3"/>`;
+        const beyond = vals.filter(v => v > maxIn).length;
+        if (beyond) s += `<text x="${L + PW - 2}" y="${y0 + dir * (hMax - 2) + (dir > 0 ? 0 : 8)}" text-anchor="end" fill="${col}" font-size="11">${beyond} member${beyond > 1 ? "s" : ""} > ${+maxIn.toFixed(0)} ${unit} ▸</text>`;
+        const med = vals[Math.floor(vals.length / 2)];
+        s += `<circle cx="${L + PW * Math.min(1, med / maxIn)}" cy="${y0 + dir * 4}" r="3" fill="${col}" stroke="#0b1220" stroke-width="1"/>`;
+      }
+      const v = ((c[t] || {})[k] || {}).value;
+      if (v != null) s += `<line x1="${X(v)}" x2="${X(v)}" y1="${y0}" y2="${y0 + dir * (hMax + 3)}" stroke="#f8fafc" stroke-width="2"/>`;
+    });
+    const sv = ((c.summit || {})[k] || {}).value, bv = ((c.base || {})[k] || {}).value;
+    s += `<text x="${L + PW}" y="${y0 - rowH / 2 + 12}" text-anchor="end" font-size="12" style="font-variant-numeric:tabular-nums">
+        <tspan fill="#7dd3fc">Summit ${fmt(sv)}</tspan><tspan fill="#64748b"> · </tspan><tspan fill="#fbbf24">Base ${fmt(bv)}</tspan></text>`;
+  });
+  box.innerHTML = s + "</svg>";
+}
+window.addEventListener("resize", (() => {
+  let t = null, lastW = 0;
+  return () => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      const box = document.getElementById("dist-chart");
+      if (box && window.__distResort && Math.abs(box.clientWidth - lastW) > 8) { lastW = box.clientWidth; renderDistribution(window.__distResort); }
+    }, 150);
+  };
+})());
+
 function renderSynopticDiscussion(resort) {
   const box = document.getElementById("afd-grid");
   if (!box) return;
@@ -301,10 +453,9 @@ function renderSynopticDiscussion(resort) {
     const body = paras.length ? paras.map(p => /^[*-]\s/.test(p) ? `<p class="afd-bullet">${esc(p.replace(/^[*-]\s*/, ""))}</p>` : `<p>${esc(p)}</p>`).join("")
       : `<p class="muted">Discussion unavailable.</p>`;
     const name = NWS_OFFICES[d.office] || d.office;
-    return `<article class="card afd${i === 0 ? " afd-primary" : ""}">
+    return `<article class="card afd">
       <header>
-        <div><div class="eyebrow">${i === 0 ? "Primary · " : ""}${esc(d.role || "")}</div>
-          <h3>NWS ${esc(name)} (${esc(d.office)})</h3>
+        <div><h3>NWS ${esc(name)} (${esc(d.office)})</h3>
           <div class="mini-label">${issued ? esc(issued.replace("Issued ", "Issued ")) : "Issue time n/a"} · fetched ${Fmt.ago(nws.fetched_at_utc)}</div></div>
         <a class="text-btn" href="https://forecast.weather.gov/product.php?site=${d.office}&issuedby=${d.office}&product=AFD" target="_blank" rel="noopener">Full discussion ↗</a>
       </header>
@@ -367,16 +518,19 @@ function renderHourlyDualAxisChart(resort) {
 
   const om = (resort.sources && resort.sources.open_meteo) || {};
   const tls = om.elevation_timelines || {};
-  const tl = (tls[currentTier] && tls[currentTier].length ? tls[currentTier] : (om.hourly_timeline || [])).slice(0, 48);
-  const profile = (om.vertical_profile || []).slice(0, 48);
+  const tl = (tls[currentTier] && tls[currentTier].length ? tls[currentTier] : (om.hourly_timeline || [])).slice(0, 168);
+  const profile = (om.vertical_profile && om.vertical_profile.length ? om.vertical_profile : tl.map(x => ({ time: x.time, snow_level_ft: x.snow_level_ft, freezing_level_ft: x.freezing_level_ft }))).slice(0, 168);
   const elevs = resort.elevations || {};
 
   // Header + toggle labels
   const tierFt = elevs[`${currentTier}_ft`];
   const sub = document.getElementById("chart-tier-subtitle");
-  if (sub) sub.textContent = `${TIER_LABEL[currentTier]} (${tierFt ? tierFt.toLocaleString() + " ft" : "--"}). Elevation selector is in the 7-day section. Snowfall uses the Cobb-style snow/liquid ratio; wind is at this elevation.`;
+  const isNBM = (om.model || {}).id === "nbm";
+  if (sub) sub.textContent = `${TIER_LABEL[currentTier]} (${tierFt ? tierFt.toLocaleString() + " ft" : "--"}). Elevation selector is in the 7-day section. ${isNBM ? "Snowfall is the NBM's own snowfall field (its snow/liquid ratio and phase), at the nearest 2.5 km grid point" : "Snowfall uses the unadjusted Cobb-style snow/liquid ratio"}; wind is at this elevation.`;
+  const lgs = document.getElementById("legend-snow"); if (lgs) lgs.textContent = isNBM ? "Snowfall (NBM snowfall field)" : "Snowfall (Cobb-style SLR, unadjusted)";
+  const lgr = document.getElementById("legend-raw"); if (lgr) lgr.style.display = isNBM ? "none" : "";
   const ceb = document.getElementById("chart-eyebrow");
-  if (ceb) ceb.textContent = `Model: ${(om.primary_model || {}).label || "HRRR → GFS"} · fetched ${Fmt.ago(om.fetched_at_utc)}`;
+  if (ceb) ceb.textContent = `Model: ${(om.primary_model || {}).label || ""} · ${tl.length} h · fetched ${Fmt.ago(om.fetched_at_utc)}`;
   ["base", "mid", "summit"].forEach(t => {
     const el = document.getElementById(`btn-${t}-elev`);
     if (el && elevs[`${t}_ft`]) el.textContent = `${elevs[`${t}_ft`].toLocaleString()}'`;
@@ -434,20 +588,21 @@ function renderHourlyDualAxisChart(resort) {
     const tiers = ["base", "mid", "summit"].filter(t => tls[t] && tls[t].length);
     const lastCum = t => U.snowNum((tls[t].slice(0, n).slice(-1)[0] || {}).cumulative_snow_inches || 0);
     const maxCum = Math.max(...tiers.map(lastCum), U.snowNum((tl[n - 1] || {}).cumulative_snow_inches || 0), ...(tl.map(x => U.snowNum(x.model_cumulative_inches || 0))));
-    const ax = niceAxis(maxCum, U.snowNum(6), 4);
-    for (let v = 0; v <= ax.max + 1e-6; v += ax.step) grid(p, v, ax.max, `${+v.toFixed(1)}${U.metricSnow() ? "" : '"'}`, v === 0);
+    const scl = (om.scales || {}).cumulative_in;
+    const ax = niceAxis(scl ? U.snowNum(scl) : maxCum, U.snowNum(6), 4);
+    for (let v = 0; v <= ax.max + 1e-6; v += ax.step) grid(p, v, ax.max, `${+v.toFixed(1)}`, v === 0);
     const yv = v => p.top + p.h * (1 - Math.min(v, ax.max) / ax.max);
     const pathFor = arr => arr.map((x, i) => `${i ? "L" : "M"}${xMid(i).toFixed(1)},${yv(x).toFixed(1)}`).join(" ");
     let rawLabel = null;
 
     // Model raw (7:1) for the selected tier, for comparison
-    if (tl.some(x => x.model_cumulative_inches != null)) {
+    if (!isNBM && tl.some(x => x.model_cumulative_inches != null)) {
       s += `<path d="${pathFor(tl.map(x => U.snowNum(x.model_cumulative_inches || 0)))}" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4"/>`;
       const mv = U.snowNum(tl[n - 1].model_cumulative_inches || 0);
       rawLabel = { v: mv };
     }
-    // Other tiers faint, selected tier filled
-    const labelYs = [];
+    // Other tiers faint, selected tier filled; end labels collected and spread so they never overlap
+    const endLabels = [];
     tiers.forEach(t => {
       const arr = tls[t].slice(0, n).map(x => U.snowNum(x.cumulative_snow_inches || 0));
       const sel = t === currentTier;
@@ -455,24 +610,26 @@ function renderHourlyDualAxisChart(resort) {
         s += `<path d="${pathFor(arr)} L${xMid(arr.length - 1)},${p.top + p.h} L${xMid(0)},${p.top + p.h} Z" fill="rgba(125,211,252,0.14)"/>`;
       }
       s += `<path d="${pathFor(arr)}" fill="none" stroke="${sel ? "#f8fafc" : "rgba(203,213,225,0.45)"}" stroke-width="${sel ? 2.4 : 1.4}"/>`;
-      let ly = yv(arr[arr.length - 1]) + 4;
-      labelYs.forEach(o => { if (Math.abs(o - ly) < 12) ly = o + (ly >= o ? 12 : -12); });
-      labelYs.push(ly);
-      s += `<text x="${padL + plotW + 6}" y="${ly}" fill="${sel ? "#f8fafc" : "#94a3b8"}" font-size="${sel ? 11 : 10}" font-weight="${sel ? 800 : 600}">${arr[arr.length - 1].toFixed(arr[arr.length - 1] >= 10 ? 0 : 1)}${U.snowSuffix()} ${TIER_LABEL[t]}</text>`;
+      const v = arr[arr.length - 1];
+      endLabels.push({ y: yv(v) + 4, txt: `${v.toFixed(v >= 10 ? 0 : 1)}${U.snowSuffix()} ${TIER_LABEL[t]}`, fill: sel ? "#f8fafc" : "#94a3b8", size: sel ? 11 : 10, weight: sel ? 800 : 600 });
     });
-    if (rawLabel) {
-      let ly = yv(rawLabel.v) + 4;
-      for (let k = 0; k < 4; k++) labelYs.forEach(o => { if (Math.abs(o - ly) < 12) ly = o + 12; });
-      s += `<text x="${padL + plotW + 6}" y="${Math.min(ly, p.top + p.h + 8)}" fill="#94a3b8" font-size="10" font-style="italic">${rawLabel.v.toFixed(rawLabel.v >= 10 ? 0 : 1)}${U.snowSuffix()} 7:1 field (${TIER_LABEL[currentTier]})</text>`;
-    }
+    if (rawLabel) endLabels.push({ y: yv(rawLabel.v) + 4, txt: `${rawLabel.v.toFixed(rawLabel.v >= 10 ? 0 : 1)}${U.snowSuffix()} 7:1 field (${TIER_LABEL[currentTier]})`, fill: "#94a3b8", size: 10, weight: 500, italic: true });
+    endLabels.sort((a, b) => a.y - b.y);
+    const gap = 12, lo = p.top + 8, hi = p.top + p.h + 8;
+    endLabels.forEach((l, i) => { l.y = Math.max(l.y, lo, i ? endLabels[i - 1].y + gap : lo); });
+    const over = endLabels.length ? endLabels[endLabels.length - 1].y - hi : 0;
+    if (over > 0) endLabels.forEach(l => { l.y -= over; });
+    endLabels.forEach(l => {
+      s += `<text x="${padL + plotW + 6}" y="${l.y.toFixed(1)}" fill="${l.fill}" font-size="${l.size}" font-weight="${l.weight}"${l.italic ? ' font-style="italic"' : ""}>${l.txt}</text>`;
+    });
   }
 
   // ---- Panel 2: hourly rate ----
   {
     const p = panels.rate; title(p);
-    const maxRate = Math.max(...tl.map(x => U.snowNum(x.snowfall_rate_in_hr || 0)));
+    const maxRate = (om.scales || {}).rate_in_hr != null ? U.snowNum(om.scales.rate_in_hr) : Math.max(...tl.map(x => U.snowNum(x.snowfall_rate_in_hr || 0)));
     const ax = niceAxis(maxRate, U.snowNum(1), 2);
-    for (let v = 0; v <= ax.max + 1e-6; v += ax.step) grid(p, v, ax.max, `${+v.toFixed(2)}${U.metricSnow() ? "" : '"'}`, v === 0);
+    for (let v = 0; v <= ax.max + 1e-6; v += ax.step) grid(p, v, ax.max, `${+v.toFixed(2)}`, v === 0);
     const bw = Math.max(3, step - 3);
     tl.forEach((x, i) => {
       const r = U.snowNum(x.snowfall_rate_in_hr || 0);
@@ -508,7 +665,7 @@ function renderHourlyDualAxisChart(resort) {
   // ---- Panel 4: wind ----
   {
     const p = panels.wind; title(p);
-    const maxG = Math.max(...tl.map(x => x.gust_mph || 0), 70);
+    const maxG = Math.max((om.scales || {}).gust_mph || 0, ...tl.map(x => x.gust_mph || 0), 70);
     const ax = niceAxis(maxG, 70, 4);
     for (let v = 0; v <= ax.max + 1e-6; v += ax.step) grid(p, v, ax.max, `${v}`, v === 0);
     const yv = v => p.top + p.h * (1 - Math.min(v, ax.max) / ax.max);
@@ -583,7 +740,7 @@ function renderHourlyDualAxisChart(resort) {
   // ---- X axis ----
   tl.forEach((x, i) => {
     const d = new Date(x.time);
-    if (i % 3 === 0) {
+    if (i % (n > 72 ? 12 : 3) === 0) {
       s += `<text x="${xMid(i)}" y="${axisY + 12}" fill="#94a3b8" font-size="10" text-anchor="middle">${d.toLocaleTimeString([], { hour: "numeric" })}</text>`;
     }
     const firstMidnight = tl.findIndex(z => new Date(z.time).getHours() === 0);
@@ -629,7 +786,7 @@ function setupChartHoverTooltips(tl, profile, xMid) {
         ${x.chance_snow_pct != null ? row("Chance snow / rain", `${x.chance_snow_pct}% / ${x.chance_rain_pct}%`) : ""}
         ${row("Snowfall", `${U.snow(x.snowfall_rate_in_hr || 0, U.metricSnow() ? 1 : 2)} /hr`)}
         ${row("Accumulated", U.snow(x.cumulative_snow_inches || 0, 1))}
-        ${x.precip_in != null ? row("Liquid · SLR", `${U.liquid(x.precip_in)} · ${x.slr ?? "n/a"}:1`) : ""}
+        ${x.precip_in != null ? row("Liquid · SLR", `${U.liquid(x.precip_in)} · ${x.slr != null ? x.slr + ":1" : "n/a"}`) : ""}
         ${row("Temp / wet bulb", `${U.tempShort(x.temp_f)} / ${U.temp(x.wet_bulb_f)}`)}
         ${row("Wind", `${Math.round(x.wind_mph || 0)} mph${x.wind_dir_deg != null ? " " + compass(x.wind_dir_deg) : ""}`)}
         ${row("Gusts", `${Math.round(gust)} mph`, gc)}
@@ -664,6 +821,29 @@ function setupChartHoverTooltips(tl, profile, xMid) {
 function renderSounding(resort) {
   const om = (resort.sources && resort.sources.open_meteo) || {};
   const snd = om.atmospheric_sounding || {};
+  if (snd.available === false) {
+    ["dgz-thickness-val", "dgz-layer-val", "dgz-pres-val", "dgz-rh-val", "dgz-lift-val", "dgz-hours-val", "dgz-crystal-val", "mixing-ratio-val", "crest-jet-val", "oro-lift-val", "moisture-cat-val"].forEach(id => { const e = document.getElementById(id); if (e) e.textContent = "n/a"; });
+    const b = document.getElementById("dgz-badge"); if (b) { b.textContent = "No profile"; b.className = "chip"; b.title = snd.reason || ""; }
+    const ch = document.getElementById("oro-chip"); if (ch) ch.textContent = "No profile";
+    const eb = document.getElementById("atmo-eyebrow"); if (eb) eb.textContent = snd.reason || "No vertical profile for this model";
+    const pr = document.getElementById("phase-risk-badge"); if (pr) { pr.textContent = "NBM snow level"; pr.className = "chip"; }
+    ["dgz-rh-bar", "dgz-lift-bar"].forEach(id => { const e = document.getElementById(id); if (e) e.style.width = "0"; });
+    // Surface-only moisture and crest wind still apply (NBM has T, dew point and wind at the grid point)
+    const md0 = snd.moisture_and_dynamics || {};
+    const set0 = (id, v, html) => { const el = document.getElementById(id); if (el && v != null) el[html ? "innerHTML" : "textContent"] = v; };
+    const mr0 = md0.surface_mixing_ratio_g_kg;
+    if (mr0 != null) {
+      set0("mixing-ratio-val", `${mr0}<small>g/kg mixing ratio</small>`, true);
+      set0("moisture-cat-val", md0.moisture_category);
+      const mk = document.getElementById("mr-marker"); if (mk) mk.style.left = `calc(${Math.min(100, (mr0 / 8) * 100)}% - 2px)`;
+    }
+    if (md0.summit_wind_avg_mph != null) {
+      set0("crest-jet-val", `${md0.summit_wind_avg_mph} mph from ${md0.summit_wind_dir_deg}° (${md0.summit_wind_dir})`);
+      set0("oro-lift-val", md0.orographic_flow);
+      if (ch) ch.textContent = md0.orographic_flow.split(" (")[0];
+    }
+    return;
+  }
   const dgz = snd.dgz || {}, ph = snd.precipitation_phase_analysis || {}, md = snd.moisture_and_dynamics || {};
   const set = (id, v, html) => { const el = document.getElementById(id); if (el && v != null) el[html ? "innerHTML" : "textContent"] = v; };
   const width = (id, pct, left) => { const el = document.getElementById(id); if (el) { el.style.width = `${Math.max(0, Math.min(100, pct))}%`; if (left != null) el.style.left = `${left}%`; } };

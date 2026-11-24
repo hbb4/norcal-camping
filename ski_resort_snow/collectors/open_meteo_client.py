@@ -1,43 +1,37 @@
-"""Open-Meteo collector: named NWP models, model soundings and snow diagnostics.
+"""Open-Meteo collector: seven selectable models, model soundings and snow diagnostics.
 
-Data actually requested (all through api.open-meteo.com, no key):
+Models (all via api.open-meteo.com):
 
-* Primary deterministic forecast: ``gfs_seamless`` = NOAA HRRR (3 km) for the
-  first ~48 h, NOAA GFS 0.25 deg after that. Queried at each tier's own
-  coordinates and elevation (base / mid / summit) plus the snow-sensor site.
-* Model sounding for the same model at the summit coordinates: temperature,
-  relative humidity, geopotential height, vertical velocity and wind on 19
-  pressure levels (1000-200 hPa).
-* Comparison runs at the summit: HRRR, NBM, GFS, ECMWF IFS, ICON, GEM
-  (precipitation only), each with its latest run time from Open-Meteo's
-  model metadata.
-* Ensembles (ensemble-api.open-meteo.com): GEFS, ECMWF ENS and ICON-EPS
-  member precipitation at each tier (~120 members).
+  id            Open-Meteo model         sounding used                      hours
+  nbm           ncep_nbm_conus           GFS (gfs_seamless) - NBM is surface-only here   ~270
+  ecmwf_hres    ecmwf_ifs (9 km)         ECMWF IFS 0.25 deg (same model, surface-only here)  ~350
+  aifs          ecmwf_aifs025_single     own                                ~360
+  hrrr_gfs      gfs_seamless             own (HRRR 3 km ~0-47 h, then GFS)   384
+  icon          icon_seamless            own, no vertical velocity          ~180
+  ukmo          ukmo_seamless            own                                ~157
+  gem           gem_seamless             own, no vertical velocity          ~240
 
-Elevation handling: Open-Meteo picks the model grid cell nearest the
-coordinates and adjusts temperature / humidity from the grid-cell terrain
-height to the ``elevation`` we pass, using a lapse rate. Precipitation and
-wind are NOT elevation-adjusted; wind is handled below with pressure-level
-winds, precipitation is taken as the model gives it.
+For each model and tier: surface fields at the tier's coordinates and elevation
+(one multi-model request per tier), a column at the summit point (one
+multi-model request for the six sounding sources), and 168 hours of derived
+fields. Ensembles (GEFS, ECMWF ENS, ICON-EPS) are fetched once per tier and
+summarized with each model's snow fraction and SLR.
 
-Derived per hour and tier:
+Elevation handling: Open-Meteo picks the grid cell nearest the coordinates and
+adjusts 2 m temperature/humidity from the cell's terrain height to the given
+elevation with a fixed lapse rate. That adjustment cannot represent
+inversions; the model column can, so the free-air temperature at each tier
+height is reported alongside the 2 m value. Precipitation and 10 m wind are
+not elevation-adjusted.
 
-* Wet-bulb zero height (WBZ) from the sounding; snow level = WBZ - 500 ft.
-  Snow fraction: 1 at/above WBZ, 0 at 1,000 ft below it, overridden by the
-  tier's surface wet bulb (<= 31 F all snow, >= 36 F all rain).
-* Sleet / freezing-rain flag: a layer warmer than +0.5 C, at least 1,000 ft
-  deep, above a tier whose wet bulb is below 0 C.
-* Snow/liquid ratio (SLR), three methods:
-    - cobb_adj (primary): Cobb & Waldstreicher (2005)-style. Each cloudy
-      (ice-saturated), rising layer above the tier contributes a
-      crystal-habit SLR for its temperature, weighted by lift x thickness.
-      Then a wind-fragmentation factor (tier wind) and near-freezing caps.
-    - kuchera: from the warmest temperature between the tier and 500 hPa.
-    - fixed 10:1.
-  Open-Meteo's own ``snowfall`` field (fixed ~7:1) is kept as model_field.
-* DGZ (-12 to -18 C): heights, pressures, RH w.r.t. water and ice, lift.
-* Tier wind: base = model 10 m wind (sheltered valley), summit = free-air
-  wind interpolated from pressure levels, mid = 60 % toward free-air.
+Snow/liquid ratio (SLR):
+  cobb (used)   Cobb & Waldstreicher (2005)-style: crystal-habit SLR of each
+                ice-saturated layer above the tier, weighted by upward motion x
+                thickness (thickness only for models without vertical velocity).
+                No empirical adjustment.
+  experimental  cobb x wind factor + near-freezing caps. Not calibrated; shown for
+                comparison until fitted on multi-season observations.
+  kuchera, fixed 10:1, and Open-Meteo's own snowfall field (fixed ~7:1).
 """
 
 import json
@@ -51,18 +45,30 @@ from typing import Dict, Any, Optional, List
 M_TO_FT = 3.28084
 PRESSURE_LEVELS = [1000, 975, 950, 925, 900, 850, 800, 750, 700, 650, 600, 550, 500, 450, 400, 350, 300, 250, 200]
 LEVEL_VARS = ["temperature", "relative_humidity", "geopotential_height", "vertical_velocity", "wind_speed", "wind_direction"]
-TIMELINE_HOURS = 48
+TIMELINE_HOURS = 168
 FORECAST_HOURS = 168
+DEFAULT_MODEL = "nbm"
 
-PRIMARY_MODEL = {"id": "gfs_seamless", "label": "HRRR 3 km (0-48 h) then GFS 0.25 deg", "meta": ["ncep_hrrr_conus", "ncep_gfs025"]}
-COMPARISON_MODELS = [
-    {"id": "ncep_hrrr_conus", "label": "HRRR", "provider": "NOAA/NCEP", "grid": "3 km", "meta": "ncep_hrrr_conus"},
-    {"id": "ncep_nbm_conus", "label": "NBM (National Blend)", "provider": "NOAA/NWS", "grid": "2.5 km", "meta": "ncep_nbm_conus"},
-    {"id": "gfs_global", "label": "GFS", "provider": "NOAA/NCEP", "grid": "0.11-0.25 deg (13-25 km)", "meta": "ncep_gfs025"},
-    {"id": "ecmwf_ifs025", "label": "ECMWF IFS", "provider": "ECMWF", "grid": "0.25 deg (~25 km)", "meta": "ecmwf_ifs025"},
-    {"id": "icon_seamless", "label": "ICON", "provider": "DWD (Germany)", "grid": "13 km (global)", "meta": "dwd_icon"},
-    {"id": "gem_seamless", "label": "GEM", "provider": "ECCC (Canada)", "grid": "10-15 km", "meta": "cmc_gem_gdps"},
+MODELS = [
+    {"id": "nbm", "om": None, "label": "NBM", "provider": "NOAA/NWS (NOMADS, native GRIB2)", "grid": "2.5 km",
+     "sounding": None, "sounding_label": "none (NBM has no vertical profile)", "meta": []},
+    {"id": "ecmwf_hres", "om": "ecmwf_ifs", "label": "ECMWF HRES", "provider": "ECMWF", "grid": "9 km",
+     "sounding": "ecmwf_ifs025", "sounding_label": "ECMWF IFS 0.25 deg", "meta": ["ecmwf_ifs"]},
+    {"id": "aifs", "om": "ecmwf_aifs025_single", "label": "ECMWF AIFS", "provider": "ECMWF (machine-learning)", "grid": "0.25 deg",
+     "sounding": "ecmwf_aifs025_single", "sounding_label": "own", "meta": ["ecmwf_aifs025_single"]},
+    {"id": "hrrr_gfs", "om": "gfs_seamless", "label": "HRRR/GFS", "provider": "NOAA/NCEP", "grid": "3 km to ~47 h, then 0.25 deg",
+     "sounding": "gfs_seamless", "sounding_label": "own", "meta": ["ncep_hrrr_conus", "ncep_gfs025"]},
+    {"id": "icon", "om": "icon_seamless", "label": "ICON", "provider": "DWD (Germany)", "grid": "13 km",
+     "sounding": "icon_seamless", "sounding_label": "own (no vertical velocity)", "meta": ["dwd_icon"]},
+    {"id": "ukmo", "om": "ukmo_seamless", "label": "UKMO", "provider": "Met Office (UK)", "grid": "10 km",
+     "sounding": "ukmo_seamless", "sounding_label": "own", "meta": ["ukmo_global_deterministic_10km"]},
+    {"id": "gem", "om": "gem_seamless", "label": "GEM", "provider": "ECCC (Canada)", "grid": "10-15 km",
+     "sounding": "gem_seamless", "sounding_label": "own (no vertical velocity)", "meta": ["cmc_gem_gdps"]},
 ]
+SOUNDING_SOURCES = sorted({m["sounding"] for m in MODELS if m["sounding"]})
+SURFACE_VARS = ["snowfall", "precipitation", "precipitation_probability", "temperature_2m", "dew_point_2m",
+                "relative_humidity_2m", "wet_bulb_temperature_2m", "freezing_level_height", "cloud_cover",
+                "visibility", "wind_speed_10m", "wind_gusts_10m", "wind_direction_10m"]
 ENSEMBLE_MODELS = "gfs_seamless,ecmwf_ifs025,icon_seamless"
 
 # Approximate snow/liquid ratio of crystals grown at a given temperature (C),
@@ -159,10 +165,11 @@ def habit_slr(t_c: float) -> float:
 
 
 def wind_factor(wind_mph: float) -> float:
-    """Crystal fragmentation / wind packing: no change below 15 mph, -0.5 % per mph above, floor 0.75.
+    """EXPERIMENTAL, not calibrated: -0.5 % per mph above 15 mph, floor 0.75.
 
-    Tuned on the Nov 18-19 2026 storm (hindcast at SQV vs resort new-snow boards);
-    the earlier -1 %/mph above 10 mph (floor 0.5) under-forecast that storm by ~30 %."""
+    Direction of the effect is documented (stronger wind -> fragmented, packed crystals,
+    lower SLR; e.g. Alcott & Steenburgh 2010), but these coefficients were only checked
+    against one storm and are not used for the primary SLR. See TUNING_PLAN.md."""
     return max(0.75, min(1.0, 1.0 - 0.005 * (wind_mph - 15.0)))
 
 
@@ -221,17 +228,25 @@ class OpenMeteoClient:
     # Public entry point
     # ------------------------------------------------------------------
     def fetch_resort_forecast(self, tiers: Dict[str, Dict[str, Any]], sensor: Optional[Dict[str, Any]] = None,
-                              progress=None) -> Dict[str, Any]:
-        """tiers: {"base"|"mid"|"summit": {"lat", "lon", "elevation_m", "note"}}; sensor: same shape plus "id"."""
+                              progress=None, nbm: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Returns {"status", "default": model output, "models": {id: model output}, ...}.
+
+        tiers: {"base"|"mid"|"summit": {"lat", "lon", "elevation_m", "note"}}; sensor: same plus "id"."""
         say = progress or (lambda msg: None)
         labels = {"base": "Base", "mid": "Mid mountain", "summit": "Summit"}
+        exposure = {"base": 0.0, "mid": 0.6, "summit": 1.0}
+        om_ids = [m["om"] for m in MODELS if m["om"]]
         try:
-            say("model surface forecasts")
-            surface = {k: self._query_surface(t["lat"], t["lon"], t["elevation_m"]) for k, t in tiers.items()}
-            say("model sounding")
+            say("surface fields, 7 models x 3 elevations")
+            surface = {k: self._query_surface(t["lat"], t["lon"], t["elevation_m"], om_ids) for k, t in tiers.items()}
+            say("model soundings")
             summit = tiers["summit"]
-            upper = self._query_upper_air(summit["lat"], summit["lon"])
-            profile = self._build_vertical_profile(upper)
+            upper = self._query_upper_air(summit["lat"], summit["lon"], SOUNDING_SOURCES)
+            profiles, has_w = {}, {}
+            for src in SOUNDING_SOURCES:
+                part = self._split(upper, src)
+                profiles[src] = self._build_vertical_profile(part)
+                has_w[src] = any(v is not None for v in (part["hourly"].get("vertical_velocity_700hPa") or []))
 
             say("ensembles")
             ensembles = {}
@@ -241,69 +256,60 @@ class OpenMeteoClient:
                 except Exception:
                     ensembles[k] = None
 
-            exposure = {"base": 0.0, "mid": 0.6, "summit": 1.0}
-            parsed = {k: self._build_tier(surface[k], profile, labels[k], tiers[k]["elevation_m"], exposure[k], ensembles[k]) for k in tiers}
-
-            sensor_out = None
+            sensor_surface = None
             if sensor:
                 try:
-                    s_surface = self._query_surface(sensor["lat"], sensor["lon"], sensor["elevation_m"])
-                    s_tier = self._build_tier(s_surface, profile, sensor.get("id", "sensor"), sensor["elevation_m"], 0.6, None)
-                    sensor_out = {"id": sensor.get("id"), "lat": sensor["lat"], "lon": sensor["lon"],
-                                  "elevation_ft": round(sensor["elevation_m"] * M_TO_FT),
-                                  "hourly": [{k: s[k] for k in ("time", "precip_in", "snowfall_rate_in_hr", "slr", "slr_kuchera", "snow_fraction", "temp_f")}
-                                             for s in s_tier["_steps"][:TIMELINE_HOURS]],
-                                  "liquid_48h_inches": s_tier["liquid_48h_inches"], "snow_48h_inches": s_tier["snow_48h_inches"],
-                                  "slr_methods": s_tier["slr_methods"]}
+                    sensor_surface = self._query_surface(sensor["lat"], sensor["lon"], sensor["elevation_m"], ["gfs_seamless"])
                 except Exception:
-                    sensor_out = None
+                    sensor_surface = None
 
-            say("model comparison")
-            comparison = self._model_comparison(summit, parsed["summit"]["_steps"])
-            primary_runs = [self._model_meta(m) for m in PRIMARY_MODEL["meta"]]
-
-            sounding = self._summarize_sounding(profile, parsed, tiers)
-            sounding_hourly = [{"time": p["time"], "levels": p["_skewt"]} for p in profile[:TIMELINE_HOURS]]
-            for p in profile:
-                p.pop("_levels", None)
-                p.pop("_skewt", None)
-
-            for k in parsed:
-                parsed[k].pop("_steps", None)
-            s_tl = parsed["summit"]["hourly_timeline_48h"]
-            fl48 = [p["freezing_level_ft"] for p in profile[:TIMELINE_HOURS] if p["freezing_level_ft"]]
             now = datetime.now(timezone.utc).isoformat()
-            return {
-                "status": "success",
-                "source": f"Open-Meteo: {PRIMARY_MODEL['label']}",
-                "timestamp_utc": now,
-                "fetched_at_utc": now,
-                "primary_model": {**PRIMARY_MODEL, "runs": primary_runs},
-                "model_comparison": comparison,
-                "query_points": {k: {"lat": t["lat"], "lon": t["lon"], "elevation_ft": round(t["elevation_m"] * M_TO_FT), "note": t.get("note", "")}
-                                 for k, t in tiers.items()},
-                "base": {k: v for k, v in parsed["base"].items() if k != "hourly_timeline_48h"},
-                "mid": {k: v for k, v in parsed["mid"].items() if k != "hourly_timeline_48h"},
-                "summit": {k: v for k, v in parsed["summit"].items() if k != "hourly_timeline_48h"},
-                "base_48h_inches": parsed["base"]["snow_48h_inches"],
-                "mid_48h_inches": parsed["mid"]["snow_48h_inches"],
-                "summit_48h_inches": parsed["summit"]["snow_48h_inches"],
-                "summit_7d_total_inches": parsed["summit"]["snow_7d_total_inches"],
-                "peak_gust_summit_mph": round(max([s["gust_mph"] for s in s_tl] or [0.0]), 1),
-                "avg_freezing_level_ft": round(sum(fl48) / len(fl48)) if fl48 else None,
-                "elevation_timelines": {k: parsed[k]["hourly_timeline_48h"] for k in tiers},
-                "hourly_timeline": s_tl,
-                "vertical_profile": profile[:TIMELINE_HOURS],
-                "sounding_hourly": sounding_hourly,
-                "atmospheric_sounding": sounding,
-                "sensor_point": sensor_out,
-                "methodology": {
-                    "snowfall": "liquid x snow fraction (wet-bulb zero height) x SLR (Cobb-style habit x lift, wind and near-freezing adjusted)",
-                    "slr_alternates": "Kuchera and fixed 10:1 shown for comparison; model_field is Open-Meteo's snowfall variable (fixed ~7:1)",
-                    "wind": "summit: pressure-level wind at summit height; base: model 10 m wind; mid: 60% toward free-air; gusts = wind x model 10 m gust factor",
-                    "elevation": "temperature/humidity lapse-rate adjusted to each tier elevation; precipitation not elevation-adjusted",
-                },
-            }
+            outputs = {}
+            for m in MODELS:
+                say(f"model {m['label']}")
+                if m["id"] == "nbm":
+                    outputs["nbm"] = self._nbm_output(m, nbm, tiers, sensor, ensembles, labels, now)
+                    continue
+                prof = profiles.get(m["sounding"]) or []
+                w_ok = has_w.get(m["sounding"], False)
+                parts = {k: self._split(surface[k], m["om"]) for k in tiers}
+                if not any(v is not None for v in parts["summit"]["hourly"].get("temperature_2m") or []):
+                    outputs[m["id"]] = {"status": "error", "model": self._model_card(m, w_ok, None), "error_message": "no data for this location"}
+                    continue
+                parsed = {k: self._build_tier(parts[k], prof, labels[k], tiers[k]["elevation_m"], exposure[k], ensembles[k], w_ok) for k in tiers}
+                out = self._assemble(m, parsed, prof, tiers, w_ok, now)
+                if sensor and sensor_surface and m["id"] == "hrrr_gfs":
+                    try:
+                        s_tier = self._build_tier(self._split(sensor_surface, "gfs_seamless"), prof, sensor.get("id", "sensor"), sensor["elevation_m"], 0.6, None, w_ok)
+                        out["sensor_point"] = {"id": sensor.get("id"), "lat": sensor["lat"], "lon": sensor["lon"],
+                                               "elevation_ft": round(sensor["elevation_m"] * M_TO_FT),
+                                               "hourly": [{k: x[k] for k in ("time", "precip_in", "snowfall_rate_in_hr", "slr", "slr_kuchera", "slr_experimental", "snow_fraction", "temp_f")}
+                                                          for x in s_tier["_steps"][:48]],
+                                               "liquid_48h_inches": s_tier["liquid_48h_inches"], "snow_48h_inches": s_tier["snow_48h_inches"],
+                                               "slr_methods": s_tier["slr_methods"]}
+                    except Exception:
+                        pass
+                outputs[m["id"]] = out
+
+            for p in profiles.values():
+                for x in p:
+                    x.pop("_levels", None)
+                    x.pop("_skewt", None)
+
+            comparison = [{**o["model"], **(o.get("summit_summary") or {}), **({"error": o.get("error_message")} if o.get("status") == "error" else {})}
+                          for o in outputs.values()]
+            for o in outputs.values():
+                if o.get("status") == "success":
+                    o["model_comparison"] = comparison
+                    o["query_points"] = {k: {"lat": t["lat"], "lon": t["lon"], "elevation_ft": round(t["elevation_m"] * M_TO_FT), "note": t.get("note", "")}
+                                         for k, t in tiers.items()}
+            default = outputs.get(DEFAULT_MODEL)
+            if not default or default.get("status") != "success":
+                default = next((o for o in outputs.values() if o.get("status") == "success"), None)
+            if not default:
+                raise RuntimeError("no model returned data")
+            return {"status": "success", "default_model": default["model"]["id"], "default": default, "models": outputs,
+                    "timestamp_utc": now}
         except Exception as e:
             return {
                 "status": "error",
@@ -311,6 +317,144 @@ class OpenMeteoClient:
                 "timestamp_utc": datetime.now(timezone.utc).isoformat(),
                 "error_message": f"{type(e).__name__}: {e}",
             }
+
+    @staticmethod
+    def _surface_moisture(base_tl: List[Dict[str, Any]], summit_tl: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Base mixing ratio and summit wind from surface fields only (used when a model has no vertical profile)."""
+        mrs = [x["mixing_ratio_g_kg"] for x in base_tl if x.get("mixing_ratio_g_kg") is not None]
+        base_mr = sum(mrs) / len(mrs) if mrs else None
+        winds = [x["wind_mph"] for x in summit_tl if x.get("wind_mph") is not None]
+        dirs = [x["wind_dir_deg"] for x in summit_tl if x.get("wind_dir_deg") is not None]
+        if not dirs:
+            return {"surface_mixing_ratio_g_kg": round(base_mr, 1) if base_mr is not None else None}
+        mean_dir = round(math.degrees(math.atan2(sum(math.sin(math.radians(d)) for d in dirs),
+                                                 sum(math.cos(math.radians(d)) for d in dirs))) % 360)
+        compass = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"][round(mean_dir / 22.5) % 16]
+        oro = "upslope (within 45 deg of crest-normal)" if 200 <= mean_dir <= 290 else ("oblique" if 160 <= mean_dir <= 320 else "downslope / parallel")
+        moist = None if base_mr is None else ("high (>= 5 g/kg)" if base_mr >= 5.0 else ("moderate (2.5-5 g/kg)" if base_mr >= 2.5 else "low (< 2.5 g/kg)"))
+        return {"surface_mixing_ratio_g_kg": round(base_mr, 1) if base_mr is not None else None, "moisture_category": moist,
+                "summit_wind_avg_mph": round(sum(winds) / len(winds)) if winds else None, "summit_wind_dir_deg": mean_dir,
+                "summit_wind_dir": compass, "orographic_flow": oro}
+
+    def _nbm_output(self, m: Dict[str, Any], nbm: Optional[Dict[str, Any]], tiers: Dict[str, Any], sensor: Optional[Dict[str, Any]],
+                    ensembles: Dict[str, Any], labels: Dict[str, str], now: str) -> Dict[str, Any]:
+        """NBM from NOAA's own GRIB2 fields; no other model is involved."""
+        try:
+            from .nbm_client import NBMClient
+        except ImportError:
+            from nbm_client import NBMClient
+        card = {"id": "nbm", "label": "NBM", "provider": m["provider"], "grid": m["grid"], "open_meteo_model": None,
+                "sounding_source": None, "sounding_label": m["sounding_label"], "sounding_has_vertical_velocity": False,
+                "runs": [], "hours_available": None}
+        if not nbm or nbm.get("status") != "success":
+            return {"status": "error", "model": card, "error_message": (nbm or {}).get("error_message", "NBM not fetched")}
+        start = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        parsed, points = {}, {}
+        for k, t in tiers.items():
+            pt = nbm["points"].get(k) or {}
+            steps = NBMClient.to_steps(nbm["cycle_utc"], pt.get("rows", {}), round(t["elevation_m"] * M_TO_FT), start)
+            p_hpa = std_pressure_hpa(t["elevation_m"])
+            for x in steps:   # wet bulb and mixing ratio from NBM's own T and Td (psychrometric; our calculation)
+                if x["temp_f"] is not None and x["dew_point_f"] is not None:
+                    x["wet_bulb_f"] = round(c_to_f(wet_bulb_psychro_c(f_to_c(x["temp_f"]), f_to_c(x["dew_point_f"]), p_hpa)), 1)
+                    x["mixing_ratio_g_kg"] = round(mixing_ratio_g_kg(f_to_c(x["dew_point_f"]), p_hpa), 2)
+                else:
+                    x["wet_bulb_f"] = x["mixing_ratio_g_kg"] = None
+                x["chance_snow_pct"] = round((x["precip_probability"] or 0) * (x["snow_fraction"] or 0))
+                x["chance_rain_pct"] = round((x["precip_probability"] or 0) * (1 - (x["snow_fraction"] or 0)))
+            parsed[k] = self._summarize_tier(steps, labels[k], round(t["elevation_m"] * M_TO_FT), ensembles.get(k), False, nbm=True)
+            parsed[k]["hourly_timeline_48h"] = steps[:TIMELINE_HOURS]
+            points[k] = {"grid_lat": pt.get("grid_lat"), "grid_lon": pt.get("grid_lon")}
+        summit = parsed["summit"]
+        s_tl = summit["hourly_timeline_48h"]
+        card.update({"runs": [{"model": "NBM v4 CONUS", "run_init_utc": nbm["cycle_utc"], "run_available_utc": nbm.get("fetched_at_utc")}],
+                     "hours_available": summit["hours_available"]})
+        out = {
+            "status": "success", "source": "NOAA NBM (NOMADS)", "timestamp_utc": now, "fetched_at_utc": nbm.get("fetched_at_utc", now),
+            "model": card, "primary_model": {"id": "nbm", "label": "NBM (2.5 km)", "runs": card["runs"]},
+            "nbm_grid_points": points,
+            "summit_summary": {"liquid_24h": summit["liquid_24h_inches"], "liquid_48h": summit["liquid_48h_inches"],
+                               "liquid_7d": summit["liquid_7d_inches"], "snow_48h": summit["snow_48h_inches"],
+                               "snow_7d": summit["snow_7d_total_inches"], "covers_48h": summit["hours_available"] >= 47,
+                               "covers_7d": summit["hours_available"] >= 160, "hours_available": summit["hours_available"],
+                               "peak_gust_48h": round(max([x["gust_mph"] or 0 for x in s_tl[:48]] or [0.0]), 1)},
+            "base": {k: v for k, v in parsed["base"].items() if k not in ("hourly_timeline_48h", "_steps")},
+            "mid": {k: v for k, v in parsed["mid"].items() if k not in ("hourly_timeline_48h", "_steps")},
+            "summit": {k: v for k, v in summit.items() if k not in ("hourly_timeline_48h", "_steps")},
+            "base_48h_inches": parsed["base"]["snow_48h_inches"], "mid_48h_inches": parsed["mid"]["snow_48h_inches"],
+            "summit_48h_inches": summit["snow_48h_inches"], "summit_7d_total_inches": summit["snow_7d_total_inches"],
+            "peak_gust_summit_mph": round(max([x["gust_mph"] or 0 for x in s_tl[:48]] or [0.0]), 1),
+            "avg_freezing_level_ft": None,
+            "elevation_timelines": {k: parsed[k]["hourly_timeline_48h"] for k in parsed},
+            "hourly_timeline": s_tl,
+            "vertical_profile": [], "sounding_hourly": [],
+            "atmospheric_sounding": {"available": False, "reason": "NBM has no vertical profile; select another model for the sounding panels.",
+                                     "moisture_and_dynamics": self._surface_moisture(parsed["base"]["hourly_timeline_48h"][:24], s_tl[:24])},
+            "methodology": {"snowfall": "NBM's own snowfall (ASNOW), snow/liquid ratio (SNOWLR) and snow level (SNOWLVL), nearest 2.5 km grid point",
+                            "sounding": "none", "hours": "hourly to 48 h, then 6 h NBM values (accumulations spread over 6 h, other fields interpolated)"},
+        }
+        if sensor and nbm["points"].get("sensor"):
+            sp = nbm["points"]["sensor"]
+            st = NBMClient.to_steps(nbm["cycle_utc"], sp.get("rows", {}), round(sensor["elevation_m"] * M_TO_FT), start)
+            out["sensor_point"] = {"id": sensor.get("id"), "lat": sensor["lat"], "lon": sensor["lon"], "model": "NBM",
+                                   "elevation_ft": round(sensor["elevation_m"] * M_TO_FT),
+                                   "hourly": [{k: x.get(k) for k in ("time", "precip_in", "snowfall_rate_in_hr", "slr", "snow_fraction", "temp_f")} for x in st[:48]]}
+        return out
+
+    def _model_card(self, m: Dict[str, Any], has_w: bool, hours: Optional[int]) -> Dict[str, Any]:
+        runs = [self._model_meta(x) for x in m["meta"]]
+        for r in runs:
+            try:
+                if r.get("run_init_utc") and (datetime.now(timezone.utc) - datetime.fromisoformat(r["run_init_utc"])).days >= 3:
+                    r["run_init_utc"] = r["run_available_utc"] = None
+                    r["run_note"] = "run time not reported by Open-Meteo"
+            except Exception:
+                pass
+        return {"id": m["id"], "label": m["label"], "provider": m["provider"], "grid": m["grid"], "open_meteo_model": m["om"],
+                "sounding_source": m["sounding"], "sounding_label": m["sounding_label"], "sounding_has_vertical_velocity": has_w,
+                "runs": runs, "hours_available": hours}
+
+    def _assemble(self, m: Dict[str, Any], parsed: Dict[str, Any], prof: List[Dict[str, Any]], tiers: Dict[str, Any],
+                  has_w: bool, now: str) -> Dict[str, Any]:
+        summit = parsed["summit"]
+        s_tl = summit["hourly_timeline_48h"]
+        fl = [p["freezing_level_ft"] for p in prof[:48] if p.get("freezing_level_ft")]
+        sounding = self._summarize_sounding(prof, parsed, tiers)
+        sounding_hourly = [{"time": p["time"], "levels": p["_skewt"]} for p in prof[:TIMELINE_HOURS]] if prof else []
+        card = self._model_card(m, has_w, summit["hours_available"])
+        out = {
+            "status": "success",
+            "source": f"Open-Meteo: {m['label']}",
+            "timestamp_utc": now, "fetched_at_utc": now,
+            "model": card,
+            "primary_model": {"id": m["id"], "label": f"{m['label']} ({m['grid']})" + ("" if m["sounding_label"].startswith("own") else f" + {m['sounding_label']} sounding"),
+                              "runs": card["runs"]},
+            "summit_summary": {"liquid_24h": summit["liquid_24h_inches"], "liquid_48h": summit["liquid_48h_inches"],
+                               "liquid_7d": summit["liquid_7d_inches"], "snow_48h": summit["snow_48h_inches"],
+                               "snow_7d": summit["snow_7d_total_inches"], "covers_48h": summit["hours_available"] >= 47,
+                               "covers_7d": summit["hours_available"] >= 160, "hours_available": summit["hours_available"],
+                               "peak_gust_48h": round(max([x["gust_mph"] for x in s_tl[:48]] or [0.0]), 1)},
+            "base": {k: v for k, v in parsed["base"].items() if k not in ("hourly_timeline_48h", "_steps")},
+            "mid": {k: v for k, v in parsed["mid"].items() if k not in ("hourly_timeline_48h", "_steps")},
+            "summit": {k: v for k, v in summit.items() if k not in ("hourly_timeline_48h", "_steps")},
+            "base_48h_inches": parsed["base"]["snow_48h_inches"],
+            "mid_48h_inches": parsed["mid"]["snow_48h_inches"],
+            "summit_48h_inches": summit["snow_48h_inches"],
+            "summit_7d_total_inches": summit["snow_7d_total_inches"],
+            "peak_gust_summit_mph": round(max([x["gust_mph"] for x in s_tl[:48]] or [0.0]), 1),
+            "avg_freezing_level_ft": round(sum(fl) / len(fl)) if fl else None,
+            "elevation_timelines": {k: parsed[k]["hourly_timeline_48h"] for k in parsed},
+            "hourly_timeline": s_tl,
+            "vertical_profile": [{k: v for k, v in p.items() if not k.startswith("_")} for p in prof[:TIMELINE_HOURS]],
+            "sounding_hourly": sounding_hourly,
+            "atmospheric_sounding": sounding,
+            "methodology": {
+                "snowfall": "liquid x snow fraction (wet-bulb zero height) x SLR (Cobb-style habit x lift; no empirical adjustment)",
+                "sounding": f"{m['sounding_label']} column at the summit point" if not m["sounding_label"].startswith("own") else "model's own column at the summit point",
+                "slr_alternates": "experimental wind/near-freezing adjustment (uncalibrated), Kuchera, fixed 10:1, Open-Meteo snowfall field (~7:1)",
+            },
+        }
+        return out
 
     # ------------------------------------------------------------------
     # HTTP
@@ -325,28 +469,35 @@ class OpenMeteoClient:
             body = e.read().decode("utf-8", "ignore")[:200]
             raise RuntimeError(f"HTTP {e.code}: {body}") from None
 
-    def _query_surface(self, lat: float, lon: float, elevation_m: int) -> Dict[str, Any]:
+    @staticmethod
+    def _split(resp: Dict[str, Any], om_id: str) -> Dict[str, Any]:
+        """One model's fields from a multi-model response (keys are suffixed with _<model>)."""
+        h, u = resp.get("hourly", {}), resp.get("hourly_units", {})
+        suf = f"_{om_id}"
+        out = {"time": h.get("time", [])}
+        units = {}
+        for k, v in h.items():
+            if k.endswith(suf):
+                out[k[: -len(suf)]] = v
+                units[k[: -len(suf)]] = u.get(k)
+        return {"hourly": out, "hourly_units": units}
+
+    def _query_surface(self, lat: float, lon: float, elevation_m: int, om_ids: List[str]) -> Dict[str, Any]:
         return self._get(self.BASE_URL, {
             "latitude": f"{lat:.4f}", "longitude": f"{lon:.4f}", "elevation": str(elevation_m),
-            "hourly": ",".join([
-                "snowfall", "precipitation", "precipitation_probability",
-                "temperature_2m", "dew_point_2m", "relative_humidity_2m",
-                "wet_bulb_temperature_2m", "freezing_level_height", "cloud_cover",
-                "wind_speed_10m", "wind_gusts_10m", "wind_direction_10m",
-            ]),
-            "models": PRIMARY_MODEL["id"],
+            "hourly": ",".join(SURFACE_VARS), "models": ",".join(om_ids),
             "forecast_hours": str(FORECAST_HOURS), "past_hours": "0", "timezone": "GMT",
             "precipitation_unit": "inch", "wind_speed_unit": "mph", "temperature_unit": "fahrenheit",
-        })
+        }, timeout=self.timeout_sec * 2)
 
-    def _query_upper_air(self, lat: float, lon: float) -> Dict[str, Any]:
+    def _query_upper_air(self, lat: float, lon: float, om_ids: List[str]) -> Dict[str, Any]:
         hourly = [f"{v}_{p}hPa" for p in PRESSURE_LEVELS for v in LEVEL_VARS]
         return self._get(self.BASE_URL, {
             "latitude": f"{lat:.4f}", "longitude": f"{lon:.4f}",
-            "hourly": ",".join(hourly), "models": PRIMARY_MODEL["id"],
+            "hourly": ",".join(hourly), "models": ",".join(om_ids),
             "forecast_hours": str(FORECAST_HOURS), "past_hours": "0", "timezone": "GMT",
             "wind_speed_unit": "mph",   # heights stay in meters, temperatures in C
-        }, timeout=self.timeout_sec * 2)
+        }, timeout=self.timeout_sec * 4)
 
     def _query_ensemble(self, lat: float, lon: float, elevation_m: int) -> Dict[str, Any]:
         return self._get(self.ENSEMBLE_URL, {
@@ -358,7 +509,7 @@ class OpenMeteoClient:
 
     def _model_meta(self, meta_id: str) -> Dict[str, Any]:
         if meta_id in self._meta_cache:
-            return self._meta_cache[meta_id]
+            return dict(self._meta_cache[meta_id])
         out = {"model": meta_id}
         try:
             req = urllib.request.Request(self.META_URL.format(model=meta_id), headers={"User-Agent": self.USER_AGENT})
@@ -371,48 +522,7 @@ class OpenMeteoClient:
         except Exception:
             pass
         self._meta_cache[meta_id] = out
-        return out
-
-    def _model_comparison(self, point: Dict[str, Any], primary_steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Liquid from each named model at the summit point; snow uses the primary
-        forecast's hourly snow fraction x SLR so differences reflect precipitation only."""
-        try:
-            d = self._get(self.BASE_URL, {
-                "latitude": f"{point['lat']:.4f}", "longitude": f"{point['lon']:.4f}", "elevation": str(point["elevation_m"]),
-                "hourly": "precipitation", "models": ",".join(m["id"] for m in COMPARISON_MODELS),
-                "forecast_hours": str(FORECAST_HOURS), "past_hours": "0", "timezone": "GMT", "precipitation_unit": "inch",
-            })
-        except Exception as e:
-            return [{"label": "comparison unavailable", "error": str(e)}]
-        h = d.get("hourly", {})
-        factor = [s["snow_fraction"] * s["slr"] for s in primary_steps]
-        out = []
-        for m in COMPARISON_MODELS:
-            arr = h.get(f"precipitation_{m['id']}") or []
-            hours = sum(1 for x in arr if x is not None)
-            row = {k: m[k] for k in ("id", "label", "provider", "grid")}
-            row.update(self._model_meta(m["meta"]))
-            row["hours_available"] = hours
-            # Model metadata older than 3 days is not trustworthy; don't show it as a run time
-            try:
-                if row.get("run_init_utc") and (datetime.now(timezone.utc) - datetime.fromisoformat(row["run_init_utc"])).days >= 3:
-                    row["run_init_utc"] = row["run_available_utc"] = None
-                    row["run_note"] = "run time not reported by Open-Meteo"
-            except Exception:
-                pass
-            if hours == 0:
-                row["error"] = "no precipitation data for this location"
-            else:
-                def liq(n):
-                    vals = [x for x in arr[:n] if x is not None]
-                    return round(sum(vals), 2) if vals else None
-                row.update({"liquid_24h": liq(24), "liquid_48h": liq(48), "liquid_7d": liq(168),
-                            "covers_48h": hours >= 47, "covers_7d": hours >= 160})
-                snow = [(arr[i] or 0.0) * factor[i] for i in range(min(len(arr), len(factor)))]
-                row["snow_48h"] = round(sum(snow[:48]), 1)
-                row["snow_7d"] = round(sum(snow[:168]), 1)
-            out.append(row)
-        return out
+        return dict(out)
 
     # ------------------------------------------------------------------
     # Sounding
@@ -480,16 +590,27 @@ class OpenMeteoClient:
     # Per-tier timeline
     # ------------------------------------------------------------------
     def _build_tier(self, data: Dict[str, Any], profile: List[Dict[str, Any]], level_name: str, elevation_m: int,
-                    exposure: float = 1.0, ensemble: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                    exposure: float = 1.0, ensemble: Optional[Dict[str, Any]] = None, has_w: bool = True) -> Dict[str, Any]:
+        """One tier's hourly timeline for one model.
+
+        data["hourly"] holds that model's surface fields; profile is the sounding used
+        (the model's own, or its companion for surface-only models)."""
         h = data.get("hourly", {})
+        units = data.get("hourly_units", {})
         times = h.get("time", [])
+        # Only hours where the model actually has data (shorter models end early; never fill gaps)
+        valid = [i for i in range(len(times)) if _val(h.get("temperature_2m"), i) is not None]
+        n = min(FORECAST_HOURS, (max(valid) + 1) if valid else 0)
         elev_ft = round(elevation_m * M_TO_FT)
         p_hpa = std_pressure_hpa(elevation_m)
-        ens_pop = self._ensemble_pop(ensemble, len(times)) if ensemble else None
+        ens_pop = self._ensemble_pop(ensemble, n) if ensemble else None
+        vis_unit = units.get("visibility", "m")
+        vis_to_mi = 1 / 5280.0 if vis_unit in ("ft", "feet") else 1 / 1609.344
 
         steps = []
-        cum = cum_model = cum_k = cum_10 = 0.0
-        for i, t in enumerate(times):
+        cum = cum_model = cum_k = cum_10 = cum_exp = 0.0
+        for i in range(n):
+            t = times[i]
             prof = profile[i] if i < len(profile) else {}
             levels = prof.get("_levels", [])
             above = [lv for lv in levels if lv["z"] >= elevation_m]
@@ -498,12 +619,18 @@ class OpenMeteoClient:
             model_snow = _val(h.get("snowfall"), i, 0.0)
             model_pop = _val(h.get("precipitation_probability"), i)
             pop = ens_pop[i] if ens_pop else (int(model_pop) if model_pop is not None else (100 if precip >= 0.01 else 0))
-            temp_f = _val(h.get("temperature_2m"), i, 30.0)
-            dew_f = _val(h.get("dew_point_2m"), i, temp_f - 4)
-            rh = _val(h.get("relative_humidity_2m"), i, 85.0)
+            temp_f = _val(h.get("temperature_2m"), i)
+            dew_f = _val(h.get("dew_point_2m"), i)
+            rh = _val(h.get("relative_humidity_2m"), i)
+            if dew_f is None and rh is not None:
+                dew_f = c_to_f(dewpoint_c(f_to_c(temp_f), rh))
+            if rh is None and dew_f is not None:
+                rh = min(100.0, 100 * es_water(f_to_c(dew_f)) / es_water(f_to_c(temp_f)))
             wb_f = _val(h.get("wet_bulb_temperature_2m"), i)
+            if wb_f is None and dew_f is not None:
+                wb_f = c_to_f(wet_bulb_psychro_c(f_to_c(temp_f), f_to_c(dew_f), p_hpa))
             if wb_f is None:
-                wb_f = c_to_f(wet_bulb_stull_c(f_to_c(temp_f), rh))
+                wb_f = temp_f
             t_c, wb_c = f_to_c(temp_f), f_to_c(wb_f)
 
             # Snow fraction from position relative to the wet-bulb zero height
@@ -526,18 +653,19 @@ class OpenMeteoClient:
             col = [t_c] + [lv["t"] for lv in above if lv["p"] >= 500]
             slr_k = kuchera_slr(max(col) + 273.15)
             num = den = 0.0
-            for a, b in zip(above, above[1:]):
-                if a["p"] < 300:
+            for a_, b_ in zip(above, above[1:]):
+                if a_["p"] < 300:
                     break
-                rhi = (a["rhi"] + b["rhi"]) / 2
-                w = (a["w"] + b["w"]) / 2
-                if rhi >= 95 and w > 0:
-                    wt = w * (b["z"] - a["z"])
-                    num += wt * habit_slr((a["t"] + b["t"]) / 2)
+                rhi = (a_["rhi"] + b_["rhi"]) / 2
+                w = (a_["w"] + b_["w"]) / 2
+                dz = b_["z"] - a_["z"]
+                if rhi >= 95 and (w > 0 or not has_w):
+                    wt = (w if has_w else 1.0) * dz   # lift x thickness, or thickness only without vertical-velocity data
+                    num += wt * habit_slr((a_["t"] + b_["t"]) / 2)
                     den += wt
             slr_cobb = num / den if den > 0 else slr_k
 
-            # Wind at tier height
+            # Wind and free-air temperature at tier height
             lv_wind = [lv for lv in levels if lv["ws"] is not None and lv["wd"] is not None]
             zs = [lv["z"] for lv in lv_wind]
             ws10 = _val(h.get("wind_speed_10m"), i, 0.0)
@@ -552,19 +680,25 @@ class OpenMeteoClient:
                 free_air, ws, wd = ws10, ws10, _val(h.get("wind_direction_10m"), i, 0.0)
             gust_factor = max(1.15, min(1.4, g10 / ws10)) if ws10 > 3 else 1.3
             gust = max(g10, ws * gust_factor)
+            zt = [lv["z"] for lv in levels]
+            fa_t = _interp_at_height(zt, [lv["t"] for lv in levels], elevation_m) if levels and levels[0]["z"] <= elevation_m else None
 
-            slr = slr_cobb * wind_factor(ws)
+            # Primary SLR: Cobb-style, no empirical adjustment (bounded to a physical range)
+            slr = max(3.0, min(30.0, slr_cobb))
+            # Experimental (NOT calibrated): wind fragmentation + near-freezing caps
+            slr_exp = slr * wind_factor(ws)
             if wb_c > -1.0:
-                slr = min(slr, 9.0)
+                slr_exp = min(slr_exp, 9.0)
             if wb_c > 0.0:
-                slr = min(slr, 7.0)
-            slr = max(3.0, slr)
+                slr_exp = min(slr_exp, 7.0)
+            slr_exp = max(3.0, slr_exp)
 
             snow = precip * frac * slr
             cum += snow
             cum_model += model_snow
             cum_k += precip * frac * slr_k
             cum_10 += precip * frac * 10.0
+            cum_exp += precip * frac * slr_exp
 
             if precip < 0.005 and pop < 20:
                 phase = "dry"
@@ -577,7 +711,7 @@ class OpenMeteoClient:
             else:
                 phase = "mix"
 
-            dpd = temp_f - dew_f
+            vis = _val(h.get("visibility"), i)
             steps.append({
                 "time": _iso(t),
                 "precip_in": round(precip, 3),
@@ -586,9 +720,10 @@ class OpenMeteoClient:
                 "model_snowfall_in_hr": round(model_snow, 2),
                 "model_cumulative_inches": round(cum_model, 2),
                 "kuchera_cumulative_inches": round(cum_k, 2),
+                "experimental_cumulative_inches": round(cum_exp, 2),
                 "slr": round(slr, 1),
-                "slr_cobb_raw": round(slr_cobb, 1),
                 "slr_kuchera": round(slr_k, 1),
+                "slr_experimental": round(slr_exp, 1),
                 "snow_fraction": round(frac, 2),
                 "precip_phase": phase,
                 "precip_phase_label": {"dry": "None", "snow": "Snow", "mix": "Rain/snow", "rain": "Rain", "ice": "Sleet/freezing rain risk"}[phase],
@@ -597,11 +732,13 @@ class OpenMeteoClient:
                 "chance_snow_pct": round(pop * frac),
                 "chance_rain_pct": round(pop * (1 - frac)),
                 "temp_f": round(temp_f, 1),
+                "free_air_temp_f": round(c_to_f(fa_t), 1) if fa_t is not None else None,
                 "wet_bulb_f": round(wb_f, 1),
-                "dew_point_f": round(dew_f, 1),
-                "dew_point_depression_f": round(dpd, 1),
-                "relative_humidity_pct": round(rh),
-                "mixing_ratio_g_kg": round(mixing_ratio_g_kg(f_to_c(dew_f), p_hpa), 2),
+                "dew_point_f": round(dew_f, 1) if dew_f is not None else None,
+                "dew_point_depression_f": round(temp_f - dew_f, 1) if dew_f is not None else None,
+                "relative_humidity_pct": round(rh) if rh is not None else None,
+                "mixing_ratio_g_kg": round(mixing_ratio_g_kg(f_to_c(dew_f), p_hpa), 2) if dew_f is not None else None,
+                "visibility_mi": round(vis * vis_to_mi, 2) if vis is not None else None,
                 "cloud_cover_pct": _val(h.get("cloud_cover"), i),
                 "wind_mph": round(ws, 1),
                 "gust_mph": round(gust, 1),
@@ -614,11 +751,18 @@ class OpenMeteoClient:
                 "warm_layer_aloft": bool(warm),
             })
 
-        def total(key, n):
-            return round(sum(s[key] for s in steps[:n]), 1)
+        return self._summarize_tier(steps, level_name, elev_ft, ensemble, has_w)
 
-        def liquid_weighted(key, n):
-            wet = [s for s in steps[:n] if s["precip_in"] >= 0.01 and s["snow_fraction"] > 0]
+    def _summarize_tier(self, steps: List[Dict[str, Any]], level_name: str, elev_ft: int,
+                        ensemble: Optional[Dict[str, Any]], has_w: bool, nbm: bool = False) -> Dict[str, Any]:
+        def total(key, n_):
+            return round(sum(s[key] for s in steps[:n_]), 1)
+
+        def last(key, n_):
+            return round(steps[min(n_, len(steps)) - 1][key], 1) if steps else 0.0
+
+        def liquid_weighted(key, n_):
+            wet = [s for s in steps[:n_] if s["precip_in"] >= 0.01 and (s.get("snow_fraction") or 0) > 0 and s.get(key) is not None]
             tot = sum(s["precip_in"] for s in wet)
             return round(sum(s[key] * s["precip_in"] for s in wet) / tot, 1) if tot > 0 else None
 
@@ -632,11 +776,13 @@ class OpenMeteoClient:
                     d.update({"snow_p10": e["p10"], "snow_p25": e["p25"], "snow_p50": e["p50"], "snow_p75": e["p75"],
                               "snow_p90": e["p90"], "prob_6in": e["prob_6in"], "prob_12in": e["prob_12in"]})
 
-        liq48 = sum(s["precip_in"] * s["snow_fraction"] for s in steps[:48])
-        liq7 = sum(s["precip_in"] * s["snow_fraction"] for s in steps)
+        liq48 = sum(s["precip_in"] * (s.get("snow_fraction") or 0) for s in steps[:48])
+        liq7 = sum(s["precip_in"] * (s.get("snow_fraction") or 0) for s in steps)
         return {
             "level": level_name,
             "elevation_ft": elev_ft,
+            "hours_available": len(steps),
+            "_steps": steps,
             "ensemble": ens,
             "snow_24h_inches": total("snowfall_rate_in_hr", 24),
             "snow_48h_inches": total("snowfall_rate_in_hr", 48),
@@ -644,19 +790,26 @@ class OpenMeteoClient:
             "snow_7d_total_inches": total("snowfall_rate_in_hr", 168),
             "model_raw_snow_48h_inches": total("model_snowfall_in_hr", 48),
             "model_raw_snow_7d_inches": total("model_snowfall_in_hr", 168),
+            "liquid_24h_inches": round(sum(s["precip_in"] for s in steps[:24]), 2),
             "liquid_48h_inches": round(sum(s["precip_in"] for s in steps[:48]), 2),
             "liquid_7d_inches": round(sum(s["precip_in"] for s in steps), 2),
-            "slr_methods": {
-                "cobb_adjusted": {"slr_48h": liquid_weighted("slr", 48), "slr_7d": liquid_weighted("slr", 168), "snow_48h": total("snowfall_rate_in_hr", 48), "snow_7d": total("snowfall_rate_in_hr", 168)},
-                "kuchera": {"slr_48h": liquid_weighted("slr_kuchera", 48), "slr_7d": liquid_weighted("slr_kuchera", 168), "snow_48h": round(steps[min(47, len(steps) - 1)]["kuchera_cumulative_inches"], 1) if steps else 0,
-                            "snow_7d": round(steps[-1]["kuchera_cumulative_inches"], 1) if steps else 0},
-                "cobb_unadjusted": {"slr_48h": liquid_weighted("slr_cobb_raw", 48), "slr_7d": liquid_weighted("slr_cobb_raw", 168)},
+            "slr_methods": ({
+                "nbm": {"slr_48h": liquid_weighted("slr", 48), "slr_7d": liquid_weighted("slr", 168),
+                        "snow_48h": total("snowfall_rate_in_hr", 48), "snow_7d": total("snowfall_rate_in_hr", 168)},
+                "fixed_10": {"slr_48h": 10.0, "slr_7d": 10.0, "snow_48h": round(liq48 * 10, 1), "snow_7d": round(liq7 * 10, 1)},
+            } if nbm else {
+                "cobb": {"slr_48h": liquid_weighted("slr", 48), "slr_7d": liquid_weighted("slr", 168),
+                         "snow_48h": total("snowfall_rate_in_hr", 48), "snow_7d": total("snowfall_rate_in_hr", 168),
+                         "lift_weighted": has_w},
+                "experimental_adjusted": {"slr_48h": liquid_weighted("slr_experimental", 48), "slr_7d": liquid_weighted("slr_experimental", 168),
+                                          "snow_48h": last("experimental_cumulative_inches", 48), "snow_7d": last("experimental_cumulative_inches", 168)},
+                "kuchera": {"slr_48h": liquid_weighted("slr_kuchera", 48), "slr_7d": liquid_weighted("slr_kuchera", 168),
+                            "snow_48h": last("kuchera_cumulative_inches", 48), "snow_7d": last("kuchera_cumulative_inches", 168)},
                 "fixed_10": {"slr_48h": 10.0, "slr_7d": 10.0, "snow_48h": round(liq48 * 10, 1), "snow_7d": round(liq7 * 10, 1)},
                 "model_field_7to1": {"slr_48h": 7.0, "slr_7d": 7.0, "snow_48h": total("model_snowfall_in_hr", 48), "snow_7d": total("model_snowfall_in_hr", 168)},
-            },
+            }),
             "daily_forecast": daily,
             "hourly_timeline_48h": steps[:TIMELINE_HOURS],
-            "_steps": steps,
         }
 
     @staticmethod
@@ -687,15 +840,20 @@ class OpenMeteoClient:
         keys = [k for k in h if k.startswith("precipitation")]
         if not keys or not steps:
             return None
-        factor = [s["snow_fraction"] * s["slr"] for s in steps]
+        factor = [s["snow_factor"] if s.get("snow_factor") is not None else (s.get("snow_fraction") or 0) * (s.get("slr") or 0) for s in steps]
         dates = [(datetime.fromisoformat(s["time"].replace("Z", "+00:00")) - timedelta(hours=8)).strftime("%Y-%m-%d") for s in steps]
         day_keys = [d["date"] for d in daily]
+        ens_times = [t + "Z" if not t.endswith("Z") else t for t in h.get("time", [])]
+        offset = 0
+        if steps and ens_times:
+            t0 = steps[0]["time"].replace(":00Z", "").rstrip("Z")
+            offset = next((i for i, t in enumerate(ens_times) if t.startswith(t0[:13])), 0)
         members = []
         for k in keys:
             arr = h[k]
             if arr is None or sum(1 for x in arr[:len(steps)] if x is not None) < len(steps) * 0.5:
                 continue
-            snow = [(arr[i] or 0.0) * factor[i] if i < len(arr) else 0.0 for i in range(len(steps))]
+            snow = [((arr[i + offset] or 0.0) * factor[i]) if i + offset < len(arr) else 0.0 for i in range(len(steps))]
             per_day = {d: 0.0 for d in day_keys}
             for i, v in enumerate(snow):
                 if dates[i] in per_day:
@@ -729,6 +887,8 @@ class OpenMeteoClient:
             "snow_48h": stats([m["h48"] for m in members]),
             "snow_7d": stats([m["d7"] for m in members]),
             "liquid_48h": {p: round(v, 2) for p, v in stats([m["liq48"] for m in members]).items()},
+            "member_snow": {"h24": sorted(round(m["h24"], 1) for m in members), "h48": sorted(round(m["h48"], 1) for m in members),
+                            "d7": sorted(round(m["d7"], 1) for m in members)},
             "daily": out_daily,
             "cumulative_daily": out_cum,
         }

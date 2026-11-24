@@ -687,3 +687,58 @@ kbd { font-family: var(--font-mono); font-size: 11px; padding: 2px 6px; border-r
 .afd-primary .afd-bullet { color: var(--ink); }
 .afd:not(.afd-primary) .afd-text p { font-size: 13px; }
 @media (max-width: 1024px) { .afd-grid { grid-template-columns: 1fr; } }
+
+/* Model selector */
+.model-bar { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; padding: 10px 14px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); flex-wrap: wrap; }
+.model-bar-label { display: flex; flex-direction: column; gap: 2px; min-width: 150px; }
+.model-bar-label .mini-label { max-width: 360px; }
+.model-chips { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
+.model-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 11px; border-radius: 11px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; transition: border-color .2s, background .2s; }
+.model-chip b { font-size: 12.5px; font-weight: 700; }
+.model-chip small { font-size: 10.5px; color: var(--ink-3); font-family: var(--font-mono); }
+.model-chip:hover { border-color: var(--line-strong); }
+.model-chip.active { background: var(--ink); border-color: var(--ink); color: #0b1220; }
+.model-chip.active small { color: #475569; }
+.model-chip[disabled] { opacity: .4; cursor: not-allowed; }
+
+/* Elevation bands */
+.bands { position: relative; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.bands-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+.bands-head h3 { font-size: 16px; }
+.bands-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-2); }
+.bands-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.bands-legend i { display: inline-block; width: 16px; height: 3px; border-radius: 2px; }
+.bands-legend .lg-solid { background: var(--ink-2); }
+.bands-legend .lg-dash { background: repeating-linear-gradient(90deg, var(--ink-2) 0 4px, transparent 4px 7px); }
+#bands-chart { overflow-x: auto; }
+#bands-chart svg { display: block; min-width: 860px; width: 100%; height: auto; }
+@media (max-width: 640px) { .model-bar { padding: 10px; } .model-chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; } .model-chip { flex: none; } }
+
+/* v6: equal discussions, distribution plot */
+.afd-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.afd .afd-text p, .afd:not(.afd-primary) .afd-text p { font-size: 13.5px; color: var(--ink-2); }
+@media (max-width: 1024px) { .afd-grid { grid-template-columns: 1fr; } }
+.dist-card { grid-column: 1 / -1; padding: 18px 20px; display: flex; flex-direction: column; gap: 8px; }
+.dist-title { font-size: 17px; font-weight: 650; margin-top: 2px; letter-spacing: -0.01em; }
+.dl-med { width: 8px !important; height: 8px !important; border-radius: 50% !important; background: #cbd5e1; }
+.dist-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.dist-legend { display: inline-flex; flex-wrap: wrap; gap: 6px 12px; font-size: 11px; color: var(--ink-2); }
+.dist-legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.dist-legend i { display: inline-block; width: 12px; height: 8px; border-radius: 2px; }
+.dl-summit { background: rgba(125, 211, 252, 0.6); }
+.dl-base { background: rgba(251, 191, 36, 0.5); }
+.dl-model { width: 2px !important; height: 12px !important; background: #f8fafc; }
+#dist-chart svg { display: block; width: 100%; height: auto; max-width: 100%; }
+.nws-line { font-size: 11.5px; color: var(--ink-3); }
+.range-source { margin-top: 0; }
+
+/* v6: crystal section, explanation beside the thermometer diagram */
+.habit-card { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr); gap: 24px; align-items: start; }
+.habit-card .skewt-head { margin: 0; }
+.habit-card .block-sub { max-width: none; }
+#habit-diagram { min-width: 0; }
+@media (max-width: 1024px) { .habit-card { grid-template-columns: 1fr; } }
+@media (max-width: 640px) {
+  #habit-diagram { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  #habit-diagram svg { min-width: 600px; }
+}

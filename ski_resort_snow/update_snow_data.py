@@ -89,9 +89,12 @@ def main():
         rng = lambda d: f"{d.get('expected')} in (p10-p90 {d.get('min')}-{d.get('max')})" if d.get("min") is not None else f"{d.get('expected')} in"
         print(f"\n{r_info.get('name')}  (base {elev.get('base_ft'):,} / mid {elev.get('mid_ft'):,} / summit {elev.get('summit_ft'):,} ft)")
         print(f"   Sources: " + ", ".join(f"{k} {v.get('status')}" for k, v in src.items()))
-        print(f"   Summit snow 24 h: {rng(c.get('next_24h_inches', {}))}   48 h: {rng(c.get('next_48h_inches', {}))}   7 d: {c.get('next_7d_total_inches')} in")
-        print(f"   Blend: {c.get('blend_sources')}")
-        print(f"   Summit liquid 48 h: {summit.get('liquid_48h_inches')} in, SLR (Cobb-style) {(summit.get('slr_methods') or {}).get('cobb_adjusted', {}).get('slr_48h')}")
+        fmt = lambda b: f"{b.get('value')} in (p10-p90 {b.get('p10')}-{b.get('p90')})"
+        for t in ("summit", "base"):
+            tb = c.get(t) or {}
+            print(f"   {t.title():6s} ({tb.get('elevation_ft')} ft) 24 h {fmt(tb.get('24h', {}))} · 48 h {fmt(tb.get('48h', {}))} · 7 d {fmt(tb.get('7d', {}))}")
+        print(f"   Model: {c.get('source')} · NWS gridded (separate): {c.get('nws_gridded')}")
+        print(f"   Summit liquid 48 h: {summit.get('liquid_48h_inches')} in · 7 d {summit.get('liquid_7d_inches')} in")
         print(f"   Peak summit gust 48 h: {om.get('peak_gust_summit_mph')} mph ({c.get('wind_hold_risk', {}).get('status')})")
         print(f"   CDEC {cd.get('station_id')}: depth {m.get('snow_depth_current_inches')} in, 24 h {m.get('snow_depth_24h_gain_inches')} in, SWE {m.get('swe_current_inches')} in")
 

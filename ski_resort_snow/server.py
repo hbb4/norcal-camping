@@ -4,7 +4,7 @@
 On launch it starts a full data refresh in the background, so the page always
 works from the latest model runs, observations and road reports. While it runs:
 
-  full refresh   every 30 min  (models, ensembles, NWS, sensors, soundings, roads)
+  full refresh   every 60 min  (models, ensembles, NWS, sensors, soundings, roads)
   roads refresh  every 5 min   (Caltrans chain controls only)
 
 Endpoints
@@ -39,7 +39,7 @@ sys.path.insert(0, str(BASE_DIR))
 from collectors.aggregator import SnowAggregator  # noqa: E402
 
 DATA_PATH = BASE_DIR / "data" / "live_snow_data.json"
-FULL_EVERY_S = 30 * 60
+FULL_EVERY_S = 60 * 60
 ROADS_EVERY_S = 5 * 60
 
 
@@ -202,7 +202,7 @@ def run_server(port: int = 8080, open_browser: bool = False, refresh: bool = Tru
     if refresh:
         REFRESH.start("full")
         threading.Thread(target=REFRESH.scheduler, daemon=True).start()
-        print("Fetching the latest data in the background (full refresh every 30 min, roads every 5 min).")
+        print("Fetching the latest data in the background (full refresh every 60 min, roads every 5 min).")
     if open_browser:
         import webbrowser
         threading.Timer(0.6, lambda: webbrowser.open(f"http://localhost:{port}/")).start()

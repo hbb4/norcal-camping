@@ -52,7 +52,7 @@
       if (ph === "ice") return { kind: "ice", text: `Sleet/freezing rain risk, ${U.liquid(liq)}/hr liquid` };
       if (ph === "snow") {
         const cat = snow >= 1 ? "Heavy" : snow >= 0.5 ? "Moderate" : "Light";
-        return { kind: "snow", text: `${cat} snow ${U.snow(snow, snow >= 1 ? 1 : 2)}/hr, SLR ${st.slr}:1` };
+        return { kind: "snow", text: `${cat} snow ${U.snow(snow, snow >= 1 ? 1 : 2)}/hr${st.slr != null ? `, SLR ${st.slr}:1` : ""}` };
       }
       const cat = liq > 0.30 ? "Heavy" : liq >= 0.10 ? "Moderate" : "Light";
       return { kind: ph, text: `${cat} ${ph === "mix" ? "rain/snow" : "rain"} ${U.liquid(liq)}/hr liquid${ph === "mix" ? `, ${Math.round((st.snow_fraction || 0) * 100)}% as snow` : ""}` };
@@ -110,11 +110,11 @@
     const el = resort.elevations || { base_ft: 6200, mid_ft: 8000, summit_ft: 9000 };
     const ticks = [5000, 6000, 7000, 8000, 9000, 10000, 12000, 14000, 16000, 18000];
     const pill = (tier, label) => `
-      <g class="mtn-pill" id="pill-${tier}" transform="translate(${TX[tier]},${yOf(el[`${tier}_ft`]) - 30})">
-        <rect x="-46" y="-22" width="92" height="38" rx="10"/>
-        <text text-anchor="middle" y="-3" fill="#fff" font-size="16" font-weight="700" id="pill-${tier}-val">--</text>
-        <text text-anchor="middle" y="11" fill="#94a3b8" font-size="9.5" font-weight="600">${label} ${el[`${tier}_ft`].toLocaleString()}'</text>
-        <path d="M-5,16 L0,22 L5,16 Z" fill="rgba(7,11,20,.82)"/>
+      <g class="mtn-pill" id="pill-${tier}" transform="translate(${TX[tier]},${yOf(el[`${tier}_ft`]) - 36})">
+        <rect x="-58" y="-28" width="116" height="50" rx="10"/>
+        <text text-anchor="middle" y="-10" fill="#94a3b8" font-size="9.5" font-weight="600">${label} ${el[`${tier}_ft`].toLocaleString()} ft</text>
+        <text text-anchor="middle" y="8" fill="#fff" font-size="15" font-weight="700"><tspan id="pill-${tier}-val">--</tspan><tspan dx="8" fill="#fcd34d" id="pill-${tier}-temp">--</tspan></text>
+        <path d="M-5,22 L0,28 L5,22 Z" fill="rgba(7,11,20,.82)"/>
       </g>
       <circle cx="${TX[tier]}" cy="${yOf(el[`${tier}_ft`])}" r="5" fill="#0b1220" stroke="#fff" stroke-width="2"/>
       <circle cx="${TX[tier]}" cy="${yOf(el[`${tier}_ft`])}" r="2.5" id="dot-${tier}" fill="#7dd3fc"/>`;
@@ -143,7 +143,6 @@
 
       <path d="${ridgePath(el)}" fill="url(#mtnFill)" stroke="rgba(255,255,255,0.08)"/>
       <g clip-path="url(#clipFront)">
-        <rect class="mtn-snowcap" id="snowcap" x="0" y="-${VB_H}" width="800" height="${VB_H}" fill="url(#snowFill)"/>
         <rect x="0" y="0" width="800" height="${VB_H}" fill="url(#shade)"/>
         ${gullies(el)}
       </g>
@@ -157,10 +156,7 @@
         <line x1="34" x2="800" y1="0" y2="0" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6 5" opacity=".9"/>
         <text x="712" y="-6" text-anchor="end" fill="#fcd34d" font-size="10.5" font-weight="700" id="fz-text">Freezing</text>
       </g>
-      <g class="mtn-line" id="sl-line">
-        <line x1="34" x2="800" y1="0" y2="0" stroke="#fff" stroke-width="2"/>
-        <text x="712" y="14" text-anchor="end" fill="#fff" font-size="10.5" font-weight="700" id="sl-text">Snow level</text>
-      </g>
+
 
       ${pill("base", "Base")}${pill("mid", "Mid")}${pill("summit", "Summit")}
     `;
@@ -175,10 +171,7 @@
     // snow level paints the mountain
     const sl = prof.snow_level_ft ?? (tl.summit[h] || {}).snow_level_ft;
     const fz = prof.freezing_level_ft;
-    const ySl = Math.min(VB_H + 10, yOf(sl ?? 3000));
-    ["snowcap"].forEach(id => { const e = $(id); if (e) e.style.transform = `translateY(${ySl}px)`; });
-    const slg = $("sl-line"); if (slg) { slg.style.transform = `translateY(${ySl}px)`; slg.style.opacity = ySl > VB_H ? 0 : 1; }
-    $("sl-text") && ($("sl-text").textContent = `Snow level ${fmtFt(sl)}`);
+
     const fzg = $("fz-line"); if (fzg) { fzg.style.transform = `translateY(${yOf(fz ?? 3000)}px)`; fzg.style.opacity = fz ? 1 : 0; }
     $("fz-text") && ($("fz-text").textContent = `Freezing ${fmtFt(fz)}`);
 
@@ -200,7 +193,8 @@
     // pills
     ["base", "mid", "summit"].forEach(t => {
       const st = (tl[t] || [])[h] || {};
-      const v = $(`pill-${t}-val`); if (v) v.textContent = fmtIn(st.cumulative_snow_inches);
+      const v = $(`pill-${t}-val`); if (v) v.textContent = U.metricSnow() ? `${U.snowBare(st.cumulative_snow_inches ?? 0)} cm` : `${U.snowBare(st.cumulative_snow_inches ?? 0)} in`;
+      const tt = $(`pill-${t}-temp`); if (tt) tt.textContent = U.temp(st.temp_f);
       const d = $(`dot-${t}`); if (d) d.setAttribute("fill", { snow: "#7dd3fc", mix: "#c084fc", rain: "#4ade80", ice: "#fb7185" }[st.precip_phase] || "#475569");
       const pillEl = $(`pill-${t}`); if (pillEl) pillEl.style.opacity = t === window.__snowTier ? 1 : 0.88;
     });
@@ -214,13 +208,12 @@
     const pc = Conditions.precip(ts);
     const tierName = { base: "Base", mid: "Mid", summit: "Summit" }[tier];
     $("scene-title").textContent = `${tierName} ${(el[`${tier}_ft`] || 0).toLocaleString()} ft: ${pc.text}${pc.kind === "none" && pc.pop != null ? ` · ${pc.pop}% chance of precipitation` : ""}`;
-    $("scene-eyebrow").textContent = `${r.short_name || r.name} · ${dayName(d)} ${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${hourName(d)} · +${h} h · ${h < 47 ? "HRRR 3 km" : "GFS"}`;
+    $("scene-eyebrow").textContent = `${r.short_name || r.name} · ${dayName(d)} ${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${hourName(d)} · +${h} h · ${((r.sources || {}).open_meteo || {}).model ? r.sources.open_meteo.model.label : "model"}`;
 
     const ro = $("scene-readout");
     if (ro) ro.innerHTML = `
       <span class="chip"><svg><use href="#i-wind"/></svg>${tierName} wind ${Conditions.wind(ts)}</span>
-      <span class="chip">T ${U.temp(ts.temp_f)} · Tw ${U.temp(ts.wet_bulb_f)}</span>
-      <span class="chip">Snow level ${fmtFt(sl)}</span>`;
+      ${fz ? `<span class="chip">Freezing level ${fmtFt(fz)}</span>` : ""}`;
 
     // scrubber UI
     const rng = $("time-scrubber");
@@ -234,8 +227,8 @@
       liquid: sm.precip_in || 0,
       windMph: sm.wind_mph || 0,
       windDir: sm.wind_dir_deg ?? 225,
-      snowLevelY: ySl,
-      rainLevelY: yOf((sl ?? 3000) - 500)
+      snowLevelY: sm.precip_phase === "rain" ? -999 : 999,
+      rainLevelY: sm.precip_phase === "rain" ? -999 : 999
     });
   }
 
@@ -319,24 +312,25 @@
     const big = v => (U.metricSnow() ? U.snow(v, 0) : v >= 24 ? `${(v / 12).toFixed(v >= 36 ? 0 : 1)} ft` : U.snow(v, 0));
 
     const e = summit.ensemble || null;
-    const rng = st => (st ? ` (${U.snowBare(st.p10, 0)}–${U.snow(st.p90, 0)}, p10–p90)` : "");
+    const rng = st => (st ? ` (ensemble p10–p90 ${U.snowBare(st.p10, 0)}–${U.snow(st.p90, 0)})` : "");
     $("verdict-headline").textContent = s48 >= 0.5 || s7 < 1
-      ? `${U.snow(s48, 0)} in 48 h${rng(e && e.snow_48h)}`
-      : `${U.snow(s48, 0)} in 48 h · ${U.snow(s7, 0)} in 7 days${rng(e && e.snow_7d)}`;
+      ? `${U.snow(s48, 0)} next 48 h${rng(e && e.snow_48h)}`
+      : `${U.snow(s48, 0)} next 48 h · ${U.snow(s7, 0)} next 7 days${rng(e && e.snow_7d)}`;
     const se = $("summary-eyebrow");
-    if (se) se.textContent = `Summit ${((resort.elevations || {}).summit_ft || 0).toLocaleString()} ft · model + ensemble`;
+    if (se) se.textContent = `Summit ${((resort.elevations || {}).summit_ft || 0).toLocaleString()} ft · ${(om.model || {}).label || "model"}`;
 
     const facts = [];
-    const st = tls.summit || [];
+    const stAll = tls.summit || [];
+    const st = stAll.slice(0, 48);
     const liq48 = summit.liquid_48h_inches ?? st.reduce((a, x) => a + (x.precip_in || 0), 0);
-    const bt = (tls.base || []).filter(x => (x.precip_in || 0) >= 0.01);
+    const bt = (tls.base || []).slice(0, 48).filter(x => (x.precip_in || 0) >= 0.01);
     const bliq = bt.reduce((a, x) => a + x.precip_in, 0);
     const bshare = bliq > 0 ? bt.reduce((a, x) => a + x.precip_in * (x.snow_fraction ?? 1), 0) / bliq : null;
-    facts.push(`Liquid, summit: ${U.liquid(liq48)}${bshare != null ? ` · base: ${Math.round(bshare * 100)}% of ${U.liquid(bliq)} as snow (${fmtIn(b48)})` : ""}`);
-    const sls = (om.vertical_profile || []).map(p => p.snow_level_ft).filter(v => v != null);
-    if (sls.length) facts.push(`Snow level range: ${fmtFt(Math.min(...sls))} – ${fmtFt(Math.max(...sls))}`);
+    facts.push(`Liquid 48 h, summit: ${U.liquid(liq48)}${bshare != null ? ` · base: ${Math.round(bshare * 100)}% of ${U.liquid(bliq)} as snow (${fmtIn(b48)})` : ""}`);
+    const sls = ((om.vertical_profile && om.vertical_profile.length ? om.vertical_profile : (tls.summit || [])).slice(0, 48)).map(p => p.snow_level_ft).filter(v => v != null);
+    if (sls.length) facts.push(`Snow level range, 48 h: ${fmtFt(Math.min(...sls))} – ${fmtFt(Math.max(...sls))}`);
     const pk = st.reduce((m, x) => ((x.gust_mph || 0) > (m.gust_mph || 0) ? x : m), {});
-    if (pk.time) facts.push(`Peak summit gust: ${Math.round(pk.gust_mph)} mph, ${dayName(new Date(pk.time))} ${hourName(new Date(pk.time))} · ${st.filter(x => (x.gust_mph || 0) >= 45).length} h ≥ 45 mph`);
+    if (pk.time) facts.push(`Peak summit gust, 48 h: ${Math.round(pk.gust_mph)} mph, ${dayName(new Date(pk.time))} ${hourName(new Date(pk.time))} · ${st.filter(x => (x.gust_mph || 0) >= 45).length} h ≥ 45 mph`);
     const heavy = st.find(x => (x.snowfall_rate_in_hr || 0) >= 1);
     if (heavy) facts.push(`First hour ≥ ${U.snow(1, 0)}/hr: ${dayName(new Date(heavy.time))} ${hourName(new Date(heavy.time))}`);
     const ice = st.filter(x => x.precip_phase === "ice").length;
@@ -353,10 +347,10 @@
     // best window: 9am-1pm hour maximizing new snow in prior 18h, penalising wind
     const mt = tls.mid || [];
     let best = null;
-    st.forEach((x, i) => {
+    stAll.forEach((x, i) => {
       const d = new Date(x.time), hr = d.getHours();
       if (hr < 9 || hr > 13) return;
-      const fresh = st.slice(Math.max(0, i - 18), i + 1).reduce((a, y) => a + (y.snowfall_rate_in_hr || 0), 0);
+      const fresh = stAll.slice(Math.max(0, i - 18), i + 1).reduce((a, y) => a + (y.snowfall_rate_in_hr || 0), 0);
       const midFresh = mt.slice(Math.max(0, i - 18), i + 1).reduce((a, y) => a + (y.snowfall_rate_in_hr || 0), 0);
       const gust = (mt[i] || x).gust_mph || 0;
       const score = midFresh + fresh * 0.4 - Math.max(0, gust - 40) * 0.35 - (x.snowfall_rate_in_hr > 2 ? 3 : 0);
@@ -410,14 +404,15 @@
       pts.push({ x: i + 1, date: d.date, det: detByDate[d.date] ?? 0, ...c });
     });
     const cv = v => U.snowNum(v ?? 0);
-    const maxV = Math.max(U.snowNum(6), ...pts.map(p => Math.max(cv(p.p90), cv(p.det))));
+    const fixed = (((state.resort || {}).sources || {}).open_meteo || {}).scales;
+    const maxV = Math.max(U.snowNum(6), fixed && fixed.cumulative_in ? U.snowNum(fixed.cumulative_in) / 1.1 : 0, ...pts.map(p => Math.max(cv(p.p90), cv(p.det))));
     const step = niceStep(maxV * 1.1, 4), top = Math.ceil((maxV * 1.1) / step) * step;
     const X = i => padL + (i / days.length) * pw;
     const Y = v => padT + ph * (1 - Math.min(v, top) / top);
     let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="var(--font-sans)">`;
     for (let v = 0; v <= top + 1e-6; v += step) {
       svg += `<line x1="${padL}" x2="${padL + pw}" y1="${Y(v)}" y2="${Y(v)}" stroke="rgba(255,255,255,${v === 0 ? 0.16 : 0.05})"/>
-        <text x="${padL - 8}" y="${Y(v) + 3.5}" fill="#6b7a90" font-size="10.5" text-anchor="end" font-family="var(--font-mono)">${+v.toFixed(1)}${U.metricSnow() ? "" : '"'}</text>`;
+        <text x="${padL - 8}" y="${Y(v) + 3.5}" fill="#6b7a90" font-size="10.5" text-anchor="end" font-family="var(--font-mono)">${+v.toFixed(1)}${v + step > top + 1e-6 ? " " + U.snowAxisUnit() : ""}</text>`;
     }
     pts.forEach((p, i) => {
       if (i === 0) return;
@@ -663,6 +658,12 @@
       else if ((k === "arrowright" || k === "arrowleft") && e.target.type !== "range") { e.preventDefault(); togglePlay(false); setHour(state.hour + (k === "arrowright" ? 1 : -1)); }
       else if (k === "f" && tog) { tog.checked = !tog.checked; tog.dispatchEvent(new Event("change")); }
       else if (k === "r") $("btn-refresh") && $("btn-refresh").click();
+      else if (k === "[" || k === "]") {
+        const chips = [...document.querySelectorAll(".model-chip:not([disabled])")];
+        const i = chips.findIndex(c => c.classList.contains("active"));
+        const nxt = chips[(i + (k === "]" ? 1 : chips.length - 1)) % chips.length];
+        if (nxt) nxt.click();
+      }
       else if (k === "?") dlg.open ? dlg.close() : dlg.showModal();
     });
 

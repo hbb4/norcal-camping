@@ -30,3 +30,9 @@ Thumbs.db
 ski_resort_snow/data/archive/*
 !ski_resort_snow/data/archive/forecast_20261118T0736Z.json
 ski_resort_snow/data/live_snow_data.json.tmp
+
+# Per-model forecast files (rewritten every refresh)
+ski_resort_snow/data/models/
+
+# NBM cycle cache
+ski_resort_snow/data/cache/

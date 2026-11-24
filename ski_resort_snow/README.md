@@ -4,8 +4,9 @@ Snow forecast, observation and road-condition dashboard for Palisades Tahoe (Oly
 
 ## What it shows
 
-- **Forecast** from named models: HRRR 3 km (0–48 h) then GFS (primary), compared with NBM, GFS, ECMWF IFS, ICON, GEM, NWS gridded snowfall, and ~120 ensemble members (GEFS, ECMWF ENS, ICON-EPS). Each base/mid/summit tier is queried at its own coordinates.
-- **Snowfall** = model liquid × snow fraction (from the wet-bulb zero height) × snow/liquid ratio (Cobb-style habit × lift, wind and near-freezing adjusted). Kuchera, 10:1 and the API's 7:1 field are shown for comparison.
+- **Forecast**, 7 days, from one selectable model at a time: NBM (default, read natively from NOAA including its own snowfall, snow/liquid ratio and snow level), ECMWF HRES, ECMWF AIFS, HRRR/GFS, ICON, UKMO, GEM. NWS gridded snowfall is shown separately, never blended. ~120 ensemble members (GEFS, ECMWF ENS, ICON-EPS) give the distributions. Each base/mid/summit tier is queried at its own coordinates.
+- **Snowfall** = model liquid × snow fraction (from the wet-bulb zero height) × snow/liquid ratio (Cobb-style habit × lift, unadjusted). An experimental wind/near-freezing adjustment, Kuchera, 10:1 and the API's 7:1 field are shown for comparison. Calibration plan: [TUNING_PLAN.md](TUNING_PLAN.md).
+- **Elevation time series**: temperature (2 m and free air), RH and visibility at base, mid and summit.
 - **Uncertainty**: 10th–90th percentile ranges from the ensembles; 7-day fan chart.
 - **Atmospheric profile**: DGZ height and pressure, ice saturation and lift; precipitation type by elevation with dry bulb, wet bulb and dew-point depression per tier; skew-T log-P (model at any hour, or the latest Reno/Oakland radiosonde); ice-crystal habit diagram.
 - **Observations**: CDEC snow pillows SQV (8,200 ft) and WC3 (6,750 ft), radiosondes, NWS Reno discussion and alerts.

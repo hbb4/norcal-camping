@@ -22,6 +22,7 @@ try:
     from .resort_scraper import ResortScraper
     from .caltrans_client import CaltransClient
     from .raob_client import RaobClient
+    from .nbm_client import NBMClient
     from .verification import ForecastVerifier
 except ImportError:
     import http_ssl  # noqa: F401
@@ -31,6 +32,7 @@ except ImportError:
     from resort_scraper import ResortScraper
     from caltrans_client import CaltransClient
     from raob_client import RaobClient
+    from nbm_client import NBMClient
     from verification import ForecastVerifier
 
 try:
@@ -59,6 +61,7 @@ class SnowAggregator:
         self.resort_scraper = ResortScraper()
         self.caltrans = CaltransClient()
         self.raob = RaobClient()
+        self.nbm = NBMClient(self.data_dir / "cache")
         self.verifier = ForecastVerifier(self.data_dir, self.cdec)
 
     @staticmethod
@@ -132,6 +135,20 @@ class SnowAggregator:
         out["observed_soundings"] = soundings
         say("Radiosondes (REV, OAK)", "done")
 
+        say("NBM (NOAA)", "running")
+        nbm_pts = {}
+        for resort in self.resorts_cfg.get("resorts", []):
+            for t, e in resort["elevations"].items():
+                nbm_pts[f"{resort['id']}:{t}"] = {"lat": e["latitude"], "lon": e["longitude"]}
+            c = resort.get("cdec_station", {})
+            if c.get("latitude"):
+                nbm_pts[f"{resort['id']}:sensor"] = {"lat": c["latitude"], "lon": c["longitude"]}
+        try:
+            nbm_all = self.nbm.fetch(nbm_pts, progress=lambda m: say(m, "running"))
+        except Exception as e:
+            nbm_all = {"status": "error", "error_message": f"{type(e).__name__}: {e}"}
+        say("NBM (NOAA)", "done" if nbm_all.get("status") == "success" else "error")
+
         for resort in self.resorts_cfg.get("resorts", []):
             rid, name = resort["id"], resort["short_name"]
             elevs = resort["elevations"]
@@ -144,7 +161,15 @@ class SnowAggregator:
                       "elevation_m": round(cd.get("elevation_ft", 8000) * M_PER_FT)} if cd.get("latitude") else None
 
             say(f"{name}: models", "running")
-            om = self.open_meteo.fetch_resort_forecast(tiers, sensor, progress=lambda m: say(f"{name}: {m}", "running"))
+            nbm_r = None
+            if nbm_all.get("status") == "success":
+                nbm_r = {**{k: v for k, v in nbm_all.items() if k != "points"},
+                         "points": {k.split(":", 1)[1]: v for k, v in nbm_all["points"].items() if k.startswith(rid + ":")}}
+            else:
+                nbm_r = nbm_all
+            om_all = self.open_meteo.fetch_resort_forecast(tiers, sensor, progress=lambda m: say(f"{name}: {m}", "running"), nbm=nbm_r)
+            models = om_all.get("models", {}) if om_all.get("status") == "success" else {}
+            om = om_all["default"] if models else om_all
             om = self._keep_or_fail(om, psrc.get("open_meteo"), om.get("status") == "success")
             say(f"{name}: models", "done" if om["status"] == "success" else om["status"])
 
@@ -171,6 +196,22 @@ class SnowAggregator:
                 except Exception:
                     pass
             say(f"{name}: resort report", "done" if report["status"] == "success" else report["status"])
+
+            # Every model to its own file (loaded on demand by the page), each with its own consensus
+            model_dir = self.data_dir / "models" / rid
+            model_dir.mkdir(parents=True, exist_ok=True)
+            available = []
+            for mid, mo in models.items():
+                card = mo.get("model", {"id": mid})
+                if mo.get("status") == "success":
+                    mo["consensus_forecast"] = self._calculate_consensus(resort, mo, nws)
+                    (model_dir / f"{mid}.json").write_text(json.dumps(mo))
+                available.append({**card, "status": mo.get("status"), "summary": mo.get("summit_summary"), "error": mo.get("error_message")})
+            if models:
+                om["available_models"] = available
+                om["scales"] = self._scales(models)
+            elif psrc.get("open_meteo", {}).get("available_models"):
+                om["available_models"] = psrc["open_meteo"]["available_models"]
 
             out["resorts"][rid] = {
                 "id": rid, "name": resort["name"], "short_name": name, "coordinates": resort["coordinates"],
@@ -199,53 +240,79 @@ class SnowAggregator:
 
     # ------------------------------------------------------------------ consensus
     def _calculate_consensus(self, resort: Dict[str, Any], om: Dict[str, Any], nws: Dict[str, Any]) -> Dict[str, Any]:
+        """Forecast numbers for the summary. Model values only (the selected model), with the
+        ensemble 10th-90th percentile alongside. NWS gridded forecasts are reported separately
+        and never blended in."""
         def num(v):
             return float(v) if isinstance(v, (int, float)) else None
 
-        summit = om.get("summit") or {}
-        om48, om24 = num(om.get("summit_48h_inches")), num(summit.get("snow_24h_inches"))
-        nws48, nws24 = num(nws.get("forecast_48h_expected_inches")), num(nws.get("forecast_24h_expected_inches"))
+        def tier(t):
+            d = om.get(t) or {}
+            e = d.get("ensemble") or {}
+            out = {}
+            for key, val in (("24h", d.get("snow_24h_inches")), ("48h", d.get("snow_48h_inches")), ("7d", d.get("snow_7d_total_inches"))):
+                st = e.get({"24h": "snow_24h", "48h": "snow_48h", "7d": "snow_7d"}[key]) or {}
+                out[key] = {"value": num(val), "p10": st.get("p10"), "p50": st.get("p50"), "p90": st.get("p90")}
+            out["elevation_ft"] = d.get("elevation_ft")
+            out["members"] = e.get("member_snow")
+            return out
 
-        def blend(a, b):
-            if a is not None and b is not None:
-                return round(a * 0.55 + b * 0.45, 1)
-            return round(a if a is not None else (b or 0.0), 1)
-
-        exp48 = blend(om48, nws48)
-        exp24 = blend(om24, nws24) if (om24 is not None or nws24 is not None) else round(exp48 * 0.55, 1)
-        sg = nws.get("summit_grid") or {}
-        nws_lbl = f"NWS {sg.get('wfo')} summit grid cell" if nws.get("snowfall_grid_used") == "summit" else f"NWS {nws.get('office', '')} base grid cell"
-        blend_sources = f"55% model (summit) + 45% {nws_lbl}" if nws48 is not None else "model only (NWS gave no snowfall amount)"
-
-        ens = summit.get("ensemble") or {}
-
-        def spread(expected, key):
-            st = ens.get(key)
-            if not st:
-                return None, None, "unavailable"
-            return round(max(0.0, min(st["p10"], expected)), 1), round(max(st["p90"], expected), 1), f"ensemble p10-p90 ({ens.get('members')} members)"
-
-        min48, max48, range_src = spread(exp48, "snow_48h")
-        min24, max24, _ = spread(exp24, "snow_24h")
-
+        summit, base = tier("summit"), tier("base")
         peak_gust = num(om.get("peak_gust_summit_mph")) or 0.0
-        wind_status = "HIGH" if peak_gust >= 65 else ("MODERATE" if peak_gust >= 45 else "LOW")
-
-        # Powder index: 0.55 points per inch of the larger of next-24h or 60% of next-48h snow,
-        # minus 1.2 for summit gusts > 60 mph or 0.5 for > 45 mph; clamped 1-10.
-        score = min(10.0, max(exp24, exp48 * 0.6) * 0.55)
+        s24 = summit["24h"]["value"] or 0.0
+        s48 = summit["48h"]["value"] or 0.0
+        score = min(10.0, max(s24, s48 * 0.6) * 0.55)
         score -= 1.2 if peak_gust > 60 else (0.5 if peak_gust > 45 else 0.0)
-        score = round(max(1.0, min(10.0, score)), 1)
-
+        g = nws.get("grid") or {}
+        sg = nws.get("summit_grid") or {}
+        label = (om.get("model") or {}).get("label", "model")
+        ens = (om.get("summit") or {}).get("ensemble") or {}
         return {
-            "next_24h_inches": {"min": min24, "expected": exp24, "max": max24},
-            "next_48h_inches": {"min": min48, "expected": exp48, "max": max48},
-            "range_source": range_src,
-            "blend_sources": blend_sources,
-            "next_7d_total_inches": num(om.get("summit_7d_total_inches")),
-            "powder_score": score,
-            "powder_score_definition": "0.55 x max(24 h snow, 0.6 x 48 h snow) at the summit, minus 1.2 if summit gusts > 60 mph (0.5 if > 45); range 1-10",
-            "wind_hold_risk": {"status": wind_status, "peak_gust_mph": peak_gust,
+            "source": f"{label} only",
+            "summit": summit, "base": base,
+            # compatibility keys (summit)
+            "next_24h_inches": {"min": summit["24h"]["p10"], "expected": s24, "max": summit["24h"]["p90"]},
+            "next_48h_inches": {"min": summit["48h"]["p10"], "expected": s48, "max": summit["48h"]["p90"]},
+            "next_7d_total_inches": summit["7d"]["value"],
+            "range_source": f"ensemble p10-p90 ({ens.get('members')} members)" if ens.get("members") else "unavailable",
+            "nws_gridded": {
+                "base_cell": {"office": g.get("wfo"), "elevation_ft": g.get("elevation_ft"), "24h": g.get("next_24h_inches"),
+                              "48h": g.get("next_48h_inches"), "total": g.get("total_snow_inches"), "through_utc": g.get("total_through_utc")},
+                "summit_cell": {"office": sg.get("wfo"), "elevation_ft": sg.get("grid_elevation_ft"), "24h": sg.get("next_24h_inches"),
+                                "48h": sg.get("next_48h_inches"), "total": sg.get("total_snow_inches"), "through_utc": sg.get("total_through_utc")} if sg else None,
+            },
+            "powder_score": round(max(1.0, min(10.0, score)), 1),
+            "powder_score_definition": "0.55 x max(24 h snow, 0.6 x 48 h snow) at the summit (selected model), minus 1.2 if summit gusts > 60 mph (0.5 if > 45); range 1-10",
+            "wind_hold_risk": {"status": "HIGH" if peak_gust >= 65 else ("MODERATE" if peak_gust >= 45 else "LOW"), "peak_gust_mph": peak_gust,
                                "affected_lifts": resort.get("wind_hold_vulnerable_lifts", []),
                                "criteria": "HIGH >= 65 mph summit gust, MODERATE 45-64, LOW < 45"},
         }
+
+    @staticmethod
+    def _scales(models: Dict[str, Any]) -> Dict[str, Any]:
+        """Axis limits shared by every model and elevation, so switching never rescales a chart."""
+        cum = rate = gust = 0.0
+        tmin, tmax = 200.0, -200.0
+        dist = 0.0
+        for mo in models.values():
+            if mo.get("status") != "success":
+                continue
+            for t, tl in (mo.get("elevation_timelines") or {}).items():
+                for x in tl:
+                    cum = max(cum, x.get("cumulative_snow_inches") or 0, x.get("model_cumulative_inches") or 0)
+                    rate = max(rate, x.get("snowfall_rate_in_hr") or 0)
+                    gust = max(gust, x.get("gust_mph") or 0)
+                    for k in ("temp_f", "free_air_temp_f"):
+                        v = x.get(k)
+                        if v is not None:
+                            tmin, tmax = min(tmin, v), max(tmax, v)
+            for t in ("base", "mid", "summit"):
+                e = (mo.get(t) or {}).get("ensemble") or {}
+                for c in e.get("cumulative_daily", []):
+                    cum = max(cum, c.get("p90") or 0)
+                ms = (e.get("member_snow") or {}).get("d7") or []
+                if ms:
+                    dist = max(dist, ms[int(0.95 * (len(ms) - 1))])
+                dist = max(dist, (mo.get(t) or {}).get("snow_7d_total_inches") or 0)
+        return {"cumulative_in": round(cum, 1), "rate_in_hr": round(rate, 2), "gust_mph": round(gust),
+                "temp_f": [round(tmin), round(tmax)] if tmax > tmin else None, "distribution_in": round(dist, 1)}

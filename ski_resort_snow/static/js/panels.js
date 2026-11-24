@@ -94,7 +94,7 @@
     const elevs = state.resort.elevations || {};
     if (src === "model") {
       const m = modelLevels(state.hour);
-      if (!m) { box.innerHTML = `<p class="mini-label">No model sounding available.</p>`; return; }
+      if (!m) { box.innerHTML = `<p class="mini-label" style="padding:20px">${esc(((om().atmospheric_sounding || {}).reason) || "No model sounding available.")} Observed Reno and Oakland soundings are still available above.</p>`; $("skewt-sub").textContent = ""; return; }
       levels = m.levels; hasW = true;
       const q = (om().query_points || {}).summit || {};
       title = `Model: ${(om().primary_model || {}).label || "primary model"} at ${q.lat?.toFixed(3)}, ${q.lon?.toFixed(3)} · valid ${new Date(m.time).toLocaleString([], { weekday: "short", hour: "numeric" })} (${utc(m.time)}). Levels below the base are shaded (model extrapolation below terrain).`;
@@ -253,28 +253,31 @@
   function renderHabit() {
     const box = $("habit-diagram");
     if (!box || !state.resort) return;
-    const W = 760, H = 250, L = 46, R = 16, T = 14, B = 34, PW = W - L - R, PH = H - T - B;
-    const Smax = 40, X = t => L + (-t / 30) * PW, Y = sp => T + PH * (1 - Math.min(sp, Smax) / Smax);
-    const loY = 5; // boundary between low / high supersaturation habits (% over ice)
+    // Thermometer layout: temperature on the vertical axis (0 °C at top, warmer upward),
+    // supersaturation over ice on the horizontal axis.
+    const W = 760, H = 420, L = 64, R = 20, T = 16, B = 40, PW = W - L - R, PH = H - T - B;
+    const Smax = 40, Tmin = -30, Tmax = 0;
+    const Y = t => T + PH * (Tmax - t) / (Tmax - Tmin);
+    const X = sp => L + PW * Math.min(sp, Smax) / Smax;
+    const loX = 5; // low / high supersaturation boundary (% over ice)
     let s = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="var(--font-sans)">`;
     HABITS.forEach((hb, i) => {
-      const x0 = X(hb.t0), x1 = X(hb.t1);
-      s += `<rect x="${x0}" y="${T}" width="${x1 - x0}" height="${Y(loY) - T}" fill="rgba(125,211,252,${hb.glyph === "dendrite" ? 0.16 : 0.05 + (i % 2) * 0.03})"/>
-        <rect x="${x0}" y="${Y(loY)}" width="${x1 - x0}" height="${T + PH - Y(loY)}" fill="rgba(148,163,184,${0.04 + (i % 2) * 0.03})"/>
-        <line x1="${x1}" x2="${x1}" y1="${T}" y2="${T + PH}" stroke="rgba(255,255,255,0.08)"/>
-        ${glyph(hb.glyph, (x0 + x1) / 2, T + 18 + (x1 - x0 < 50 ? (i % 2) * 34 : 0), Math.min(10, (x1 - x0) / 3.2))}
-        <text x="${(x0 + x1) / 2}" y="${T + 42 + (x1 - x0 < 50 ? (i % 2) * 34 : 0)}" text-anchor="middle" fill="#e2e8f0" font-size="9.5" font-weight="600">${hb.hi}</text>
-        <text x="${(x0 + x1) / 2}" y="${Y(loY) + 13}" text-anchor="middle" fill="#94a3b8" font-size="9">${hb.lo}</text>`;
+      const y0 = Y(hb.t0), y1 = Y(hb.t1), hgt = y1 - y0, ym = (y0 + y1) / 2;
+      s += `<rect x="${X(loX)}" y="${y0}" width="${X(Smax) - X(loX)}" height="${hgt}" fill="rgba(125,211,252,${hb.glyph === "dendrite" ? 0.16 : 0.05 + (i % 2) * 0.03})"/>
+        <rect x="${L}" y="${y0}" width="${X(loX) - L}" height="${hgt}" fill="rgba(148,163,184,${0.05 + (i % 2) * 0.03})"/>
+        <line x1="${L}" x2="${L + PW}" y1="${y1}" y2="${y1}" stroke="rgba(255,255,255,0.08)"/>
+        ${glyph(hb.glyph, X(Smax) - 26, ym, Math.min(11, hgt / 3.2))}
+        <text x="${X(Smax) - 46}" y="${ym + 4}" text-anchor="end" fill="#e2e8f0" font-size="11" font-weight="600">${hb.hi}</text>
+        <text x="${(L + X(loX)) / 2}" y="${ym + 4}" text-anchor="middle" fill="#94a3b8" font-size="9.5">${hb.lo}</text>`;
     });
-    // water saturation curve
+    // water saturation (vapor excess over ice when air is saturated for liquid water)
     let d = "";
-    for (let t = -0.2; t >= -30; t -= 0.5) d += `${d ? "L" : "M"}${X(t).toFixed(1)},${Y(100 * (esW(t) / esI(t) - 1)).toFixed(1)}`;
+    for (let t = -0.2; t >= Tmin; t -= 0.5) d += `${d ? "L" : "M"}${X(100 * (esW(t) / esI(t) - 1)).toFixed(1)},${Y(t).toFixed(1)}`;
     s += `<path d="${d}" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="5 4"/>
-      <text x="${X(-21)}" y="${Y(100 * (esW(-21) / esI(-21) - 1)) + 14}" fill="#fcd34d" font-size="10" text-anchor="middle">water saturation</text>`;
-    for (let t = 0; t >= -30; t -= 5) s += `<text x="${X(t)}" y="${T + PH + 14}" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="var(--font-mono)">${t}°</text>`;
-    for (let sp = 0; sp <= Smax; sp += 10) s += `<text x="${L - 6}" y="${Y(sp) + 3}" text-anchor="end" fill="#94a3b8" font-size="10" font-family="var(--font-mono)">${sp}%</text>`;
-    s += `<text x="${L + PW / 2}" y="${H - 4}" text-anchor="middle" fill="#64748b" font-size="10">Temperature (°C) · vertical: supersaturation over ice (RH w.r.t. ice − 100%)</text>`;
-    // model levels
+      <text x="${X(100 * (esW(-27) / esI(-27) - 1)) + 6}" y="${Y(-27) + 4}" fill="#fcd34d" font-size="10">water saturation</text>`;
+    for (let t = Tmin; t <= Tmax; t += 5) s += `<text x="${L - 8}" y="${Y(t) + 3.5}" text-anchor="end" fill="#94a3b8" font-size="10" font-family="var(--font-mono)">${t}°C</text>`;
+    for (let sp = 0; sp <= Smax; sp += 10) s += `<text x="${X(sp)}" y="${T + PH + 15}" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="var(--font-mono)">${sp}%</text>`;
+    s += `<text x="${L + PW / 2}" y="${H - 6}" text-anchor="middle" fill="#64748b" font-size="10">Supersaturation over ice (RH w.r.t. ice − 100%)</text>`;
     const m = modelLevels(state.hour);
     const baseP = m ? pressureAtHeight(m.levels, ((state.resort.elevations || {}).base_ft || 6200) / FT) : null;
     let sub = 0, plotted = 0;
@@ -285,11 +288,13 @@
         const si = rhIce(t, td) - 100;
         if (si < 0) { sub++; return; }
         plotted++;
-        s += `<circle cx="${X(t)}" cy="${Y(si)}" r="5" fill="#f472b6" stroke="#0b1220" stroke-width="1.5"/>
-          <text x="${X(t) + 7}" y="${Y(si) + 3.5}" fill="#f9a8d4" font-size="9.5" font-family="var(--font-mono)">${p}</text>`;
+        s += `<circle cx="${X(si)}" cy="${Y(t)}" r="5" fill="#f472b6" stroke="#0b1220" stroke-width="1.5"/>
+          <text x="${X(si) + 7}" y="${Y(t) + 3.5}" fill="#f9a8d4" font-size="9.5" font-family="var(--font-mono)">${p}</text>`;
       });
     }
-    box.innerHTML = s + `</svg><p class="habit-status">${m ? `${new Date(m.time).toLocaleString([], { weekday: "short", hour: "numeric" })}: ${plotted} model level${plotted === 1 ? "" : "s"} ice-supersaturated, ${sub} subsaturated (levels between 0 and −30 °C above the base).` : "No model sounding."}</p>`;
+    const status = m ? `${new Date(m.time).toLocaleString([], { weekday: "short", hour: "numeric" })}: ${plotted} model level${plotted === 1 ? "" : "s"} ice-supersaturated, ${sub} subsaturated (levels between 0 and −30 °C above the base).`
+      : `No model profile for ${((om().model || {}).label) || "this model"}; select a model with a sounding to plot levels.`;
+    box.innerHTML = s + `</svg><p class="habit-status">${status}</p>`;
   }
 
   // ---------------------------------------------------------------- precip type by elevation
@@ -298,7 +303,8 @@
     if (!col || !state.resort) return;
     const o = om(), tls = o.elevation_timelines || {}, prof = (o.vertical_profile || [])[state.hour] || {};
     const elevs = state.resort.elevations || {};
-    const sl = prof.snow_level_ft, wbz = prof.wet_bulb_zero_ft, fz = prof.freezing_level_ft;
+    const tsum = ((tls.summit || [])[state.hour]) || {};
+    const sl = prof.snow_level_ft ?? tsum.snow_level_ft, wbz = prof.wet_bulb_zero_ft, fz = prof.freezing_level_ft;
     const lo = Math.min(4000, (sl ?? 6000) - 1500), hi = Math.max((elevs.summit_ft || 9000) + 800, Math.min(14000, (fz ?? 0) + 600));
     const W = 130, H = 280, T = 8, B = 8;
     const Y = ft => T + (H - T - B) * (1 - (Math.max(lo, Math.min(hi, ft)) - lo) / (hi - lo));
@@ -330,7 +336,9 @@
     const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
     set("eff-snow-level-val", fmtFt(sl)); set("wbz-val", fmtFt(wbz)); set("freezing-level-val", fmtFt(fz));
     const t0 = ((tls.summit || [])[state.hour] || {}).time;
-    set("phase-desc", `${t0 ? new Date(t0).toLocaleString([], { weekday: "short", hour: "numeric" }) : ""}. Snow fraction: 100% at or above the wet-bulb zero, 0% 1,000 ft below it; overridden by surface wet bulb (≤ 31 °F snow, ≥ 36 °F rain). Sleet/freezing rain risk: layer > +0.5 °C at least 1,000 ft deep above a sub-freezing wet bulb.`);
+    set("phase-desc", (o.vertical_profile || []).length
+      ? `${t0 ? new Date(t0).toLocaleString([], { weekday: "short", hour: "numeric" }) : ""}. Snow fraction: 100% at or above the wet-bulb zero, 0% 1,000 ft below it; overridden by surface wet bulb (≤ 31 °F snow, ≥ 36 °F rain). Sleet/freezing rain risk: layer > +0.5 °C at least 1,000 ft deep above a sub-freezing wet bulb.`
+      : `${t0 ? new Date(t0).toLocaleString([], { weekday: "short", hour: "numeric" }) : ""}. ${(o.model || {}).label || "This model"}'s own snow level and precipitation type; wet bulb computed from its temperature and dew point.`);
   }
 
   // ---------------------------------------------------------------- sources & verification
@@ -343,39 +351,46 @@
     const run = r => (r && r.run_init_utc ? `${utc(r.run_init_utc)}` : (r && r.run_note) || "–");
 
     // models
-    const prim = o.primary_model || {};
     const rows = [];
-    rows.push(`<tr class="row-primary"><td><b>HRRR → GFS</b><small>primary (gfs_seamless)</small></td><td>NOAA/NCEP</td><td>3 km → 0.25°</td>
-      <td>${(prim.runs || []).map(run).join(" / ")}</td><td>168 h</td><td>${L(summit.liquid_48h_inches)}</td><td>${L(summit.liquid_7d_inches)}</td>
-      <td>${S(summit.snow_48h_inches)}</td><td>${S(summit.snow_7d_total_inches)}</td></tr>`);
-    (o.model_comparison || []).forEach(m => {
-      if (m.error && !m.hours_available) { rows.push(`<tr><td><b>${esc(m.label)}</b></td><td>${esc(m.provider || "")}</td><td>${esc(m.grid || "")}</td><td colspan="6" class="muted">${esc(m.error)}</td></tr>`); return; }
-      rows.push(`<tr><td><b>${esc(m.label)}</b></td><td>${esc(m.provider)}</td><td>${esc(m.grid)}</td><td>${run(m)}</td><td>${m.hours_available} h</td>
-        <td>${L(m.liquid_48h)}${m.covers_48h ? "" : "<sup>†</sup>"}</td><td>${m.covers_7d ? L(m.liquid_7d) : "–"}</td>
-        <td>${S(m.snow_48h)}${m.covers_48h ? "" : "<sup>†</sup>"}</td><td>${m.covers_7d ? S(m.snow_7d) : "–"}</td></tr>`);
+    const cur = (o.model || {}).id;
+    (o.model_comparison || o.available_models || []).forEach(m => {
+      const sm = m.summary || m;
+      const runs = (m.runs || []).map(run).join(" / ");
+      if (m.error || m.status === "error") { rows.push(`<tr><td><b>${esc(m.label)}</b></td><td>${esc(m.provider || "")}</td><td>${esc(m.grid || "")}</td><td colspan="7" class="muted">${esc(m.error || "unavailable")}</td></tr>`); return; }
+      rows.push(`<tr${m.id === cur ? ' class="row-primary"' : ""}><td><b>${esc(m.label)}</b>${m.id === cur ? "<small>selected</small>" : ""}</td><td>${esc(m.provider)}</td><td>${esc(m.grid)}</td>
+        <td>${esc(m.sounding_label || "")}${m.sounding_has_vertical_velocity || /^none/.test(m.sounding_label || "") ? "" : '<small>no vertical velocity: SLR weighted by layer depth</small>'}</td>
+        <td>${runs || "–"}</td><td>${sm.hours_available ?? m.hours_available ?? "?"} h</td>
+        <td>${L(sm.liquid_48h)}</td><td>${L(sm.liquid_7d)}${sm.covers_7d === false ? "<sup>†</sup>" : ""}</td>
+        <td>${S(sm.snow_48h)}</td><td>${S(sm.snow_7d)}${sm.covers_7d === false ? "<sup>†</sup>" : ""}</td></tr>`);
     });
-    const nwsRow = (g, label, used) => g ? rows.push(`<tr${used ? ' class="row-primary"' : ""}><td><b>NWS ${esc(g.wfo || "")} gridded forecast</b><small>${label}${used ? " · used in blend" : ""}</small></td><td>NWS ${esc(g.wfo || "")} (forecaster-edited)</td>
-      <td>2.5 km${g.grid_elevation_ft || g.elevation_ft ? ` · cell ${(g.grid_elevation_ft || g.elevation_ft).toLocaleString()} ft` : ""}</td>
-      <td>fetched ${ago(nws.fetched_at_utc)}</td><td>~7 d</td><td>–</td><td>–</td><td>${S(g.next_48h_inches)}</td><td>${S(g.total_snow_inches)}</td></tr>`) : null;
+    const nwsRow = (g, label, used) => g ? rows.push(`<tr><td><b>NWS ${esc(g.wfo || "")} gridded forecast</b><small>${label} · shown separately, not blended</small></td><td>NWS ${esc(g.wfo || "")} (forecaster-edited)</td>
+      <td>2.5 km${g.grid_elevation_ft || g.elevation_ft ? ` · cell ${(g.grid_elevation_ft || g.elevation_ft).toLocaleString()} ft` : ""}</td><td>–</td>
+      <td>fetched ${ago(nws.fetched_at_utc)}</td><td>${g.total_through_utc ? Math.max(0, Math.round((new Date(g.total_through_utc) - Date.now()) / 3600e3)) + " h" : "~7 d"}</td><td>–</td><td>–</td><td>${S(g.next_48h_inches)}</td><td>${S(g.total_snow_inches)}</td></tr>`) : null;
     nwsRow(nws.summit_grid, "cell at the summit point", nws.snowfall_grid_used === "summit");
     nwsRow(nws.grid, "cell at the base point", nws.snowfall_grid_used !== "summit");
-    if (ens.members) rows.push(`<tr><td><b>Ensembles</b><small>${ens.members} members</small></td><td>NOAA · ECMWF · DWD</td><td>GEFS 0.25° · ENS 0.25° · ICON-EPS</td><td>latest</td><td>168 h</td>
+    if (ens.members) rows.push(`<tr><td><b>Ensembles</b><small>${ens.members} members</small></td><td>NOAA · ECMWF · DWD</td><td>GEFS · ECMWF ENS · ICON-EPS</td><td>uses selected model</td><td>latest</td><td>168 h</td>
       <td>${L(ens.liquid_48h && ens.liquid_48h.p10)}–${L(ens.liquid_48h && ens.liquid_48h.p90)}</td><td>–</td>
-      <td>${S(ens.snow_48h.p10)}–${S(ens.snow_48h.p90)} <small>median ${S(ens.snow_48h.p50)}</small></td><td>${S(ens.snow_7d.p10)}–${S(ens.snow_7d.p90)}</td></tr>`);
-    $("models-table").innerHTML = `<thead><tr><th>Model</th><th>Provider</th><th>Grid</th><th>Run (UTC)</th><th>Length</th><th>Liquid 48 h</th><th>Liquid 7 d</th><th>Snow 48 h</th><th>Snow 7 d</th></tr></thead><tbody>${rows.join("")}</tbody>`;
+      <td>${S(ens.snow_48h.p10)}–${S(ens.snow_48h.p90)}</td><td>${S(ens.snow_7d.p10)}–${S(ens.snow_7d.p90)}</td></tr>`);
+    $("models-table").innerHTML = `<thead><tr><th>Model</th><th>Provider</th><th>Grid</th><th>Sounding</th><th>Run (UTC)</th><th>Length</th><th>Liquid 48 h</th><th>Liquid 7 d</th><th>Snow 48 h</th><th>Snow 7 d</th></tr></thead><tbody>${rows.join("")}</tbody>`;
     const q = (o.query_points || {}).summit || {};
-    $("models-sub").innerHTML = `Point ${q.lat ?? "?"}, ${q.lon ?? "?"} at ${(q.elevation_ft || 0).toLocaleString()} ft. Liquid = precipitation water equivalent. Snow for every model uses the primary forecast's hourly snow fraction × SLR, so differences come from precipitation only. <sup>†</sup> run ends before 48 h. Fetched ${ago(o.fetched_at_utc)}${o.status === "stale" ? ` (stale: ${esc(o.stale_reason)})` : ""}.`;
+    $("models-sub").innerHTML = `Summit point ${q.lat ?? "?"}, ${q.lon ?? "?"} at ${(q.elevation_ft || 0).toLocaleString()} ft. Snow uses each model's own snow fraction and SLR from its sounding. NBM and ECMWF HRES are surface-only in Open-Meteo, so their soundings come from GFS and ECMWF IFS 0.25°. <sup>†</sup> run ends before 7 days. Select a model in the bar at the top of the page.`;
 
     // SLR methods
     const sm = summit.slr_methods || {};
     const slrRow = (key, name, when) => {
       const m = sm[key] || {};
-      return `<tr${key === "cobb_adjusted" ? ' class="row-primary"' : ""}><td><b>${name}</b><small>${when}</small></td><td>${m.slr_48h != null ? m.slr_48h + ":1" : "–"}</td><td>${m.slr_7d != null ? m.slr_7d + ":1" : "–"}</td><td>${S(m.snow_48h)}</td><td>${S(m.snow_7d)}</td></tr>`;
+      return `<tr${key === "cobb" || key === "nbm" ? ' class="row-primary"' : ""}><td><b>${name}</b><small>${when}</small></td><td>${m.slr_48h != null ? m.slr_48h + ":1" : "–"}</td><td>${m.slr_7d != null ? m.slr_7d + ":1" : "–"}</td><td>${S(m.snow_48h)}</td><td>${S(m.snow_7d)}</td></tr>`;
     };
+    const lw = (sm.cobb || {}).lift_weighted;
+    if (sm.nbm) {
+      $("slr-table").innerHTML = `<thead><tr><th>Method</th><th>SLR 48 h</th><th>SLR 7 d</th><th>Snow 48 h</th><th>Snow 7 d</th></tr></thead><tbody>
+        ${slrRow("nbm", "NBM's own (used)", "NBM snowfall and SNOWLR fields, as published by NOAA")}
+        ${slrRow("fixed_10", "Fixed 10:1", "climatological rule of thumb, for reference")}</tbody>`;
+    } else
     $("slr-table").innerHTML = `<thead><tr><th>Method</th><th>SLR 48 h</th><th>SLR 7 d</th><th>Snow 48 h</th><th>Snow 7 d</th></tr></thead><tbody>
-      ${slrRow("cobb_adjusted", "Cobb-style, adjusted (used)", "habit SLR of ice-saturated rising layers, × wind factor, near-freezing caps")}
-      ${slrRow("cobb_unadjusted", "Cobb-style, unadjusted", "habit × lift only; no wind or melting adjustment")}
-      ${slrRow("kuchera", "Kuchera", "from the warmest temperature below 500 hPa; common on model snowfall maps")}
+      ${slrRow("cobb", "Cobb-style (used)", lw === false ? "habit SLR of ice-saturated layers, weighted by depth (this model has no vertical velocity)" : "habit SLR of ice-saturated rising layers, weighted by lift × depth")}
+      ${slrRow("experimental_adjusted", "Cobb-style + wind/near-freezing adjustment", "experimental, not calibrated; for comparison only")}
+      ${slrRow("kuchera", "Kuchera", "warmest temperature below 500 hPa; used on model snowfall maps")}
       ${slrRow("fixed_10", "Fixed 10:1", "climatological rule of thumb")}
       ${slrRow("model_field_7to1", "Open-Meteo snowfall field", "the API's own snowfall variable: fixed ~7:1")}
       </tbody>`;
@@ -418,7 +433,7 @@
     // verification
     const hist = (((typeof snowData !== "undefined" && snowData) || {}).verification || {}).history || [];
     const mine = hist.filter(h => h.resort_id === state.resort.id);
-    $("verify-table").innerHTML = mine.length ? `<thead><tr><th>Forecast issued</th><th>Sensor</th><th>Liquid fcst / measured</th><th>Error</th><th>Snow fcst (used)</th><th>Kuchera</th><th>10:1</th><th>Depth change</th><th>Resort reported</th><th>Notes</th></tr></thead><tbody>` +
+    $("verify-table").innerHTML = mine.length ? `<thead><tr><th>Forecast issued</th><th>Sensor</th><th>Liquid fcst / measured</th><th>Error</th><th>Snow fcst (method used then)</th><th>Kuchera</th><th>10:1</th><th>Depth change</th><th>Resort reported</th><th>Notes</th></tr></thead><tbody>` +
       mine.map(h => `<tr><td>${pst(h.issued_utc)}<small>window ${pst(h.window_start_utc)} – ${pst(h.window_end_utc)}</small></td>
         <td>${esc(h.station)} ${h.elevation_ft ? `${h.elevation_ft.toLocaleString()} ft` : ""}</td>
         <td>${L(h.forecast_liquid_in)} / ${L(h.observed_swe_gain_in)}</td>
@@ -436,15 +451,99 @@
     const sp = o.sensor_point || {};
     $("points-table").innerHTML = `<thead><tr><th>Point</th><th>Lat, lon</th><th>Elevation used</th><th>Location</th><th>Used for</th></tr></thead><tbody>
       ${prow("Base", pts.base || {}, tierUse)}${prow("Mid", pts.mid || {}, tierUse)}${prow("Summit", pts.summit || {}, tierUse + "; model sounding, model comparison, NWS grid")}
+      ${o.nbm_grid_points ? ["base", "mid", "summit"].map(t => prow(`NBM grid point (${t})`, { lat: o.nbm_grid_points[t].grid_lat, lon: o.nbm_grid_points[t].grid_lon, note: "nearest 2.5 km NBM grid point; NBM values are for this point's terrain" }, "NBM values for this tier")).join("") : ""}
       ${prow(`Sensor ${esc(sp.id || cdec.station_id || "")}`, { lat: cdec.latitude ?? sp.lat, lon: cdec.longitude ?? sp.lon, elevation_ft: cdec.elevation_ft, note: "CDEC-listed elevation; published coordinates are rounded" }, "Forecast at the sensor for verification")}
       ${prow(`NWS ${(nws.grid || {}).wfo || ""} base cell`, { lat: (nws.grid || {}).lat, lon: (nws.grid || {}).lon, elevation_ft: (nws.grid || {}).elevation_ft, note: `grid ${(nws.grid || {}).x ?? ""},${(nws.grid || {}).y ?? ""}; 2.5 km cell mean elevation` }, "Alerts, Area Forecast Discussion, base snowfall")}
-      ${nws.summit_grid ? prow(`NWS ${nws.summit_grid.wfo} summit cell`, { lat: nws.summit_grid.lat, lon: nws.summit_grid.lon, elevation_ft: nws.summit_grid.grid_elevation_ft, note: `grid ${nws.summit_grid.x},${nws.summit_grid.y}; the crest is the REV/STO office boundary` }, "Summit snowfall used in the 24/48 h blend") : ""}
+      ${nws.summit_grid ? prow(`NWS ${nws.summit_grid.wfo} summit cell`, { lat: nws.summit_grid.lat, lon: nws.summit_grid.lon, elevation_ft: nws.summit_grid.grid_elevation_ft, note: `grid ${nws.summit_grid.x},${nws.summit_grid.y}; the crest is the REV/STO office boundary` }, "Summit-cell gridded snowfall, shown beside the model forecast (not blended)") : ""}
       </tbody>`;
     $("points-sub").textContent = "Each tier is queried at its own coordinates. Open-Meteo uses the nearest model grid cell and adjusts temperature and humidity from the cell's terrain height to the elevation given. Precipitation is not elevation-adjusted; wind uses pressure-level data at the tier height (summit) or the 10 m model wind (base).";
   }
 
+  // ---------------------------------------------------------------- elevation bands
+  const TIER_COLOR = { base: "#fbbf24", mid: "#c084fc", summit: "#38bdf8" };
+  function renderBands() {
+    const box = $("bands-chart");
+    if (!box || !state.resort) return;
+    const o = om(), tls = o.elevation_timelines || {}, elevs = state.resort.elevations || {};
+    const tiers = ["base", "mid", "summit"].filter(t => (tls[t] || []).length);
+    if (!tiers.length) { box.innerHTML = ""; return; }
+    const n = Math.max(...tiers.map(t => tls[t].length));
+    const time = tls[tiers[tiers.length - 1]].map(x => x.time);
+    const hasVis = tiers.some(t => tls[t].some(x => x.visibility_mi != null));
+    const W = 1040, L = 56, R = 96, PW = W - L - R, step = PW / n;
+    const X = i => L + (i + 0.5) * step;
+    const panels = [
+      { key: "t", title: `TEMPERATURE (°${U.celsius() ? "C" : "F"})`, h: 150 },
+      { key: "rh", title: "RELATIVE HUMIDITY AT 2 M (%)", h: 100 },
+      { key: "vis", title: "VISIBILITY (MI, CAPPED AT 10)", h: 90 },
+    ];
+    let y = 8; panels.forEach(p => { p.top = y + 16; y += 16 + p.h + 26; });
+    const axisY = y - 14, H = axisY + 30;
+    const tv = f => (f == null ? null : U.tempNum(f));
+    let s = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="var(--font-sans)">`;
+    time.forEach((t, i) => { if (new Date(t).getHours() === 0 && i) s += `<line x1="${L + i * step}" x2="${L + i * step}" y1="${panels[0].top - 4}" y2="${axisY}" stroke="rgba(255,255,255,0.1)" stroke-dasharray="2 3"/>`; });
+    const path = (arr, Y) => { let d = "", pen = false; arr.forEach((v, i) => { if (v == null) { pen = false; return; } d += `${pen ? "L" : "M"}${X(i).toFixed(1)},${Y(v).toFixed(1)} `; pen = true; }); return d; };
+    panels.forEach(p => {
+      s += `<text x="${L}" y="${p.top - 6}" fill="#cbd5e1" font-size="10" font-weight="700" letter-spacing="0.6">${p.title}</text>`;
+      let lo, hi, series = [];
+      if (p.key === "t") {
+        tiers.forEach(t => { series.push({ t, v: tls[t].map(x => tv(x.temp_f)), dash: false }); series.push({ t, v: tls[t].map(x => tv(x.free_air_temp_f)), dash: true }); });
+        const fixedT = (o.scales || {}).temp_f;
+        const all = fixedT ? fixedT.map(tv) : series.flatMap(x => x.v).filter(v => v != null);
+        lo = Math.floor(Math.min(...all) / 5) * 5; hi = Math.ceil(Math.max(...all) / 5) * 5; if (hi - lo < 10) hi = lo + 10;
+      } else if (p.key === "rh") {
+        tiers.forEach(t => series.push({ t, v: tls[t].map(x => x.relative_humidity_pct), dash: false })); lo = 0; hi = 100;
+      } else {
+        tiers.forEach(t => series.push({ t, v: tls[t].map(x => (x.visibility_mi == null ? null : Math.min(10, x.visibility_mi))), dash: false })); lo = 0; hi = 10;
+      }
+      const Y = v => p.top + p.h * (1 - (v - lo) / (hi - lo));
+      const stepT = p.key === "t" ? (hi - lo > 40 ? 10 : 5) : p.key === "rh" ? 25 : 2.5;
+      for (let v = lo; v <= hi + 1e-6; v += stepT) {
+        s += `<line x1="${L}" x2="${L + PW}" y1="${Y(v)}" y2="${Y(v)}" stroke="rgba(255,255,255,${v === lo ? 0.16 : 0.05})"/>
+          <text x="${L - 8}" y="${Y(v) + 3.5}" fill="#94a3b8" font-size="10" text-anchor="end" font-family="var(--font-mono)">${v}</text>`;
+      }
+      if (p.key === "t") { const fz = U.celsius() ? 0 : 32; if (fz > lo && fz < hi) s += `<line x1="${L}" x2="${L + PW}" y1="${Y(fz)}" y2="${Y(fz)}" stroke="#fbbf24" stroke-opacity=".5" stroke-dasharray="5 4"/><text x="${L + 4}" y="${Y(fz) - 4}" fill="#fcd34d" font-size="9.5">${U.celsius() ? "0 °C" : "32 °F"}</text>`; }
+      if (p.key === "vis" && !hasVis) { s += `<text x="${L + PW / 2}" y="${p.top + p.h / 2}" text-anchor="middle" fill="#64748b" font-size="11">This model does not provide visibility.</text>`; return; }
+      const labels = [];
+      series.forEach(se => {
+        s += `<path d="${path(se.v, Y)}" fill="none" stroke="${TIER_COLOR[se.t]}" stroke-width="${se.dash ? 1.4 : 2}" ${se.dash ? 'stroke-dasharray="5 4" opacity="0.75"' : ""}/>`;
+        if (!se.dash) {
+          const lastI = se.v.map((v, i) => (v == null ? -1 : i)).reduce((a, b) => Math.max(a, b), -1);
+          if (lastI >= 0) { let ly = Y(se.v[lastI]) + 4; labels.forEach(o2 => { if (Math.abs(o2 - ly) < 11) ly = o2 + 11; }); labels.push(ly);
+            s += `<text x="${L + PW + 6}" y="${ly}" fill="${TIER_COLOR[se.t]}" font-size="10" font-weight="700">${{ base: "Base", mid: "Mid", summit: "Summit" }[se.t]}</text>`; }
+        }
+      });
+    });
+    time.forEach((t, i) => {
+      const d = new Date(t);
+      if (i % (n > 72 ? 12 : 3) === 0) s += `<text x="${X(i)}" y="${axisY + 12}" fill="#94a3b8" font-size="10" text-anchor="middle">${d.toLocaleTimeString([], { hour: "numeric" })}</text>`;
+      if (d.getHours() === 0) s += `<text x="${L + i * step + 2}" y="${axisY + 26}" fill="#cbd5e1" font-size="10" font-weight="700">${d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</text>`;
+    });
+    s += `<line id="bands-cross" x1="0" x2="0" y1="${panels[0].top}" y2="${axisY}" stroke="#fff" stroke-opacity=".45" visibility="hidden"/>
+      <rect id="bands-hit" x="${L}" y="${panels[0].top}" width="${PW}" height="${axisY - panels[0].top}" fill="transparent" style="cursor:crosshair"/></svg>`;
+    box.innerHTML = s;
+    const sub = $("bands-sub");
+    if (sub) sub.textContent = `${(o.primary_model || {}).label || ""}. 2 m values are the model's near-surface field adjusted to each elevation with a fixed lapse rate; dashed lines are the model column's free-air temperature at the same height. Where they diverge (inversions, valley cold pools) the station data in Sources shows which one matched.`;
+
+    const svg = box.querySelector("svg"), hit = $("bands-hit"), cross = $("bands-cross"), tip = $("bands-tip");
+    hit.addEventListener("mousemove", ev => {
+      const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+      const loc = pt.matrixTransform(svg.getScreenCTM().inverse());
+      const i = Math.max(0, Math.min(n - 1, Math.floor((loc.x - L) / step)));
+      cross.setAttribute("x1", X(i)); cross.setAttribute("x2", X(i)); cross.setAttribute("visibility", "visible");
+      const row = t => { const x = (tls[t] || [])[i] || {}; return `<div class="tt-row"><span class="tt-label" style="color:${TIER_COLOR[t]}">${{ base: "Base", mid: "Mid", summit: "Summit" }[t]} ${(elevs[`${t}_ft`] || 0).toLocaleString()} ft</span>
+        <span class="tt-val">${tF(x.temp_f)} (free air ${tF(x.free_air_temp_f)}) · RH ${x.relative_humidity_pct ?? "–"}% · vis ${x.visibility_mi != null ? (x.visibility_mi >= 10 ? "10+" : x.visibility_mi.toFixed(1)) + " mi" : "–"}</span></div>`; };
+      tip.innerHTML = `<div class="tt-time">${new Date(time[i]).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric" })}</div>${["summit", "mid", "base"].filter(t => tls[t]).map(row).join("")}`;
+      tip.style.display = "block";
+      const wrap = $("bands").getBoundingClientRect(), tw = tip.offsetWidth || 300;
+      let left = ev.clientX - wrap.left + 16; if (left + tw > wrap.width) left = ev.clientX - wrap.left - tw - 16;
+      tip.style.left = `${Math.max(0, left)}px`; tip.style.top = `${ev.clientY - wrap.top - 40}px`;
+    });
+    hit.addEventListener("mouseleave", () => { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); });
+  }
+
   // ---------------------------------------------------------------- wiring
-  function renderAll() { renderSkewT(); renderHabit(); renderPhase(); renderSources(); }
+  function renderAll() { renderSkewT(); renderHabit(); renderPhase(); renderSources(); renderBands(); }
   window.Panels = {
     onHour(h) { state.hour = h; renderPhase(); renderHabit(); if (state.skewSrc === "model") renderSkewT(); },
   };

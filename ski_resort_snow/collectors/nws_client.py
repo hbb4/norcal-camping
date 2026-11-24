@@ -73,7 +73,8 @@ class NWSClient:
                 "updated_at": datetime.now(timezone.utc).isoformat(),
                 "grid": {"wfo": wfo, "x": grid_x, "y": grid_y, "elevation_ft": grid_snow.get("grid_elevation_ft"),
                          "lat": lat, "lon": lon, "next_24h_inches": grid_snow.get("next_24h_inches"),
-                         "next_48h_inches": grid_snow.get("next_48h_inches"), "total_snow_inches": grid_snow.get("total_snow_inches")},
+                         "next_48h_inches": grid_snow.get("next_48h_inches"), "total_snow_inches": grid_snow.get("total_snow_inches"),
+                         "total_through_utc": grid_snow.get("total_through_utc")},
                 "summit_grid": summit_grid,
                 "snowfall_grid_used": "summit" if primary is summit_grid else "base",
                 "office": wfo,
@@ -182,6 +183,7 @@ class NWSClient:
             return {}
         now = datetime.now(timezone.utc)
         tot = {24: 0.0, 48: 0.0, None: 0.0}
+        last_end = None
         values = props.get("snowfallAmount", {}).get("values", [])
         for item in values:
             val = item.get("value")
@@ -193,6 +195,7 @@ class NWSClient:
             m = re.match(r"P(?:(\d+)D)?T?(?:(\d+)H)?", dur_s)
             hours = (int(m.group(1) or 0) * 24 + int(m.group(2) or 0)) if m else 1
             end = start + timedelta(hours=max(1, hours))
+            last_end = end if last_end is None or end > last_end else last_end
             for win in (24, 48, None):
                 w_end = now + timedelta(hours=win) if win else end
                 overlap = (min(end, w_end) - max(start, now)).total_seconds() / 3600
@@ -203,7 +206,8 @@ class NWSClient:
         elev = (props.get("elevation") or {}).get("value")
         return {"grid_elevation_ft": round(elev * 3.28084) if elev is not None else None,
                 "next_24h_inches": round(tot[24] / 25.4, 1), "next_48h_inches": round(tot[48] / 25.4, 1),
-                "total_snow_inches": round(tot[None] / 25.4, 1), "grid_points_count": len(values)}
+                "total_snow_inches": round(tot[None] / 25.4, 1), "grid_points_count": len(values),
+                "total_through_utc": last_end.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if last_end else None}
 
     def _parse_snow_from_periods(self, periods: List[Dict[str, Any]]) -> Dict[str, float]:
         """Extract numerical snowfall expectations from text forecasts like '3 to 6 inches'."""

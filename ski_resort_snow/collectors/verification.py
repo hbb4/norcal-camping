@@ -50,7 +50,7 @@ class ForecastVerifier:
             if om.get("status") != "success" or not sp:
                 continue
             snap["resorts"][rid] = {"station": sp.get("id"), "elevation_ft": sp.get("elevation_ft"),
-                                    "model": (om.get("primary_model") or {}).get("label"),
+                                    "model": (sp.get("model") or (om.get("primary_model") or {}).get("label")),
                                     "hourly": sp.get("hourly", []), "proxy": None}
         if not snap["resorts"]:
             return None
@@ -141,10 +141,10 @@ class ForecastVerifier:
         if not obs or obs.get("swe_gain_in") is None:
             return None
         liq = sum(h["precip_in"] for h in hourly)
-        snow_liq = sum(h["precip_in"] * h.get("snow_fraction", 1) for h in hourly)
+        snow_liq = sum(h["precip_in"] * (h.get("snow_fraction") if h.get("snow_fraction") is not None else 1) for h in hourly)
         snow = {
             "primary": round(sum(h.get("snowfall_rate_in_hr", 0) for h in hourly), 1),
-            "kuchera": round(sum(h["precip_in"] * h.get("snow_fraction", 1) * h.get("slr_kuchera", h.get("slr", 10)) for h in hourly), 1),
+            "kuchera": round(sum(h["precip_in"] * (h.get("snow_fraction") if h.get("snow_fraction") is not None else 1) * h["slr_kuchera"] for h in hourly if h.get("slr_kuchera") is not None), 1) if any(h.get("slr_kuchera") is not None for h in hourly) else None,
             "fixed_10": round(snow_liq * 10, 1),
         }
         swe = obs["swe_gain_in"]

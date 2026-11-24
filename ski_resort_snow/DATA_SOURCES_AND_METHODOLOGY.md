@@ -8,7 +8,7 @@ How every number on the dashboard is produced. Code references are to `collector
 
 | Job | Interval | Contents |
 |---|---|---|
-| Full refresh | 30 min | models, ensembles, model sounding, NWS, CDEC sensors, radiosondes, Caltrans, verification |
+| Full refresh | 60 min | models, ensembles, model sounding, NWS, CDEC sensors, radiosondes, Caltrans, verification |
 | Roads | 5 min | Caltrans CWWP2 only |
 | Manual | Refresh button / `R` key | full refresh (`POST /api/refresh`) |
 
@@ -18,29 +18,32 @@ The page polls `GET /api/status` (every 1.5 s while a refresh runs, every 30 s o
 
 ## 2. Sources
 
-### 2.1 Numerical models (via Open-Meteo, `open_meteo_client.py`)
+### 2.1 Numerical models
 
-| Role | Model | Provider | Grid | Notes |
+Seven models, each for 168 h. The page defaults to **NBM**; the model bar at the top switches the whole page to any one model, shown on its own.
+
+| Page label | Source | Grid | Snowfall / SLR / snow level | Vertical profile |
 |---|---|---|---|---|
-| **Primary** | `gfs_seamless` | NOAA/NCEP | HRRR 3 km for ~0–47 h, then GFS 0.25° | Surface fields at each tier; full sounding at the summit |
-| Comparison | HRRR | NOAA/NCEP | 3 km | Current run length shown (often 43–48 h) |
-| Comparison | NBM | NOAA/NWS | 2.5 km | Statistically post-processed blend; surface only |
-| Comparison | GFS (`gfs_global`) | NOAA/NCEP | 13–25 km | |
-| Comparison | ECMWF IFS | ECMWF | 0.25° | |
-| Comparison | ICON | DWD | 13 km (global over the US) | |
-| Comparison | GEM | ECCC | 10–15 km | Open-Meteo's run metadata for GEM is stale, so no run time is shown |
-| Ensembles | GEFS, ECMWF ENS, ICON-EPS | NOAA, ECMWF, DWD | 0.25° class | ~120 members, precipitation at each tier |
+| **NBM** (default) | NOAA NOMADS, native NBM v4 GRIB2 (`nbm_client.py`, `grib2_simple.py`) | 2.5 km | NBM's own ASNOW, SNOWLR, SNOWLVL | **none**: profile panels say so |
+| ECMWF HRES | Open-Meteo `ecmwf_ifs` | 9 km | our method on the ECMWF IFS 0.25° column | ECMWF IFS 0.25° |
+| ECMWF AIFS | Open-Meteo `ecmwf_aifs025_single` | 0.25° | our method | own, with vertical velocity |
+| HRRR/GFS | Open-Meteo `gfs_seamless` | HRRR 3 km to ~47 h, then GFS | our method | own, with vertical velocity |
+| ICON | Open-Meteo `icon_seamless` | 13 km | our method (no lift weighting) | own, no vertical velocity |
+| UKMO | Open-Meteo `ukmo_seamless` | 10 km | our method | own, with vertical velocity (~150 h) |
+| GEM | Open-Meteo `gem_seamless` | 10–15 km | our method (no lift weighting) | own, no vertical velocity |
 
-Run times come from `https://api.open-meteo.com/data/{model}/static/meta.json` (`last_run_initialisation_time`, `last_run_availability_time`). Earlier versions requested Open-Meteo's unnamed `best_match` blend; that is no longer used.
+**NBM** is read straight from NOAA: NOMADS's grib filter returns a small box around the resorts as simple-packed GRIB2 on the NBM Lambert conformal grid, decoded with the standard library. Fields at the nearest 2.5 km grid point to each tier and sensor: 2 m temperature, dew point and RH; 10 m wind, gust and direction; visibility; cloud cover; precipitation (APCP), snowfall (ASNOW), snow/liquid ratio (SNOWLR), snow level (SNOWLVL) and the probability of ≥ 0.254 mm precipitation. Hours 1–48 are hourly; after 48 h NBM's 6-hour values are used (accumulations spread evenly over the 6 hours, other fields interpolated; those hours are flagged). One 00/06/12/18Z cycle is downloaded once (~68 small files, a few minutes) and cached in `data/cache/`. NBM values are for the grid point's own terrain (no lapse-rate adjustment); the wet bulb shown for NBM is computed from its temperature and dew point.
 
-**Units gotcha:** with `precipitation_unit=inch`, Open-Meteo returns all lengths in feet, including `freezing_level_height` and `geopotential_height`. Surface queries use inches/feet; the sounding query does not set it, so heights are meters.
+**Ensembles** (`ensemble-api.open-meteo.com`): GEFS (NOAA, 31 members), ECMWF ENS (51) and ICON-EPS (40), about 120 members in all, precipitation only, at each tier's coordinates and elevation. Each member's hourly liquid is multiplied by the **selected model's** hourly snow-per-liquid factor at that tier (snow fraction × SLR; for NBM, NBM's snowfall ÷ precipitation), then summed into daily, cumulative, 24 h, 48 h and 7-day totals whose 10th/25th/50th/75th/90th percentiles drive the fan chart, the day tiles and the ranges. The share of members with ≥ 0.01 in in an hour is the chance of precipitation for the Open-Meteo models (NBM uses its own probability). The summary card draws the members' 24 h, 48 h and 7-day snow totals as a kernel density (Gaussian kernel, Silverman bandwidth with a floor of 2% of the axis), summit above the axis and base below, with the selected model's value as a tick. Because snow fraction and SLR come from one deterministic model, the spread describes precipitation amount and timing uncertainty only, not snow-level or SLR uncertainty.
+
+**Units gotcha:** with `precipitation_unit=inch`, Open-Meteo returns all lengths in feet (freezing level, geopotential height, visibility). Surface queries use inches/feet; the sounding query does not set it, so heights are meters.
 
 ### 2.2 NWS (`nws_client.py`)
 
 The Sierra crest is the boundary between NWS Reno (REV) and NWS Sacramento (STO). The base points of both resorts are in REV; both summit points fall in STO's grid.
 
 - Alerts and the Area Forecast Discussion (Key Messages / Synopsis section) come from the office covering the **base** point (REV).
-- Gridded snowfall (`snowfallAmount`, mm per interval) is summed over the next 24 h, 48 h and the full grid, both at the **summit** cell (STO, ~7,700 ft mean cell elevation) and the **base** cell (REV, ~6,300 ft). The summit cell is used in the 24/48 h blend.
+- Gridded snowfall (`snowfallAmount`, mm per interval) is summed over the next 24 h, 48 h and the full grid, both at the **summit** cell (STO, ~7,700 ft mean cell elevation) and the **base** cell (REV, ~6,300 ft). Both cells are shown under the snowfall distribution next to the model values. They are not blended into the model numbers.
 - Grid cells are resolved from coordinates at run time (`/points/{lat},{lon}`); the configured grid in older versions (REV 41,82) was wrong.
 
 ### 2.3 Observations
@@ -83,10 +86,16 @@ Earlier versions queried all tiers at the village coordinates.
 
 ## 4. Derived quantities
 
-### 4.1 Model sounding (summit point, 19 levels 1000–200 hPa)
-Temperature, RH, geopotential height, vertical velocity (Open-Meteo sign: negative = rising; flipped so positive = ascent), wind. Derived per level: dew point (Magnus), RH w.r.t. ice, wet-bulb temperature from the psychrometric equation solved by bisection with pressure (valid at any temperature; the Stull 2011 fit is only valid to −20 °C and was replaced).
+### 4.1 Model sounding (where and how)
+- **Where:** one model column at the summit point of each resort (Granite Chief 39.1982, −120.2873; Ward Peak 39.1467, −120.2450). Open-Meteo returns the grid column nearest that point; for 0.25° models that column averages ~25 km of terrain.
+- **What:** temperature, RH, geopotential height, vertical velocity and wind on up to 19 pressure levels, 1000–200 hPa (models with fewer native levels return fewer). Open-Meteo's vertical velocity is negative for rising air; it is flipped so positive = ascent.
+- **Derived per level:** dew point (Magnus), RH w.r.t. ice, wet bulb from the psychrometric equation solved with pressure.
+- **Used for:** wet-bulb zero / snow level, freezing level, DGZ, sleet/freezing-rain check, SLR, free-air wind and free-air temperature at each tier height, skew-T, crystal-habit diagram.
+- **Surface-only models:** NBM uses the GFS column and ECMWF HRES uses the ECMWF IFS 0.25° column; the page labels this ("NBM + GFS sounding").
+- Levels below the terrain are model extrapolations; the skew-T shades everything below the base.
 
-Levels below the terrain are model extrapolations; the skew-T shades everything below the base elevation.
+### 4.1b Tier temperature: 2 m vs. free air
+Open-Meteo adjusts each model's 2 m temperature from the grid cell's terrain height to the requested elevation with a fixed lapse rate. That step cannot represent inversions. The model column can: on Nov 23–24, 2026 (06Z, HRRR column) the free-air temperature at 8,000 ft was 36 °F against 35 °F at the Palisades mid-mountain station, while the 2 m value was 28 °F. But free air was badly wrong in the valley cold pool (40.5 °F vs 24 °F at the base station) and at Alpine's summit station (35 °F vs 26 °F). The page therefore shows both (solid 2 m, dashed free air) in the elevation time series and compares them with the resort stations; choosing or blending them is a calibration item (TUNING_PLAN.md).
 
 ### 4.2 Snow level and precipitation type
 - **Wet-bulb zero (WBZ)**: lowest height where the wet bulb crosses 0 °C.
@@ -96,36 +105,29 @@ Levels below the terrain are model extrapolations; the skew-T shades everything 
 - **Chance of precipitation** = share of ensemble members with ≥ 0.01 in that hour (falls back to the model's own probability).
 
 ### 4.3 Snow/liquid ratio (SLR)
-All methods use the same liquid and snow fraction.
+All methods use the same liquid and snow fraction; only the ratio differs.
 
-| Method | Formula | Typical use | Behavior in the Sierra |
+| Method | How | Strengths | Weaknesses |
 |---|---|---|---|
-| **Cobb-style, adjusted (used)** | Crystal-habit SLR f(T) of each layer above the tier that is ice-saturated (RHice ≥ 95%) and rising, weighted by lift × thickness (after Cobb & Waldstreicher 2005); × wind factor (1 − 0.005 × (wind mph − 15), floor 0.75); capped at 9:1 when the tier wet bulb > −1 °C and 7:1 when > 0 °C | NWS forecast offices (Cobb method in BUFKIT) where vertical motion and RH profiles exist | Accounts for where crystals grow and for wind fragmentation |
-| Cobb-style, unadjusted | habit × lift only | | Same as above without wind/melt |
-| Kuchera | 12 + (271.16 − Tmax) if Tmax ≤ 271.16 K, else 12 + 2·(271.16 − Tmax); Tmax = warmest temperature between the tier and 500 hPa; 4–25 | Model snowfall maps (Pivotal, WeatherBell) | Fast and column-temperature aware, but ignores lift, cloud depth and wind; over-forecasts wind-driven, rimed Sierra snow |
-| Fixed 10:1 | | Quick rule of thumb | Too high for wet/windy events, too low for cold dendritic snow |
-| Open-Meteo snowfall field | the API's `snowfall` variable: water equivalent × 7 (≈ 7:1) | | Fixed; ignores the column |
+| **Cobb-style (used)** | For each layer between the tier and 300 hPa that is ice-saturated (RHice ≥ 95%): crystal-habit SLR f(T) of the layer's mean temperature, weighted by upward motion × layer thickness. Models without vertical velocity (ICON, GEM): weighted by thickness only. Bounded 3–30:1. After Cobb & Waldstreicher (2005), the method used in BUFKIT. | Uses where crystals actually grow and how fast air rises through the DGZ | Ignores what happens below cloud: riming, wind fragmentation, melting; the f(T) curve here is an approximation of the published one |
+| Cobb-style + wind/near-freezing adjustment (experimental) | Cobb-style × wind factor, where wind factor = 1 − 0.005 × (tier wind mph − 15), between 0.75 and 1; then capped at 9:1 if the tier wet bulb is above −1 °C and 7:1 above 0 °C | Direction of both effects is documented: wind fragments and packs crystals (e.g. Alcott & Steenburgh 2010); near 0 °C snow is wet and dense | **Coefficients are not calibrated.** They were set by hand and checked against one storm only, so they are shown for comparison and not used |
+| Kuchera | 12 + (271.16 − Tmax) if Tmax ≤ 271.16 K, else 12 + 2·(271.16 − Tmax); Tmax = warmest temperature from the tier to 500 hPa; 4–25:1 | Simple, column-aware; common on model snowfall maps | Ignores lift, saturation, crystal habit and wind |
+| Fixed 10:1 | | Climatological baseline | Wrong for both wet/windy and cold dendritic events |
+| Open-Meteo snowfall field | API's `snowfall` = water equivalent × ~7 | Shows what the raw API says | Fixed ratio |
 
 Habit SLR f(T) (°C → SLR): 0 → 5, −2 → 8, −4 → 10, −6 → 12, −8 → 11, −10 → 12, −12 → 18, −14 → 26, −15 → 28, −16 → 26, −18 → 18, −20 → 14, −25 → 12, −30 → 10.
 
-**Why the change from Kuchera.** Nov 18–19, 2026 storm, hindcast at SQV (8,200 ft) with the archived HRRR/GFS run: liquid 3.20 in vs 3.3–3.8 in SWE measured by the SQV pillow. References for snowfall: the resort's new-snow boards reported 42–46 in over 7 days (storm total 45 in), which with ~3.4–3.9 in of water implies ~11–13:1. (The SQV pillow's settled depth gain, +14 in, understates new snow at that wind-exposed site and is not used as the snowfall reference.)
-
-| Method | Storm SLR | Snow |
-|---|---|---|
-| Kuchera | 14.6:1 | 47 in |
-| Cobb-style, no wind adjustment | 15.2:1 | 49 in |
-| Cobb-style, wind −1%/mph above 10 mph, floor 0.5 (first version) | 9.2:1 | 30 in |
-| **Cobb-style, wind −0.5%/mph above 15 mph, floor 0.75 (current)** | **12.5:1** | **40 in** |
-| Fixed 10:1 | 10:1 | 32 in |
-| Resort boards | ~11–13:1 | 42–45 in |
-
-700 hPa winds reached 66 mph. One storm is not a calibration; the verification archive (5.) tracks every forecast against the sensors and the resort's reports.
+**One-storm check (Nov 18–19, 2026; not a calibration).** Hindcast at SQV with the archived HRRR/GFS run: liquid 3.20 in vs 3.3–3.8 in SWE measured. The resort's new-snow boards reported 42–46 in over 7 days (storm total 45 in), implying ~11–13:1. Kuchera gave 14.6:1, unadjusted Cobb-style 15.2:1, fixed 10:1 10:1. One storm cannot set coefficients; `TUNING_PLAN.md` describes the multi-season calibration that will.
 
 ### 4.4 Dendritic growth zone (DGZ)
 Heights where T = −12 °C and −18 °C, the matching pressures (log-p interpolation), mean RH (water and ice) and vertical motion sampled at bottom/middle/top. "Ice-saturated and rising": RHice ≥ 100% and vertical motion ≥ 10 cm/s. Cards summarize precipitating hours in the next 24 h (or all hours if none).
 
-### 4.5 Consensus 24/48 h and ranges
-Blend = 55% primary model summit snowfall + 45% NWS summit-cell gridded snowfall (model only if NWS has none; missing sources are dropped, never replaced). Range = ensemble 10th–90th percentile at the summit, widened only if the blend falls outside it.
+### 4.5 Forecast numbers and NWS
+The 24 h, 48 h and 7-day numbers are the selected model's values at the base and summit, nothing else. Ranges and shapes come from the ensemble members. There is no blending with NWS: the NWS gridded snowfall (Reno's cell at the base point, Sacramento's cell at the summit point, since the crest is the office boundary) is listed separately under the summary and in Sources.
+
+Chart axes (accumulation, hourly rate, wind, 7-day fan, distribution, elevation temperatures) are computed once per refresh across every model and elevation, so switching models or elevations never rescales them. The distribution axis ends at the larger of the highest model 7-day value and the 95th percentile of ensemble members across all models; members beyond it are counted at the right edge ("4 members > 40 in") rather than stretching the axis for a few outliers.
+
+For a model with no vertical profile (NBM), the DGZ and skew-T panels say so. The moisture and crest-wind card still fills from surface fields: base mixing ratio from NBM's own temperature and dew point, summit wind from NBM's 10 m wind at the nearest grid point.
 
 ### 4.6 Powder index
 0.55 × max(24 h snow, 0.6 × 48 h snow) at the summit, minus 1.2 if summit gusts > 60 mph (0.5 if > 45); clamped 1–10. Wind can only lower it.

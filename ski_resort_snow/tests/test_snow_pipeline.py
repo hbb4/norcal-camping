@@ -242,3 +242,30 @@ class TestResortFeed(unittest.TestCase):
         a = ResortScraper.parse(feed, "alpine_meadows", "now")
         self.assertEqual(a["snow_areas"]["base"]["new_7d_in"], 46.0)
         self.assertEqual((a["lifts_open"], a["lifts_total"]), (1, 1))
+
+
+class TestNBM(unittest.TestCase):
+    def test_unpack_bits(self):
+        from collectors.grib2_simple import _unpack_bits
+        # 3-bit values 1..6 packed big-endian: 001 010 011 100 101 110
+        self.assertEqual(_unpack_bits(bytes([0b00101001, 0b11001011, 0b10000000]), 3, 6), [1, 2, 3, 4, 5, 6])
+
+    def test_field_mapping(self):
+        from collectors.nbm_client import NBMClient
+        f = NBMClient._field
+        self.assertEqual(f({"disc": 0, "cat": 0, "par": 0, "pdt": 0, "lev_type": 103, "lev_val": 2}), "tmp_k")
+        self.assertEqual(f({"disc": 0, "cat": 1, "par": 29, "pdt": 8, "lev_type": 1, "lev_val": 0, "acc_len": 6}), "asnow_6h")
+        self.assertEqual(f({"disc": 0, "cat": 19, "par": 236, "pdt": 0, "lev_type": 102, "lev_val": 0}), "snowlvl_m")
+        self.assertIsNone(f({"disc": 0, "cat": 1, "par": 29, "pdt": 10, "lev_type": 1, "lev_val": 0}))
+
+    def test_to_steps_spreads_six_hour_totals(self):
+        from datetime import datetime, timezone
+        from collectors.nbm_client import NBMClient
+        rows = {str(h): {"tmp_k": 270.0, "dpt_k": 268.0, "apcp_1h": 0.0, "asnow_1h": 0.0, "slr": 12.0} for h in range(1, 49)}
+        rows["54"] = {"tmp_k": 268.0, "dpt_k": 266.0, "apcp_6h": 6 * 2.54, "asnow_6h": 6 * 0.1 * 12 * 0.0254, "slr": 12.0}
+        st = NBMClient.to_steps("2026-11-24T06:00:00+00:00", rows, 9000, datetime(2026, 11, 24, 7, tzinfo=timezone.utc))
+        late = [x for x in st if x["lead_h"] in range(49, 55)]
+        self.assertEqual(len(late), 6)
+        self.assertAlmostEqual(late[0]["precip_in"], 0.1, places=3)
+        self.assertAlmostEqual(late[0]["snowfall_rate_in_hr"], 1.2, places=2)
+        self.assertTrue(late[0]["interpolated"])
