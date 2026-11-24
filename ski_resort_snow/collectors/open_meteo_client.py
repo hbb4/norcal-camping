@@ -388,7 +388,19 @@ class OpenMeteoClient:
             }
 
     @staticmethod
-    def _blend_steps(member_steps: Dict[str, List[Dict[str, Any]]], weights: Dict[str, float], min_weight: float) -> List[Dict[str, Any]]:
+    def _lead_weight(curve: List[List[float]], lead: int) -> float:
+        """Piecewise-linear weight from [[lead_h, weight], ...] (held flat beyond the ends)."""
+        pts = sorted(curve)
+        if lead <= pts[0][0]:
+            return float(pts[0][1])
+        for (h0, w0), (h1, w1) in zip(pts, pts[1:]):
+            if lead <= h1:
+                return float(w0 + (w1 - w0) * (lead - h0) / max(1e-9, h1 - h0))
+        return float(pts[-1][1])
+
+    @staticmethod
+    def _blend_steps(member_steps: Dict[str, List[Dict[str, Any]]], weights: Dict[str, float], min_weight: float,
+                     lead_weights: Optional[Dict[str, List[List[float]]]] = None) -> List[Dict[str, Any]]:
         """Hourly weighted mean of the members present; stops when less than min_weight of them remain.
 
         Accumulations are averaged as hourly increments (a member that ends early can't make a total jump);
@@ -397,13 +409,16 @@ class OpenMeteoClient:
         idx = {mid: {s["time"]: s for s in steps} for mid, steps in member_steps.items()}
         times = sorted(set().union(*[set(d) for d in idx.values()])) if idx else []
         prev = {mid: {} for mid in idx}
+        nominal = weights
+        lw = lead_weights or {}
         cum = {"cumulative_snow_inches": 0.0, "model_cumulative_inches": 0.0, "kuchera_cumulative_inches": 0.0, "experimental_cumulative_inches": 0.0}
         out = []
-        for t in times:
+        for lead, t in enumerate(times):
             present = {mid: idx[mid][t] for mid in idx if t in idx[mid]}
-            wsum = sum(weights[mid] for mid in present)
-            if wsum < min_weight:
+            if sum(nominal[mid] for mid in present) < min_weight:   # stop rule uses the nominal weights
                 break
+            weights = {mid: (OpenMeteoClient._lead_weight(lw[mid], lead) if mid in lw else nominal[mid]) for mid in idx}
+            wsum = sum(weights[mid] for mid in present)
 
             def mean(key):
                 vals = [(weights[mid], s[key]) for mid, s in present.items() if s.get(key) is not None]
@@ -473,8 +488,9 @@ class OpenMeteoClient:
             return None
         min_w = float(bl.get("min_weight_share", 0.5)) * sum(nominal.values())
         parsed = {}
+        lead_w = {mid: c for mid, c in (bl.get("lead_weights") or {}).items() if mid in w}
         for k in tiers:
-            steps = self._blend_steps({mid: parsed_by_model[mid][k]["_steps"] for mid in w}, w, min_w)
+            steps = self._blend_steps({mid: parsed_by_model[mid][k]["_steps"] for mid in w}, w, min_w, lead_w)
             if not steps:
                 return None
             p = self._summarize_tier(steps, labels[k], round(tiers[k]["elevation_m"] * M_TO_FT), ensembles.get(k), True)
@@ -483,8 +499,9 @@ class OpenMeteoClient:
         src = next((x for x in MODELS if x["id"] == bl.get("profile_from", "ecmwf_hres")), None) or next(x for x in MODELS if x["id"] == "ecmwf_hres")
         prof = profiles.get(src["sounding"]) or []
         names = {x["id"]: x["label"] for x in MODELS}
-        equal = len(set(w.values())) == 1
-        m = {"id": bl["id"], "label": bl.get("label", "Blend"), "om": None, "provider": f"{'Equal-weight mean' if equal else 'Weighted mean'} of {len(w)} models",
+        equal = len(set(w.values())) == 1 and not lead_w
+        m = {"id": bl["id"], "label": bl.get("label", "Blend"), "om": None,
+             "provider": f"{'Equal-weight mean' if equal else 'Weighted mean'} of {len(w)} models" + (f"; {bl['weights_note']}" if bl.get("weights_note") else ""),
              "grid": "mean of " + ", ".join(names.get(mid, mid) for mid in w), "sounding": src["sounding"],
              "sounding_label": f"{src['label']} column", "meta": []}
         out = self._assemble(m, parsed, prof, tiers, has_w.get(src["sounding"], False), now)
@@ -492,8 +509,9 @@ class OpenMeteoClient:
         out["model"]["members"] = [{"id": mid, "label": names.get(mid, mid), "weight": round(wt / sum(w.values()), 3)} for mid, wt in w.items()]
         missing = [names.get(mid, mid) for mid in nominal if mid not in w]
         out["blend"] = {"members": out["model"]["members"], "missing": missing, "profile_from": src["label"],
+                        "lead_weights": {names.get(mid, mid): c for mid, c in lead_w.items()} or None, "weights_note": bl.get("weights_note"),
                         "rule": f"hourly weighted mean of the members present; stops when under {round(100 * float(bl.get('min_weight_share', 0.5)))}% of the member weight remains"}
-        out["primary_model"]["label"] = f"{m['label']} ({len(w)} models)"
+        out["primary_model"]["label"] = f"{m['label']} ({len(w)} models)" if len(w) > 2 else f"{m['label']} ({' + '.join(names.get(mid, mid) for mid in w)})"
         out["source"] = f"Blend of {len(w)} Open-Meteo models"
         out["methodology"]["blend"] = out["blend"]["rule"]
         return out

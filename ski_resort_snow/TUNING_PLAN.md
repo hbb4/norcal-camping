@@ -15,7 +15,7 @@ Goal: replace every hand-set choice in the pipeline with values fit on several w
 | 5 | Open-Meteo models: snow/liquid ratio | Cobb-style habit × lift, unadjusted | wind effect, near-0 °C effect, habit curve scale, riming term (original plan, sections 5–6) |
 | 6 | Open-Meteo models: rain/snow transition | snow level = WBZ − 500 ft; linear over 1,000 ft | WBZ offset, transition depth, surface wet-bulb thresholds |
 | 7 | Wind per tier | 10 m (base), free-air (summit), 60% blend (mid) | blend weights per tier against the resort stations |
-| 8 | Blend weights | equal weights for the six single models (`config/sources.json` → `blends`) | Weight members by skill per lead-time bucket (inverse MAE against SNOTEL and the stations, leave-one-winter-out); keep equal weights unless the fitted weights win out of sample. |
+| 8 | Blend weights | Blend: equal; HRRR-early blend: HRRR/GFS half the weight to 18 h, equal by 48 h; ECMWF pair: equal (`config/sources.json` → `blends`) | Skill weights per lead day from the per-model archive (`data/archive/models/`, from Nov 24, 2026) against SQV snow-water gains (`blend_weights.py`, weight ∝ 1/MAE, ≥ 15 cold wet days per model and lead). Adopt only if leave-one-month-out MAE of the blend improves. |
 
 ## 2. Ground truth (confirmed Nov 24, 2026, by test requests)
 

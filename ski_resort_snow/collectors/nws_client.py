@@ -83,6 +83,7 @@ class NWSClient:
                 "synoptic_headline": synoptic,
                 "synoptic_discussion": discussion or synoptic,
                 "discussions": discussions,
+                "ceiling_obs": self.fetch_ceiling(),
                 "forecast_periods": periods[:6],
                 "forecast_24h_expected_inches": snow_24,
                 "forecast_48h_expected_inches": snow_48,
@@ -135,6 +136,29 @@ class NWSClient:
                         progress(f"NWS grid cells {n + 1}/{len(todo)}")
             cache_path.write_text(json.dumps(cache))
         return {k: cache.get(k) for k in cells}
+
+    def fetch_ceiling(self, station: str = "KTRK") -> Dict[str, Any]:
+        """Latest observed cloud layers at an airport (METAR via api.weather.gov), with bases as
+        absolute elevations (station elevation + height above ground). Ceiling = lowest broken,
+        overcast or vertical-visibility layer. KTRK (Truckee-Tahoe Airport, ~13 km NE of Palisades)
+        is the nearest ceilometer; the resort stations don't measure cloud base."""
+        try:
+            p = self._get_json(f"https://api.weather.gov/stations/{station}/observations/latest").get("properties", {})
+            elev_m = (p.get("elevation") or {}).get("value")
+            layers = []
+            for c in p.get("cloudLayers") or []:
+                b = (c.get("base") or {}).get("value")
+                layers.append({"amount": c.get("amount"),
+                               "base_agl_ft": round(b * 3.28084) if b is not None else None,
+                               "base_msl_ft": round((b + elev_m) * 3.28084) if b is not None and elev_m is not None else None})
+            layers.sort(key=lambda l: l["base_msl_ft"] if l["base_msl_ft"] is not None else 1e9)
+            ceil = next((l for l in layers if l["amount"] in ("BKN", "OVC", "VV") and l["base_msl_ft"] is not None), None)
+            return {"status": "success", "station": station, "name": "Truckee-Tahoe Airport" if station == "KTRK" else station,
+                    "observed_at": p.get("timestamp"), "elevation_ft": round(elev_m * 3.28084) if elev_m is not None else None,
+                    "sky": p.get("textDescription"), "layers": layers,
+                    "ceiling_msl_ft": ceil["base_msl_ft"] if ceil else None, "ceiling_amount": ceil["amount"] if ceil else None}
+        except Exception as e:
+            return {"status": "error", "station": station, "error_message": f"{type(e).__name__}: {e}"}
 
     def _get_json(self, url: str) -> Dict[str, Any]:
         req = urllib.request.Request(url, headers={"User-Agent": self.USER_AGENT, "Accept": "application/geo+json"})

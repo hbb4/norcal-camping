@@ -124,6 +124,49 @@
       },
       "profile_from": "ecmwf_hres",
       "min_weight_share": 0.5
+    },
+    {
+      "id": "blend_hrrr",
+      "label": "HRRR-early blend",
+      "description": "Same six models, but HRRR/GFS carries half the weight through 18 h (weight 5 against 1 for each other model), fading linearly to equal weights by 48 h, where HRRR hands over to GFS.",
+      "members": {
+        "ecmwf_hres": 1,
+        "aifs": 1,
+        "hrrr_gfs": 1,
+        "icon": 1,
+        "ukmo": 1,
+        "gem": 1
+      },
+      "lead_weights": {
+        "hrrr_gfs": [
+          [
+            0,
+            5
+          ],
+          [
+            18,
+            5
+          ],
+          [
+            48,
+            1
+          ]
+        ]
+      },
+      "weights_note": "HRRR/GFS half the weight to 18 h, equal by 48 h",
+      "profile_from": "hrrr_gfs",
+      "min_weight_share": 0.5
+    },
+    {
+      "id": "blend_ecmwf",
+      "label": "ECMWF pair",
+      "description": "Equal-weight mean of ECMWF HRES (physics) and ECMWF AIFS (machine learning), both started from the same ECMWF analysis.",
+      "members": {
+        "ecmwf_hres": 1,
+        "aifs": 1
+      },
+      "profile_from": "ecmwf_hres",
+      "min_weight_share": 0.5
     }
   ]
 }

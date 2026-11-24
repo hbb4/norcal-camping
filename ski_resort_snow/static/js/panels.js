@@ -678,7 +678,11 @@
       return null;
     };
     const colLabel = (o.profile_model || {}).label || ((o.model || {}).label);
-    const stRows = ["base", "mid", "summit"].filter(t => st[t]).map(t => {
+    const ceil = ((state.resort.sources || {}).noaa_nws || {}).ceiling_obs || {};
+    const ceilTxt = ceil.status === "success" ? (ceil.ceiling_msl_ft != null ? `ceiling ${ceil.ceiling_msl_ft.toLocaleString()} ft (${{ BKN: "broken", OVC: "overcast", VV: "obscured" }[ceil.ceiling_amount] || ceil.ceiling_amount})`
+      : ceil.layers && ceil.layers.length ? `no ceiling; lowest clouds ${ceil.layers[0].base_msl_ft.toLocaleString()} ft` : "no ceiling") : null;
+    const windTxt = (dir, sp, gu) => `${dir ? dir + " " : ""}${sp != null ? Math.round(sp) : "–"} mph (gust ${gu != null ? Math.round(gu) : "–"})`;
+    const stRows = ["summit", "mid", "base"].filter(t => st[t]).map(t => {
       const w = st[t], m = tl0(t), diff = (a, b) => (a != null && b != null ? `${a - b > 0 ? "+" : ""}${Math.round(a - b)}` : "–");
       const nm = String(w.name || t).replace(/,?\s*el\.\s*[\d,]+'?\s*$/i, "");
       const at = w.observed_at ? new Date(String(w.observed_at).replace(/([+-]\d{2})(\d{2})$/, "$1:$2")) : null;
@@ -687,8 +691,8 @@
         <td>${tF(w.temp_f)} <small>model 2 m ${tF(m.temp_f)} (Δ ${diff(w.temp_f, m.temp_f)}°F)</small></td>
         <td>${fa === "below" ? `<small>below the column's terrain (${Math.round(col0.ground * 3.28084).toLocaleString()} ft)</small>` : fa != null ? `${tF(fa)} <small>Δ ${diff(w.temp_f, fa)}°F</small>` : "–"}</td>
         <td>${tF(w.dew_point_f)} <small>model ${tF(m.dew_point_f)}</small></td>
-        <td>${w.wind_dir || ""} ${w.wind_mph ?? "–"} g ${w.gust_mph ?? "–"} mph <small>model ${Math.round(m.wind_mph || 0)} g ${Math.round(m.gust_mph || 0)}</small></td>
-        <td>${esc(w.skies || "")}<small>model cloud ${m.cloud_cover_pct != null ? Math.round(m.cloud_cover_pct) + "%" : "–"}</small></td></tr>`;
+        <td>${windTxt(w.wind_dir, w.wind_mph, w.gust_mph)} <small>model ${windTxt(m.wind_dir_deg != null ? compass16(m.wind_dir_deg) : "", m.wind_mph, m.gust_mph)}</small></td>
+        <td>${esc(w.skies || "")}${ceilTxt ? `<small>${esc(ceilTxt)}</small>` : ""}<small>model cloud ${m.cloud_cover_pct != null ? Math.round(m.cloud_cover_pct) + "%" : "–"}</small></td></tr>`;
     });
     const stEl = $("stations-table");
     const stSub = $("stations-sub");
@@ -697,7 +701,7 @@
       const tiers = ["base", "mid", "summit"].filter(t => st[t] && qp[t]).map(t => `${t} ${(qp[t].elevation_ft || 0).toLocaleString()} ft`);
       stSub.textContent = `Measured at the resort's own stations. Model 2 m values are ${(o.model || {}).label || "the selected forecast"}'s first hour at the matching tier${tiers.length ? ` (${tiers.join(", ")})` : ""}. Free air is the ${colLabel || "model"} column's temperature at each station's height, same hour. Δ is station minus model.`;
     }
-    if (stEl) stEl.innerHTML = stRows.length ? `<thead><tr><th>Resort station</th><th>Temperature</th><th>Free air</th><th>Dew point</th><th>Wind</th><th>Sky</th></tr></thead><tbody>${stRows.join("")}</tbody>`
+    if (stEl) stEl.innerHTML = stRows.length ? `<thead><tr><th>Resort station</th><th>Temperature</th><th>Free air</th><th>Dew point</th><th>Wind (gust)</th><th>Sky</th></tr></thead><tbody>${stRows.join("")}</tbody>${ceil.status === "success" ? `<tfoot><tr><td colspan="6" class="muted">Ceiling: ${esc(ceil.name)} (${esc(ceil.station)}, ${ceil.elevation_ft ? ceil.elevation_ft.toLocaleString() + " ft, " : ""}nearest cloud-base sensor; the resort stations don't measure it), observed ${new Date(ceil.observed_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Heights are above sea level.${ceil.layers && ceil.layers.length ? ` Layers: ${ceil.layers.map(l => `${l.amount} ${l.base_msl_ft != null ? l.base_msl_ft.toLocaleString() + " ft" : "?"}`).join(", ")}.` : ""}</td></tr></tfoot>` : ""}`
       : `<tbody><tr><td class="muted">Resort weather stations unavailable.</td></tr></tbody>`;
 
     // verification
@@ -724,7 +728,7 @@
       ${o.nbm_grid_points ? ["base", "mid", "summit"].map(t => {
         const a = (o.nbm_elevation_adjustment || {})[t];
         const gp = o.nbm_grid_points[t];
-        const note = a ? `line fit every hour through ${a.neighbors} surrounding 2.5 km cells (terrain ${a.neighbor_elevation_ft[0].toLocaleString()}–${a.neighbor_elevation_ft[1].toLocaleString()} ft, from the NWS grid), evaluated at the tier height; nearest cell ${a.grid_elevation_ft.toLocaleString()} ft at ${gp.grid_lat}, ${gp.grid_lon}${a.extrapolation_ft > 50 ? `, ${a.extrapolation_ft} ft beyond that range` : ""}; median temperature lapse ${a.lapse_f_per_kft ? a.lapse_f_per_kft.median : "?"} °F/1,000 ft`
+        const note = a ? `line fit every hour through ${a.neighbors} surrounding 2.5 km cells (terrain ${a.neighbor_elevation_ft[0].toLocaleString()}–${a.neighbor_elevation_ft[1].toLocaleString()} ft, from the NWS grid), evaluated at the tier height; nearest cell ${a.grid_elevation_ft.toLocaleString()} ft at ${gp.grid_lat}, ${gp.grid_lon}${a.extrapolation_ft > 50 ? `; the tier is ${a.extrapolation_ft} ft ${a.target_elevation_ft > a.neighbor_elevation_ft[1] ? "above the highest" : "below the lowest"} cell, so the line is extended that far past the data` : ""}; median temperature lapse ${a.lapse_f_per_kft ? a.lapse_f_per_kft.median : "?"} °F/1,000 ft`
           : "nearest 2.5 km NBM grid point; values are for this cell's terrain";
         return prow(`NBM (${t})`, { lat: a ? (pts[t] || {}).lat : gp.grid_lat, lon: a ? (pts[t] || {}).lon : gp.grid_lon, elevation_ft: a ? a.target_elevation_ft : gp.grid_elevation_ft, note },
           a ? `7-day snow ${U.snow(a.snow_total_grid_in)} at the cell → ${U.snow(a.snow_total_adjusted_in)} at ${a.target_elevation_ft.toLocaleString()} ft` : "NBM values for this tier");

@@ -354,8 +354,11 @@ function renderKPIs(resort) {
     if (adj) {
       const rng = ["base", "mid", "summit"].filter(t => adj[t]).map(t => adj[t].neighbor_elevation_ft);
       const lo = Math.min(...rng.map(r => r[0])), hi = Math.max(...rng.map(r => r[1]));
-      const ex = ["summit", "mid", "base"].filter(t => adj[t] && adj[t].extrapolation_ft > 50).map(t => `${t} ${adj[t].extrapolation_ft.toLocaleString()} ft beyond the highest or lowest cell`);
-      parts.push(`NBM values at each tier come from a line fit every hour through the ~25 surrounding 2.5 km cells (terrain ${lo.toLocaleString()}–${hi.toLocaleString()} ft), evaluated at the tier's own height${ex.length ? `; ${ex.join(", ")}` : ""}.`);
+      const ex = ["summit", "mid", "base"].filter(t => adj[t] && adj[t].extrapolation_ft > 50).map(t => {
+        const a = adj[t], up = a.target_elevation_ft > a.neighbor_elevation_ft[1];
+        return `the ${t} (${a.target_elevation_ft.toLocaleString()} ft) is ${a.extrapolation_ft.toLocaleString()} ft ${up ? "above the highest" : "below the lowest"} of those cells (${(up ? a.neighbor_elevation_ft[1] : a.neighbor_elevation_ft[0]).toLocaleString()} ft), so its values extend the line ${a.extrapolation_ft.toLocaleString()} ft past the data`;
+      });
+      parts.push(`NBM values at each tier come from a line fit every hour through the ~25 surrounding 2.5 km cells (terrain ${lo.toLocaleString()}–${hi.toLocaleString()} ft), evaluated at the tier's own height${ex.length ? `. Note: ${ex.join("; ")}` : ""}.`);
     }
     if (nt.summit && nt.summit.total) parts.push(`NWS values: the same regression on the NWS forecast's own neighboring cells (${nt.summit.total.cells} cells; NWS cell at the summit point ${(nt.summit.total.cell_elevation_ft || 0).toLocaleString()} ft, ${sn(nt.summit.total.cell_value)} unadjusted). NWS is shown beside the model and is not blended into it.`);
     else {
@@ -439,7 +442,7 @@ function renderDistribution(resort) {
   if (dt) dt.textContent = `${nMembers ? nMembers + " ensemble members" : "Ensemble"} vs. ${(om.model || {}).label || "selected model"}, next 24 h, 48 h and 7 days`;
 
   const W = Math.max(280, Math.round(box.clientWidth || 360));
-  const L = 40, R = 6, T = 22, PH = 170, labH = 50, H = T + PH + labH;
+  const L = 40, R = 6, T = 22, PH = 170, tickH = 30, labH = 50, H = T + PH + tickH + labH;
   const gap = W < 480 ? 8 : 18;
   const pw = (W - L - R - gap * 2) / 3;
   const maxIn = (() => { const v = U.snowNum(allMax) * 1.05; const st = niceStep(v, 4); return Math.ceil(v / st) * st; })();
@@ -453,31 +456,42 @@ function renderDistribution(resort) {
   s += `<text x="${L - 6}" y="${T - 10}" text-anchor="end" fill="#64748b" font-size="10">${unit}</text>`;
   periods.forEach(([k, mk, label], pi) => {
     const x0 = L + pi * (pw + gap), cx = x0 + pw / 2, hw = pw / 2 - 4;
-    s += `<line x1="${cx}" x2="${cx}" y1="${T}" y2="${T + PH}" stroke="rgba(255,255,255,0.22)"/>`;
+    // % of members axis: 50 and 100 on both sides of the center line
+    [0.5, 1].forEach(f => [-1, 1].forEach(dir => {
+      const x = cx + dir * hw * f;
+      s += `<line x1="${x}" x2="${x}" y1="${T}" y2="${T + PH}" stroke="rgba(255,255,255,${f === 1 ? 0.05 : 0.08})" stroke-dasharray="${f === 1 ? "" : "2 3"}"/>
+        <line x1="${x}" x2="${x}" y1="${T + PH}" y2="${T + PH + 4}" stroke="#64748b"/>
+        <text x="${x}" y="${T + PH + 14}" text-anchor="middle" fill="#64748b" font-size="${pw < 120 ? 7.5 : 9.5}" style="font-variant-numeric:tabular-nums">${f * 100}</text>`;
+    }));
+    s += `<line x1="${cx}" x2="${cx}" y1="${T}" y2="${T + PH}" stroke="rgba(255,255,255,0.22)"/>
+      <text x="${cx}" y="${T + PH + 26}" text-anchor="middle" fill="#64748b" font-size="9.5">% of members</text>`;
     sides.forEach(([t, col, , dir]) => {
       const mem = (((c[t] || {}).members || {})[mk]) || [];
       if (mem.length >= 5) {
-        // Gaussian kernel density (Silverman bandwidth, floor 2% of the axis), reflected at zero
-        const vals = mem.map(v => U.snowNum(v)).sort((a, b) => a - b);
-        const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
-        const sd = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length);
-        const bw = Math.max(maxIn * 0.02, 1.06 * sd * Math.pow(vals.length, -0.2));
-        const n = 140;
+        // width at an amount = share of members forecasting at least that much (100% at zero, 50% at the median)
+        const vals = mem.map(v => U.snowNum(v)).sort((a, b) => a - b), N = vals.length;
+        const n = 160;
         const ys = Array.from({ length: n + 1 }, (_, i) => maxIn * i / n);
-        const dens = ys.map(y => vals.reduce((a, v) => a + Math.exp(-0.5 * ((y - v) / bw) ** 2) + Math.exp(-0.5 * ((y + v) / bw) ** 2), 0));
-        const dmax = Math.max(...dens) || 1;
-        const pts = ys.map((y, i) => `${(cx + dir * hw * dens[i] / dmax).toFixed(1)},${Y(y).toFixed(1)}`);
-        s += `<path d="M${cx},${Y(0)} L${pts.join(" L")} L${cx},${Y(maxIn)} Z" fill="${col}" fill-opacity="${t === "summit" ? 0.3 : 0.24}" stroke="none"/>
-          <path d="${pts.map((q, i) => dens[i] / dmax > 0.004 ? q : null).reduce((acc, q, i, arr) => q ? acc + (arr[i - 1] ? " L" : " M") + q : acc, "").trim()}" fill="none" stroke="${col}" stroke-width="1.2"/>`;
-        const med = vals[Math.floor(vals.length / 2)];
-        s += `<circle cx="${cx + dir * 5}" cy="${Y(med)}" r="3" fill="${col}" stroke="#0b1220" stroke-width="1"><title>${t} ensemble median ${fmt(med)}</title></circle>`;
+        let j = 0;
+        const share = ys.map(y => { while (j < N && vals[j] < y) j++; return (N - j) / N; });
+        const pts = ys.map((y, i) => `${(cx + dir * hw * share[i]).toFixed(1)},${Y(y).toFixed(1)}`);
+        const lastIdx = share.reduce((acc, v, i) => (v > 0 ? i : acc), 0);
+        const outline = pts.slice(0, lastIdx + 1).concat([`${cx.toFixed(1)},${Y(ys[Math.min(n, lastIdx + 1)]).toFixed(1)}`]);
+        s += `<path d="M${cx},${Y(0)} L${outline.join(" L")} Z" fill="${col}" fill-opacity="${t === "summit" ? 0.3 : 0.24}" stroke="none"/>
+          <path d="M${outline.join(" L")}" fill="none" stroke="${col}" stroke-width="1.2"/>`;
+        const med = vals[Math.floor(N / 2)];
+        s += `<circle cx="${cx + dir * hw * 0.5}" cy="${Y(med)}" r="3" fill="${col}" stroke="#0b1220" stroke-width="1"><title>${t} ensemble median ${fmt(med)} (50% of members at least this)</title></circle>`;
         const beyond = vals.filter(v => v > maxIn).length;
         if (beyond) s += `<text x="${cx + dir * 4}" y="${T + 10}" text-anchor="${dir < 0 ? "end" : "start"}" fill="${col}" font-size="10">▲ ${beyond}</text>`;
       }
       const v = ((c[t] || {})[k] || {}).value;
-      if (v != null) s += `<line x1="${cx}" x2="${cx + dir * hw * 0.85}" y1="${Y(U.snowNum(v))}" y2="${Y(U.snowNum(v))}" stroke="#f8fafc" stroke-width="2"><title>${t} ${(om.model || {}).label || "model"} ${fmt(v)}</title></line>`;
+      if (v != null) {
+        const vv = U.snowNum(v), N2 = mem.length;
+        const pAt = N2 ? Math.round(100 * mem.filter(m => U.snowNum(m) >= vv).length / N2) : null;
+        s += `<line x1="${cx}" x2="${cx + dir * hw}" y1="${Y(vv)}" y2="${Y(vv)}" stroke="#f8fafc" stroke-width="2"><title>${t} ${(om.model || {}).label || "model"} ${fmt(v)}${pAt != null ? `: ${pAt}% of members at least this` : ""}</title></line>`;
+      }
     });
-    const by = T + PH + 16;
+    const by = T + PH + tickH + 16;
     s += `<text x="${cx}" y="${by}" text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="650">${label}</text>
       <text x="${cx}" y="${by + 15}" text-anchor="middle" font-size="11" style="font-variant-numeric:tabular-nums" fill="#fbbf24">Base ${fmt(((c.base || {})[k] || {}).value)}</text>
       <text x="${cx}" y="${by + 29}" text-anchor="middle" font-size="11" style="font-variant-numeric:tabular-nums" fill="#7dd3fc">Summit ${fmt(((c.summit || {})[k] || {}).value)}</text>`;
@@ -584,6 +598,9 @@ function renderHourlyDualAxisChart(resort) {
   if (sub) sub.textContent = `${TIER_LABEL[currentTier]} (${tierFt ? tierFt.toLocaleString() + " ft" : "--"}). ${isNBM ? (om.nbm_elevation_adjustment ? "Snowfall is the NBM's own snowfall field, moved from its 2.5 km cell to this elevation with NBM's hourly elevation relationship" : "Snowfall is the NBM's own snowfall field at the nearest 2.5 km grid point") : "Snowfall uses the unadjusted Cobb-style snow/liquid ratio"}; wind is at this elevation.`;
   const lgs = document.getElementById("legend-snow"); if (lgs) lgs.textContent = isNBM ? "Snowfall (NBM snowfall field)" : "Snowfall (Cobb-style SLR, unadjusted)";
   const lgr = document.getElementById("legend-raw"); if (lgr) lgr.style.display = isNBM ? "none" : "";
+  const colSrc = (om.profile_model || {}).label || (om.blend ? om.blend.profile_from : ((om.model || {}).label || "model"));
+  const lsl = document.getElementById("legend-sl"); if (lsl) lsl.textContent = isNBM ? "Snow level (NBM's own field)" : `Snow level (${colSrc} wet-bulb zero − 500 ft)`;
+  const lfz = document.getElementById("legend-fz"); if (lfz) lfz.textContent = `Freezing level (${colSrc} column)`;
   const ceb = document.getElementById("chart-eyebrow");
   if (ceb) ceb.textContent = `Model: ${(om.primary_model || {}).label || ""} · ${tl.length} h · fetched ${Fmt.ago(om.fetched_at_utc)}`;
   document.querySelectorAll("[data-tier-elev]").forEach(el => {
@@ -612,7 +629,7 @@ function renderHourlyDualAxisChart(resort) {
   addPanel("rate", 80, `HOURLY SNOWFALL (${U.snowAxisUnit().toUpperCase()}/HR)`);
   addPanel("ptype", 18, "PRECIP TYPE · OPACITY = CHANCE OF PRECIP", 30);
   addPanel("wind", 100, `WIND AT ${TIER_LABEL[currentTier].toUpperCase()} (MPH) · LINE = SUSTAINED, BARS = GUSTS`);
-  addPanel("prof", 150, "WHERE SNOW FORMS & FALLS (FT ABOVE SEA LEVEL)", 8);
+  addPanel("prof", 170, "WHERE SNOW FORMS & FALLS (FT ABOVE SEA LEVEL)", 8);
   const axisY = y + 4;
   const H = axisY + 34;
 
@@ -756,7 +773,7 @@ function renderHourlyDualAxisChart(resort) {
   // ---- Panel 5: time-height profile ----
   {
     const p = panels.prof; title(p);
-    const yMin = 4000, yMax = 18000;
+    const yMin = 4000, yMax = 20000;
     const yv = v => p.top + p.h * (1 - (Math.max(yMin, Math.min(yMax, v)) - yMin) / (yMax - yMin));
     for (let v = yMin; v <= yMax; v += 2000) {
       const yy = yv(v);

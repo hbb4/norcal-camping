@@ -193,6 +193,7 @@ class SnowAggregator:
                 say(f"NWS grid cells failed: {e}", "running")
             say("NWS grid cells", "done" if nws_cells else "error")
 
+        model_archive: Dict[str, Any] = {}   # every model's output per resort, for the per-model forecast archive
         for resort in self.resorts_cfg.get("resorts", []):
             rid, name = resort["id"], resort["short_name"]
             elevs = resort["elevations"]
@@ -245,6 +246,7 @@ class SnowAggregator:
             say(f"{name}: resort report", "done" if report["status"] == "success" else report["status"])
 
             # Every model to its own file (loaded on demand by the page), each with its own consensus
+            model_archive[rid] = models
             model_dir = self.data_dir / "models" / rid
             model_dir.mkdir(parents=True, exist_ok=True)
             available = []
@@ -282,6 +284,7 @@ class SnowAggregator:
             self.verifier.save_snapshot(out)
             try:
                 self.verifier.log_station_pairs(out)
+                self.verifier.log_model_forecasts(model_archive, out)
             except Exception as e:
                 say(f"station log failed: {e}", "running")
             out["verification"] = self.verifier.verify()

@@ -831,3 +831,39 @@ class TestBlend(unittest.TestCase):
         self.assertTrue(h0["wind_dir_deg"] in (0, 360) or h0["wind_dir_deg"] <= 1)   # 350 and 10 average to north
         self.assertEqual((h3["members"], h3["member_cum_snow_min"], h3["member_cum_snow_max"]), (2, 4.0, 8.0))
         self.assertEqual(h3["precip_phase"], "snow")
+
+    def test_lead_weights(self):
+        from collectors.open_meteo_client import OpenMeteoClient
+        a = self._member(4, 1.0, 0.10, 20.0, 270)
+        b = self._member(4, 3.0, 0.10, 30.0, 270)
+        steps = OpenMeteoClient._blend_steps({"a": a, "b": b}, {"a": 1, "b": 1}, 1.0, {"b": [[0, 3], [1, 3], [3, 1]]})
+        self.assertAlmostEqual(steps[0]["snowfall_rate_in_hr"], 2.5, places=2)        # (1 + 3*3) / 4
+        self.assertAlmostEqual(steps[2]["snowfall_rate_in_hr"], 7 / 3, places=2)      # b weight 2 at hour 2
+        self.assertAlmostEqual(steps[3]["snowfall_rate_in_hr"], 2.0, places=2)        # equal weights by hour 3
+        self.assertEqual(OpenMeteoClient._lead_weight([[0, 5], [18, 5], [48, 1]], 33), 3.0)
+
+
+class TestBlendWeights(unittest.TestCase):
+    """Skill weights: archived model liquid vs SNOTEL snow-water gain over cold 24 h windows."""
+
+    def test_pairs_and_weights(self):
+        import blend_weights as bw
+        from datetime import datetime, timedelta, timezone
+        start = datetime(2026, 11, 24, 12, tzinfo=timezone.utc)
+        rows = {}
+        for h in range(-3, 52):
+            t = (start + timedelta(hours=h)).astimezone(bw.PST)
+            swe = 5.0 + min(1.0, max(0.0, h / 24.0))                 # +1.0 in over the first 24 h, then flat
+            rows[t.strftime("%Y-%m-%d %H:%M")] = {"wteq_in": f"{swe:.2f}", "wteq_qc": "V", "tobs_f": "25", "tobs_qc": "C"}
+        snap = {"resorts": {"palisades_tahoe": {
+            "good": {"tiers": {"mid": {"start": "2026-11-24T12:00Z", "precip_in": [0.045] * 72}}},
+            "wet": {"tiers": {"mid": {"start": "2026-11-24T12:00Z", "precip_in": [0.1] * 72}}},
+            "blend": {"tiers": {"mid": {"start": "2026-11-24T12:00Z", "precip_in": [0.04] * 72}}}}}}
+        pr = bw.pairs([snap], rows)
+        f, o = pr[("good", "day 1")][0]
+        self.assertAlmostEqual(f, 1.08, places=2)
+        self.assertAlmostEqual(o, 1.0, places=1)
+        res = bw.suggest(pr, min_n=1)["day 1"]
+        self.assertNotIn("blend", res)                                   # blends are not scored as members
+        self.assertGreater(res["good"]["weight"], res["wet"]["weight"])  # lower MAE -> higher weight
+        self.assertAlmostEqual((res["good"]["weight"] + res["wet"]["weight"]) / 2, 1.0, places=2)

@@ -122,6 +122,53 @@ class ForecastVerifier:
         with self.station_log_path.open("a") as f:
             f.write(json.dumps(rec, separators=(",", ":")) + "\n")
 
+    MODEL_ARCHIVE_HOURS = 72
+    MODEL_ARCHIVE_KEEP_DAYS = 45
+
+    def log_model_forecasts(self, models_by_resort: Dict[str, Dict[str, Any]], out: Dict[str, Any]) -> Optional[Path]:
+        """Every model's next 72 h at each tier (liquid, snowfall, temperature), one file per run at most every
+        MIN_SPACING_H hours, kept MODEL_ARCHIVE_KEEP_DAYS days: the sample for skill-weighted blends
+        (blend_weights.py pairs it with SNOTEL snow-water gains)."""
+        now = datetime.now(timezone.utc)
+        d = self.archive_dir / "models"
+        d.mkdir(parents=True, exist_ok=True)
+        existing = sorted(d.glob("models_*.json"))
+        if existing:
+            try:
+                last = datetime.strptime(existing[-1].stem[7:], "%Y%m%dT%H%MZ").replace(tzinfo=timezone.utc)
+                if now - last < timedelta(hours=MIN_SPACING_H):
+                    return None
+            except ValueError:
+                pass
+        snap = {"issued_utc": now.isoformat(), "resorts": {}}
+        for rid, models in (models_by_resort or {}).items():
+            elevs = ((out.get("resorts") or {}).get(rid) or {}).get("elevations") or {}
+            mo_out = {}
+            for mid, mo in (models or {}).items():
+                if mo.get("status") != "success":
+                    continue
+                tiers = {}
+                for t, tl in (mo.get("elevation_timelines") or {}).items():
+                    h = tl[:self.MODEL_ARCHIVE_HOURS]
+                    if h:
+                        tiers[t] = {"start": h[0].get("time"), "elevation_ft": elevs.get(f"{t}_ft"),
+                                    "precip_in": [x.get("precip_in") for x in h],
+                                    "snow_in": [x.get("snowfall_rate_in_hr") for x in h],
+                                    "temp_f": [x.get("temp_f") for x in h]}
+                runs = (mo.get("model") or {}).get("runs") or []
+                mo_out[mid] = {"run_init_utc": (runs[0] or {}).get("run_init_utc") if runs else None, "tiers": tiers}
+            snap["resorts"][rid] = mo_out
+        path = d / f"models_{now.strftime('%Y%m%dT%H%MZ')}.json"
+        path.write_text(json.dumps(snap, separators=(",", ":")))
+        cutoff = now - timedelta(days=self.MODEL_ARCHIVE_KEEP_DAYS)
+        for p in existing:
+            try:
+                if datetime.strptime(p.stem[7:], "%Y%m%dT%H%MZ").replace(tzinfo=timezone.utc) < cutoff:
+                    p.unlink()
+            except ValueError:
+                pass
+        return path
+
     def _model_series(self, rid: str) -> Dict[str, Any]:
         """Every model's next 24 h of 2 m and free-air temperature at each tier (from this run's model files)."""
         out: Dict[str, Any] = {}
