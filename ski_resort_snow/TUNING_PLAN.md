@@ -1,79 +1,182 @@
-# Calibration plan: snow/liquid ratio, temperature downscaling, snow level
+# Calibration plan: elevation adjustment, snowfall, temperature, snow/liquid ratio
 
-Goal: replace every hand-set coefficient in the pipeline with values fit on several winters of Palisades/Tahoe observations and checked out of sample. Until a parameter passes this process it stays out of the primary forecast (the wind/near-freezing SLR adjustment is currently shown only as "experimental").
+Goal: replace every hand-set choice in the pipeline with values fit on several winters of Palisades/Tahoe observations and checked out of sample. Until a method passes, it stays labeled (the wind/near-freezing SLR adjustment is shown only as "experimental").
+
+**What changed (Nov 24, 2026):** NBM is now the primary forecast, read natively with its own snowfall, snow/liquid ratio and snow level, and moved from its 2.5 km cells to each tier's elevation using NBM's own hourly relationship with terrain (`nbm_downscale.py`). The SLR methods (Cobb, Kuchera, wind adjustment) now apply only to the Open-Meteo models. So the first calibration targets are NBM's adjusted snowfall and temperature at each tier, not SLR coefficients.
 
 ## 1. What gets calibrated
 
-| # | Quantity | Current method | Free parameters |
+| # | Quantity | Current method | Question to answer |
 |---|---|---|---|
-| 1 | Snow/liquid ratio | Cobb-style habit × lift, unadjusted | wind effect (form + slope + threshold), near-0 °C effect, habit curve scale, riming term |
-| 2 | Tier temperature | model 2 m field, lapse-rate adjusted by Open-Meteo | blend weight between 2 m and free-air column temperature per tier, conditioned on stability |
-| 3 | Rain/snow transition | snow level = WBZ − 500 ft; snow fraction linear over 1,000 ft below WBZ; surface wet-bulb overrides at 31 / 36 °F | WBZ offset, transition depth, wet-bulb thresholds |
-| 4 | Precipitation amount | raw model QPF | per-model, per-tier multiplicative bias by lead time (optional) |
-| 5 | Wind per tier | 10 m (base), free-air (summit), 60 % blend (mid) | blend weights per tier |
+| 1 | NBM snowfall at each tier | NBM cell value + local regression on terrain (elevation + cross-crest), refit hourly | Does the adjustment beat the raw cell against boards/pillows? Is there a residual bias by tier, lead time or storm type (snow level near the tier)? |
+| 2 | NBM temperature at each tier | same, lapse clamped −5.5 … +8 °F/1,000 ft | How large are the inversion errors (Nov 24: stations 30–35 °F at 8,000–8,700 ft, NBM 18–20 °F)? Would the HRRR/GFS free-air temperature, or a stability-dependent blend, do better? |
+| 3 | Observed-minus-forecast at hour 0 | shown only, not carried forward | How long does an hour-0 error persist with lead time (by variable and tier)? If it decays predictably, apply a decaying correction; if not, leave forecasts alone. |
+| 4 | NWS gridded snowfall at each tier | same regression on the NWS cells | Same verification as #1, to compare NWS and NBM skill at the tiers. |
+| 5 | Open-Meteo models: snow/liquid ratio | Cobb-style habit × lift, unadjusted | wind effect, near-0 °C effect, habit curve scale, riming term (original plan, sections 5–6) |
+| 6 | Open-Meteo models: rain/snow transition | snow level = WBZ − 500 ft; linear over 1,000 ft | WBZ offset, transition depth, surface wet-bulb thresholds |
+| 7 | Wind per tier | 10 m (base), free-air (summit), 60% blend (mid) | blend weights per tier against the resort stations |
 
-## 2. Ground truth
+## 2. Ground truth (confirmed Nov 24, 2026, by test requests)
 
-| Source | Variables | Elevation | Record | Use |
-|---|---|---|---|---|
-| CDEC SQV (Squaw Valley Gold Coast) | hourly SWE (3), depth (18), air temp (4) | 8,200 ft | multi-year hourly | liquid (SWE gain), temperature, rain-on-snow detection |
-| CDEC WC3 (Ward Creek #3) | same | 6,750 ft | multi-year hourly | same, lower elevation |
-| UC Berkeley Central Sierra Snow Lab (Donner Pass) | daily manual new-snow depth and new-snow water equivalent from cleared boards, precipitation, temperature | ~6,900 ft | decades | **the primary SLR reference**: measured new-snow density, not settled depth |
-| NRCS SNOTEL sites near Palisades (via the AWDB web service) | hourly SWE, depth, gauge precipitation, temperature | 6,000–8,000 ft | multi-year | gauge precipitation (QPF bias), additional SWE/temperature samples |
-| Palisades resort feed (logged by the pipeline every run since Nov 23, 2026) | new snow 24 h / 72 h / 7 d on boards at base and mid for both mountains, resort weather stations at 3 elevations each | 6,200–8,700 ft | going forward | SLR at the resorts, station temperature/wind for tiers 2 and 5 |
-| Radiosondes REV, OAK (IEM archive) | full soundings 00Z/12Z | upper air | decades | check model column temperature, WBZ, DGZ |
-| Optional: Synoptic/MesoWest (needs a free API token) | historical resort and RAWS station data, hourly | various | multi-year | temperature/wind history at the resort stations before our log started |
+**Snow pillows and depth sensors, hourly, no authentication.** NRCS AWDB REST API (`wcc.sc.egov.usda.gov/awdbRestApi/services/v1/data`, elements WTEQ, SNWD, PREC, TOBS; inches, °F, local standard time; PREC accumulates from Oct 1 and is noisy, so it needs filtering). CDEC's SQV and WC3 are copies of the same SNOTEL feeds.
 
-Station IDs and data availability for CSSL, SNOTEL and MesoWest still need to be confirmed through each service's catalog before download. None are assumed here.
+Download: `python3 nrcs_sync.py` (update; backfills WY2021 onward on first run) writes `data/tuning/nrcs/<CDEC code>/WY<yyyy>.csv`, one row per hour of the water year with blanks where AWDB has no value. All seven sites report fixed PST (`dataTimeZone` −8). Suspect values are requested too (AWDB drops them by default) and every value keeps its flags: qc V validated, E edited, S suspect, C bias-corrected (air temperature); qa R raw, P provisional, A approved. Quality control happens when the sample is built (section 4), not in the download. Updates fetch only values AWDB inserted or changed since the last sync (`insertOrUpdateBeginDate`), so NRCS edits and approvals flow in. AWDB keeps the whole hourly record, so this needs no cron job; run an update before building a sample.
+
+| Triplet | Name (CDEC) | Lat, lon | Elev ft | km from Palisades | Hourly depth from |
+|---|---|---|---|---|---|
+| 784:CA:SNTL | Palisades Tahoe (SQV) | 39.1899, −120.2658 | 8,010 | 2.7 | 1998 |
+| 848:CA:SNTL | Ward Creek #3 (WC3) | 39.1354, −120.2186 | 6,750 | 7.0 | 2003 |
+| 809:CA:SNTL | Tahoe City Cross (TCC) | 39.1716, −120.1536 | 6,760 | 7.6 | 2003 |
+| 834:CA:SNTL | Truckee #2 (TK2) | 39.3009, −120.1841 | 6,500 | 12.4 | 2002 |
+| 428:CA:SNTL | Central Sierra Snow Lab (CSL) | 39.3257, −120.3681 | 6,890 | 18.3 | 2005 |
+| 724:CA:SNTL | Rubicon #2 (RP2) | 38.9993, −120.1314 | 7,560 | 23.8 | 2003 |
+| 541:CA:SNTL | Independence Lake (IDP) | 39.4275, −120.3134 | 8,340 | 26.5 | 1978 |
+
+Non-SNOTEL CDEC stations with hourly snow sensors nearby: HYS Huysink (6,600 ft), VVL Van Vleck (6,700 ft), MDW Meadow Lake (7,200 ft).
+
+**SQV location (resolved Nov 24, 2026):** the sensor point now uses the NRCS numbers (8,010 ft, 39.1899, −120.2658), since NRCS owns the station. CDEC lists 8,200 ft at 39.194, −120.276; the CDEC station ID is still used for the hourly data feed.
+
+**New-snow density (the snow/liquid ratio reference).** UC Berkeley Central Sierra Snow Lab (6,890 ft): new snow on boards at 08:00 and 16:00 PST, summed per day; snowpack SWE at 09:00 (from SNOTEL 428 at 00:00 since WY2021). The archive README does not state when the 24-hour precipitation is read; in the archive, new snow on date D correlates best with precipitation on D (r 0.53, against 0.34 for D−1), so the two do not cover exactly the same 24 hours. `cssl_sync.py` handles both sources; output goes to `data/tuning/cssl/` (not committed).
+
+- **Archive:** Dryad doi:10.6078/D1941T (CC0), one CSV per water year, WY1971–WY2025 (no WY2020), republished each October. The metadata API is public, but file downloads need a browser (the page uses a bot check) or a Dryad API account (ORCID login, then an API key on the account page). Download the zip in the browser, then `python3 cssl_sync.py import` unpacks it, lists each file's columns in `archive/v<date>/columns.json` and writes one combined table, `archive/daily.csv` (`cssl_sync.py daily` rebuilds it).
+- **Archive columns (confirmed Nov 24, 2026, v20251001):** date; air temperature max/min (°C); 24-hour and season precipitation (mm); % of precipitation as snow and as rain; new snow and season snow (cm); snowpack depth (cm); snowpack SWE (cm); remarks. There is **no new-snow water column**: the water in new snow is 24-hour precipitation × % as snow. The % as snow is given from WY1988 on (blank before), so WY1971–1987 is usable only where temperature makes all-snow certain. Quirks handled by the importer: UTF-8 byte-order marks, an unnamed duplicate of New Snow in WY2021, "T" traces in any numeric column (0, flagged for new snow and precipitation), thousands separators in season totals; one SWE typo ("0'0") is left empty.
+- **First look (WY1988–2025, all-snow days):** 723 days with ≥10 cm new snow and ≥10 mm precipitation: snow/liquid ratio p10 5.6, median 10.0, p90 20.5. Day-by-day pairs are noisy because of the timing offset above (Nov 18–19, 2020 reads 15:1 then 1.3:1; the two-day total is 5:1). 167 all-snow storms (consecutive snow days, ≥20 cm and ≥20 mm): p10 7.0, median 9.7, p90 14.8. Fit on storm totals; use daily values only with matching model windows.
+- **Current season:** the cssl.berkeley.edu home page embeds the whole water year as daily series (accumulated snowfall, accumulated precipitation, snowpack SWE) and shows the latest 8 AM board, including **24-hour snowfall SWE**, which is shown for the current day only. `cssl_sync.py` rewrites `season_WY<yyyy>.json` and appends new board readings to `board_log.csv`.
+- **Schedule:** `scripts/cssl_cron.sh` runs the sync and a Dryad version check (no download). Cron entry: `30 9,13,18 * * *`; three runs cover a laptop that was asleep at 9:30. A missed day loses only that day's board SWE; the daily series is republished in full.
+
+**Resort observations.**
+- New-snow boards: the resort feed, logged by the pipeline every run since Nov 23, 2026 (`data/archive/resort_reports.json`).
+- Weather stations: MesoWest network 212, 15-minute temperature, dew point, humidity and wind. Station IDs:
+
+  | ID | Location | Elevation |
+  |---|---|---|
+  | OVBOW | Olympic Valley base | 6,237 ft |
+  | BMTSV | Belmont, mid-mountain | 8,000 ft |
+  | SIBSV | Siberia | 8,700 ft |
+  | RHBAM | Alpine Roundhouse bottom | 6,950 ft |
+  | SCTAM | Alpine Scott top | 8,120 ft |
+  | SUMAM | Alpine summit | 8,399 ft |
+
+  History needs a Synoptic token. Decision (Nov 24, 2026): no Synoptic trial. Station history only matters for hindcasts of past seasons, and those use SNOTEL hourly air temperature (all seven sites above, at known elevations) instead.
+- MesoWest's public site shuts down on Dec 31, 2026. The dashboard does not use it: live readings come from the resort feed. The shutdown only removes a free, token-less way to browse past station data; the data itself stays with Synoptic.
+- Going forward, the pipeline logs the same stations from the resort feed every run (`data/archive/station_pairs.jsonl`, paired with the forecast), so the station record for verification builds from Nov 24, 2026 on.
+
+**Other stations** (api.weather.gov, about 7 days of history only): CWOP Olympic Valley D9019 (0.6 km), KTRK, Homewood HMDC1, Slide Mountain SLIDE (9,650 ft).
+
+**Radiosondes:** Reno (REV), from the IEM archive, for checking column temperature and the wet-bulb zero.
 
 ## 3. Model data for past storms
 
-- **Open-Meteo Historical Forecast API**: archived model output stitched from the most recent runs (short lead time), with pressure levels where the model provides them. This gives "best available forecast" profiles for the SLR, temperature and snow-level work, where lead time doesn't matter.
-- **Open-Meteo Previous Runs API**: the same variables at fixed lead times (day 1–7) for recent seasons, for QPF bias and skill by lead time.
-- Models: GFS/HRRR, ECMWF IFS 0.25°, AIFS, ICON, GEM and UKMO where archived. Some archives start later than others, so the sample size per model will differ.
-- All downloads go to a local, git-ignored cache (`data/tuning/`) so the rate limit is hit once.
+- **NBM archive on AWS** (`noaa-nbm-grib2-pds`, no authentication):
+  - Core files from 2020-09-29 12Z.
+  - Versions:
+
+    | Version | First cycle |
+    |---|---|
+    | v4.0 | 2020-09-29 |
+    | v4.1 | 2023-01-17 |
+    | v4.2 | 2024-05-15 |
+    | v4.3 | 2025-05-27 |
+    | v5.0 | 2026-05-05 (hourly output to 48 h) |
+
+  - Fields:
+    - 1-hour and 6-hour APCP and ASNOW are present in every version.
+    - The snow/liquid ratio is local parameter 1/233 in every version (confirmed Nov 24, 2026). The index names it SNOWLR from late 2022 and only by number before; the live client reads the same code.
+    - SNOWLVL is absent in early v4.0 (not in the Jan 2021 or Dec 2021 files; present by Dec 2022).
+  - Files are 120–200 MB, so only the needed messages are read using byte ranges from the `.idx` file (about 1 MB each).
+  - These full-grid files use complex packing with second-order spatial differencing (template 5.3), primary missing values and scanning mode 0x50 (rows south to north, alternate rows reversed). `grib2_complex.py` decodes them; the field is integrated from its first point, so decoding stops after the box's last cell (52% of the grid, 0.3–0.5 s per field).
+  - Only about two thirds of each message is downloaded: the first request reads the headers and group tables, the second stops at the byte where the box ends. About 4 MB and 4 s per forecast hour for six fields.
+  - Checked against NOMADS (Nov 24, 2026 12Z, f024/f132/f144): all six fields identical at all 72 live-box cells, including precipitation and snowfall.
+  - Values are kept for an extended box of 22 × 31 cells around all seven SNOTEL sites (the live 72-cell box only covers SQV and WC3), in the live layout, with the live cells marked, so the live elevation adjustment can be reproduced exactly and run at every site.
+  - Because the versions changed, results are reported per version.
+- **Open-Meteo Historical Forecast API**, for the other models, from these dates:
+
+  | Model | From |
+  |---|---|
+  | ncep_nbm_conus | 2024-10-08 (surface only) |
+  | gfs_seamless | 2021 (with pressure levels) |
+  | ncep_hrrr_conus | 2018 |
+  | ecmwf_ifs025 | 2024-02 |
+  | icon, gem | about 2022-11 |
+  | ukmo | 2022 |
+
+  Some snowfall fields are missing in some months.
+- **Open-Meteo Previous Runs API**: fixed lead times (day 1–7) for surface variables. It rejects pressure-level variables. Precipitation starts around January 2024.
+- **Rate limit:** Open-Meteo's free tier is 5,000 calls an hour and 10,000 a day, and multi-model or many-variable requests count as several calls. On Nov 24 the quota for this machine was already used up. The live dashboard's hourly refresh of seven models is the likely cause. Downloads should run overnight, cached in `data/tuning/`, and the live refresh may need to fetch the non-default models less often.
 
 ## 4. Building the sample
 
-1. Winters 2021-22 through 2025-26 plus the current season (whatever each source covers).
-2. A **storm-day** is a 24-hour window (12Z–12Z, matching manual board readings) with SWE gain ≥ 0.25 in at SQV or WC3, or ≥ 2 in of new snow on the CSSL board. Expected: roughly 100–250 storm-days.
-3. For each storm-day and site: observed liquid, observed new snow (boards where available), observed SLR, temperatures, and every model feature the methods use. That covers the column temperature and RH-ice profile, vertical motion, Kuchera Tmax, Cobb raw SLR, 10 m / free-air / tier winds, surface T and Tw, WBZ, and liquid.
+1. Winters 2021-22 through 2025-26 plus the current season.
+2. A **storm-day** is a 24-hour window (12Z–12Z) with SWE gain ≥ 0.25 in at SQV or WC3 or ≥ 2 in of new snow on a board.
+   - From SNOTEL (`nbm_archive_sync.py storm-days`, Nov 24, 2026): 425 storm-days in WY2021–WY2027, 397 confirmed (the trigger site's gauge rose ≥ 0.05 in, or at least two other SNOTEL sites gained ≥ 0.1 in). The other 28, mostly March–May, look like pillow noise. Each 04:00 PST value is the median of the raw 02:00–06:00 readings, so one noisy hour can't create a storm-day.
+   - Board-only storm-days (resort feed) exist only from Nov 23, 2026.
+   - Storm-days only sample stormy weather. Temperature calibration (item 2) also needs fair-weather inversion days such as Nov 24, 2026; add a sample of dry days before fitting temperature.
+3. For each storm-day and site:
+   - the observed liquid, new snow and snow/liquid ratio;
+   - the station temperatures;
+   - the raw NBM cell value and the elevation-adjusted value;
+   - the HRRR/GFS free-air temperature at the site height;
+   - for the Open-Meteo models, every SLR feature (column temperature and RH over ice, vertical motion, Kuchera Tmax, raw Cobb SLR, winds, wet-bulb zero).
 4. Quality control:
-   - Drop days with pillow noise larger than the signal, rain-on-snow (depth falls while SWE rises), or missing hours.
+   - Drop pillow noise larger than the signal, rain-on-snow (SWE rises while depth falls), and missing hours.
+   - SNOTEL hourly (checked Nov 24, 2026, WY2021–WY2027, seven sites): drop qc S. The physically impossible snow-water readings are all flagged S (206 in at SQV on May 6, 2024; 356–360 in at TK2 on Jul 19, 2021; 130 in at CSL on Aug 27, 2021).
+   - SNOTEL hourly mixes two series. The 00:00 value is the NRCS-edited daily value (qc E, often qa A) and the other hours are raw readings; at IDP on Mar 29, 2023 the 00:00 value is 72.9 in between raw readings of 70.9 in. 291 of 306 one-hour "spikes" of 2 in or more are these midnight values. Compute hourly gains from the raw hours only (skip the 00:00 value) and use the daily edited values as a check on storm totals.
    - Flag wind redistribution where the board and pillow disagree.
 
 ## 5. Fitting and testing
 
-- **Baselines first, no fitting.** Score 10:1, Kuchera and Cobb unadjusted against observed SLR and snowfall. Metrics are bias, MAE, RMSE and MAE skill relative to 10:1.
-- **Physically constrained adjustments.** Only monotone forms with few parameters are allowed: SLR decreasing with wind above a threshold, decreasing toward 0 °C, and optionally decreasing with liquid rate as a riming proxy. Each term is compared with published forms:
-  - Alcott & Steenburgh (2010): Alta regression on temperature and wind.
-  - Roebber et al. (2003): neural-network SLR.
-  - Cobb & Waldstreicher (2005).
-- **Out-of-sample only.** Leave-one-winter-out cross-validation. A term is adopted only if it improves out-of-sample MAE in most folds and its coefficient sign matches the physics. Report the fitted values with their spread across folds.
-- **Temperature.** Fit the per-tier blend weight between 2 m and free-air temperature, split by a stability index (the 700 hPa vs. base temperature difference). Use the SQV/WC3 history and the logged resort stations.
-- **Snow level.** Fit the WBZ offset and transition depth to events where SWE rose while the depth sensor did not (rain) vs. both rising (snow).
+- **Baselines first, no fitting:**
+  - NBM raw cell vs adjusted, scored at each site and tier.
+  - For the Open-Meteo models: 10:1, Kuchera and unadjusted Cobb.
+  - Metrics: bias, MAE, RMSE and MAE skill relative to the raw cell (or to 10:1 for SLR).
+- **Elevation adjustment checks:**
+  - Does the regression radius and weighting matter (5, 7, 10 km)?
+  - Does including the cross-crest term help at the tiers?
+  - How much does extrapolating beyond the highest neighbor (Palisades summit, +450 ft) cost?
+- **Physically constrained terms only:** monotone forms with few parameters, compared with published forms:
+  - Alcott & Steenburgh (2010)
+  - Roebber et al. (2003)
+  - Cobb & Waldstreicher (2005)
+- **Out of sample only:**
+  - Leave-one-winter-out cross-validation.
+  - A term is adopted only if it improves out-of-sample MAE in most folds and its sign matches the physics.
+  - Report the spread of each fitted value across folds.
+- **Temperature:**
+  - Errors of the adjusted 2 m temperature and the HRRR/GFS free-air temperature at the resort stations, split by a stability index (700 hPa minus base temperature).
+  - A blend weight is fit only if it wins out of sample.
 
 ## 6. Output and how the dashboard uses it
 
-- `config/calibration.json`: each fitted parameter with sample size, seasons used, cross-validated scores, and date fitted.
-- The pipeline reads it. A calibrated method replaces "experimental" only when the file says it passed. The page shows "calibrated on N storm-days, winters X–Y, CV MAE …".
+- `config/calibration.json`: each fitted parameter with sample size, seasons, model versions, cross-validated scores and date fitted.
+- The pipeline reads it. A calibrated method replaces the current one only when the file says it passed, and the page shows "calibrated on N storm-days, winters X–Y, CV MAE …".
 - The verification table keeps scoring live forecasts against the sensors and the resort boards, so drift shows up.
 
 ## 7. Work breakdown
 
-| Step | Output | Rough effort |
+| Step | Output | Status |
 |---|---|---|
-| 1. Confirm data sources and station IDs; decide on a Synoptic token | source list | short |
-| 2. Observation download scripts (CDEC, CSSL, SNOTEL, resort log) | `data/tuning/obs_*.csv` | 1 session |
-| 3. Model archive download (Historical Forecast + Previous Runs) | `data/tuning/model_*.json` | 1 session (runs overnight under the rate limit) |
-| 4. Feature extraction (reuse `open_meteo_client.py` functions) | storm-day table | 1 session |
-| 5. Baseline scoring report | tables and plots | short |
-| 6. Fit, cross-validate, write `calibration.json` | parameters and report | 1 session |
-| 7. Wire into the dashboard | calibrated labels | short |
+| 1. Confirm data sources and station IDs; decide on a Synoptic token | section 2 above | **done Nov 24, 2026**: SQV uses NRCS numbers, no Synoptic token; CSSL columns confirmed (section 2) |
+| 2. Observation download scripts (NRCS AWDB hourly, CSSL, resort log) | `data/tuning/cssl/`, `data/tuning/nrcs/` | CSSL done (`cssl_sync.py`, cron); NRCS AWDB hourly done Nov 24, 2026 (`nrcs_sync.py`, seven sites, WY2021 on); resort log runs with the pipeline |
+| 3. NBM archive reader (byte-range `.idx` + GRIB2 template 5.3 decoder) and storm-day extraction over the same box | `data/tuning/storm_days.json`, `data/tuning/nbm/cycles/nbm_*.json`, `data/tuning/nbm/terrain.json` | reader done Nov 24, 2026 (`nbm_archive_sync.py`); pilot of one storm per NBM version done; full day-1 download (397 storm-days, about 6.7 GB, 100 min) not yet run |
+| 4. Open-Meteo Historical Forecast pulls (overnight, cached) | `data/tuning/model_*.json` | after 3 |
+| 5. Baseline scoring report (raw vs adjusted NBM, NWS, SLR methods) | tables and plots | |
+| 6. Fit, cross-validate, write `calibration.json` | parameters and report | |
+| 7. Wire into the dashboard | calibrated labels | |
 
 ## 8. Known limits
 
-- CSSL is at Donner Pass (~6,900 ft), not on the resort. It's the best SLR reference in the region, but its SLR may differ from the summits.
+- CSSL is at Donner Pass (6,890 ft), 18 km from the resort. Its snow/liquid ratio may differ from the summits.
 - Snow pillows lag and are noisy (±0.1–0.3 in), and depth sensors measure settled depth.
 - Resort board totals are rolling and reported once or twice a day. Window alignment needs care.
-- Historical-forecast archives are short-lead forecasts. Calibration fits the physics, not lead-time error. Lead-time effects need the Previous Runs API.
+- The NBM leave-one-out check (7-day snowfall MAE 1.64 → 0.45 in) shows the adjustment reproduces NBM's own field. Only observations can show whether NBM's field is right.
+- Historical-forecast archives are short-lead. Lead-time effects need the Previous Runs API or the NBM archive at fixed leads.
+
+## 9. Observed vs. forecast at hour 0
+
+The page now shows station readings at hour 0 beside the model at each tier. When they differ a lot, three options:
+
+1. **Show only (current).** Make the disagreement visible and don't touch the forecast.
+2. **Decaying correction.** Add the hour-0 error to the forecast and shrink it with lead time: error(t) = error(0) · e^(−t/τ). τ is fit per variable and tier from the logged station-vs-forecast pairs. This is standard practice for temperature in the first ~6–12 hours, and is only worthwhile if the errors persist.
+3. **Regime switch.** For temperature in inversions, switch to the free-air column temperature when the stations show the inversion and the 2 m field does not.
+
+Until about one season of station-vs-forecast pairs exists (the pipeline logs both every hour), option 1 stays. τ and the regime test then go through the same cross-validation as everything else.

@@ -43,26 +43,41 @@
   window.Fmt = { ago, pst, utc };
 
   // ---------------------------------------------------------------- route shields
+  // Shapes follow the MUTCD / Caltrans designs: Interstate (M1-1) red-and-blue shield with a
+  // concave top; US Route (M1-4) white shield on a black square; California State Route
+  // green "miner's spade" with a flat top. Legend text appears only at sizes where it can render.
   function routeShield(route, size = 22) {
     const r = String(route || "").toUpperCase();
     const num = (r.match(/\d+/) || [""])[0];
     if (!num) return "";
-    const fs = num.length >= 3 ? 7.5 : 9;
+    const big = size >= 24;
+    const fs = num.length >= 3 ? 8 : 10;
+    const font = `font-family="Inter, Arial, sans-serif" font-weight="800" text-anchor="middle"`;
+    const h = Math.round(size * 26 / 24);
     if (r === "80" || r.startsWith("I")) {
-      return `<svg class="shield" width="${size}" height="${size}" viewBox="0 0 24 24" aria-label="Interstate ${num}">
-        <path d="M2 4.5 Q12 0.5 22 4.5 L22 11 Q22 19.5 12 23 Q2 19.5 2 11 Z" fill="#1d4ed8" stroke="#fff" stroke-width="1.2"/>
-        <path d="M2.6 4.9 Q12 1.2 21.4 4.9 L21.4 8 L2.6 8 Z" fill="#dc2626"/>
-        <text x="12" y="17.2" text-anchor="middle" font-size="${fs}" font-weight="800" fill="#fff" font-family="Inter, sans-serif">${num}</text></svg>`;
+      const outer = "M1.2,1.6 Q12,5.6 22.8,1.6 C23.7,7 23.7,13.5 20.6,18.2 Q17.6,22.6 12,25 Q6.4,22.6 3.4,18.2 C0.3,13.5 0.3,7 1.2,1.6 Z";
+      const inner = "M2.3,2.9 Q12,6.7 21.7,2.9 C22.4,7.6 22.4,13.3 19.7,17.5 Q16.9,21.4 12,23.6 Q7.1,21.4 4.3,17.5 C1.6,13.3 1.6,7.6 2.3,2.9 Z";
+      const id = `ish${Math.random().toString(36).slice(2, 8)}`;
+      return `<svg class="shield" width="${size}" height="${h}" viewBox="0 0 24 26" aria-label="Interstate ${num}" role="img">
+        <defs><clipPath id="${id}"><path d="${inner}"/></clipPath></defs>
+        <path d="${outer}" fill="#fff"/>
+        <g clip-path="url(#${id})"><rect x="0" y="0" width="24" height="26" fill="#003f87"/><rect x="0" y="0" width="24" height="8.6" fill="#af1e2d"/></g>
+        <path d="M1.5,8.6 H22.5" stroke="#fff" stroke-width="0.9"/>
+        ${big ? `<text x="12" y="7.3" font-size="2.7" fill="#fff" ${font} letter-spacing=".15">INTERSTATE</text>` : ""}
+        <text x="12" y="${num.length >= 3 ? 18 : 18.6}" font-size="${fs}" fill="#fff" ${font}>${num}</text></svg>`;
     }
     if (r === "50" || r.startsWith("US")) {
-      return `<svg class="shield" width="${size}" height="${size}" viewBox="0 0 24 24" aria-label="US Route ${num}">
-        <path d="M3 2.5 H21 V5 Q22.5 7 21 9 V14 Q21 20.5 12 23 Q3 20.5 3 14 V9 Q1.5 7 3 5 Z" fill="#fff" stroke="#111" stroke-width="1.3"/>
-        <text x="12" y="16" text-anchor="middle" font-size="${fs}" font-weight="800" fill="#111" font-family="Inter, sans-serif">${num}</text></svg>`;
+      return `<svg class="shield" width="${size}" height="${size}" viewBox="0 0 24 24" aria-label="U.S. Route ${num}" role="img">
+        <rect x="0" y="0" width="24" height="24" rx="2" fill="#111"/>
+        <path d="M3.6,2.2 H20.4 Q21.8,2.2 21.8,4.2 Q21.8,6.4 20.9,7.8 Q22.2,10 21.9,13.2 Q21.4,19.4 12,22.3 Q2.6,19.4 2.1,13.2 Q1.8,10 3.1,7.8 Q2.2,6.4 2.2,4.2 Q2.2,2.2 3.6,2.2 Z" fill="#fff"/>
+        <text x="12" y="${num.length >= 3 ? 15.4 : 16}" font-size="${num.length >= 3 ? 8.5 : 10.5}" fill="#111" ${font}>${num}</text></svg>`;
     }
-    // California state route: green "miner's spade"
-    return `<svg class="shield" width="${size}" height="${size}" viewBox="0 0 24 24" aria-label="California State Route ${num}">
-      <path d="M12 1.2 Q19.5 5 21.5 11.5 Q21.5 18.5 14.2 20.4 L14.2 23 H9.8 V20.4 Q2.5 18.5 2.5 11.5 Q4.5 5 12 1.2 Z" fill="#0b6b3a" stroke="#fff" stroke-width="1.2"/>
-      <text x="12" y="14.8" text-anchor="middle" font-size="${fs}" font-weight="800" fill="#fff" font-family="Inter, sans-serif">${num}</text></svg>`;
+    // California State Route: green spade, white border, CALIFORNIA across the top
+    return `<svg class="shield" width="${size}" height="${h}" viewBox="0 0 24 26" aria-label="California State Route ${num}" role="img">
+      <path d="M2.6,1.2 H21.4 Q23,1.2 23,2.9 V8.6 C23,15.3 17.7,21.3 12,25.2 C6.3,21.3 1,15.3 1,8.6 V2.9 Q1,1.2 2.6,1.2 Z" fill="#fff"/>
+      <path d="M3.3,2.4 H20.7 Q21.8,2.4 21.8,3.5 V8.7 C21.8,14.7 16.9,20.1 12,23.7 C7.1,20.1 2.2,14.7 2.2,8.7 V3.5 Q2.2,2.4 3.3,2.4 Z" fill="#00703c"/>
+      ${big ? `<text x="12" y="6.3" font-size="2.6" fill="#fff" ${font} letter-spacing=".1">CALIFORNIA</text>` : ""}
+      <text x="12" y="${num.length >= 3 ? 16.6 : 17.2}" font-size="${fs}" fill="#fff" ${font}>${num}</text></svg>`;
   }
   window.routeShield = routeShield;
 
@@ -94,10 +109,11 @@
     const elevs = state.resort.elevations || {};
     if (src === "model") {
       const m = modelLevels(state.hour);
-      if (!m) { box.innerHTML = `<p class="mini-label" style="padding:20px">${esc(((om().atmospheric_sounding || {}).reason) || "No model sounding available.")} Observed Reno and Oakland soundings are still available above.</p>`; $("skewt-sub").textContent = ""; return; }
+      if (!m) { box.innerHTML = `<p class="mini-label" style="padding:20px">${esc(((om().atmospheric_sounding || {}).reason) || "No model sounding available.")} The observed Reno sounding is still available above.</p>`; $("skewt-sub").textContent = ""; return; }
       levels = m.levels; hasW = true;
       const q = (om().query_points || {}).summit || {};
-      title = `Model: ${(om().primary_model || {}).label || "primary model"} at ${q.lat?.toFixed(3)}, ${q.lon?.toFixed(3)} · valid ${new Date(m.time).toLocaleString([], { weekday: "short", hour: "numeric" })} (${utc(m.time)}). Levels below the base are shaded (model extrapolation below terrain).`;
+      const pm = om().profile_model;
+      title = `Model: ${pm ? `${pm.label} column (${(om().model || {}).label} has no vertical profile)` : ((om().primary_model || {}).label || "primary model")} at ${q.lat?.toFixed(3)}, ${q.lon?.toFixed(3)} · valid ${new Date(m.time).toLocaleString([], { weekday: "short", hour: "numeric" })} (${utc(m.time)}). Levels below the base are shaded (model extrapolation below terrain).`;
       groundP = pressureAtHeight(levels, (elevs.base_ft || 6200) / FT);
     } else {
       const o = observed(src);
@@ -108,7 +124,7 @@
     }
     $("skewt-sub").textContent = title;
 
-    const W = 760, H = 560, L = 52, R = 92, T = 12, B = 30, PW = W - L - R, PH = H - T - B;
+    const W = 760, H = 580, L = 52, R = 92, T = 32, B = 30, PW = W - L - R, PH = H - T - B;
     const pTop = 200, pBot = 1050, Tmin = -40, Tmax = 40;
     const sx = PW / (Tmax - Tmin), skew = 1.0;
     const Y = p => T + PH * (Math.log(p) - Math.log(pTop)) / (Math.log(pBot) - Math.log(pTop));
@@ -130,7 +146,7 @@
     // isotherms
     for (let t = -100; t <= 40; t += 10) {
       const zero = t === 0;
-      s += `<line x1="${X(t, pBot)}" y1="${Y(pBot)}" x2="${X(t, pTop)}" y2="${Y(pTop)}" stroke="${zero ? "#fbbf24" : "rgba(255,255,255,0.08)"}" stroke-width="${zero ? 1.3 : 1}" ${zero ? 'stroke-dasharray="5 4"' : ""}/>`;
+      s += `<line x1="${X(t, pBot)}" y1="${Y(pBot)}" x2="${X(t, pTop)}" y2="${Y(pTop)}" stroke="${zero ? "rgba(255,255,255,0.38)" : "rgba(255,255,255,0.08)"}" stroke-width="1.1"/>`;
     }
     // dry adiabats
     for (let th = 240; th <= 440; th += 10) {
@@ -164,8 +180,8 @@
     [["base", "Base"], ["mid", "Mid"], ["summit", "Summit"]].forEach(([k, lbl]) => {
       const ft = elevs[`${k}_ft`]; const p = ft ? pressureAtHeight(levels, ft / FT) : null;
       if (!p) return;
-      s += `<line x1="${L}" x2="${L + PW}" y1="${Y(p)}" y2="${Y(p)}" stroke="#f472b6" stroke-dasharray="3 4" opacity="0.7"/>
-        <text x="${L + PW - 4}" y="${Y(p) - 3}" text-anchor="end" fill="#f9a8d4" font-size="10" font-weight="600">${lbl} ${ft.toLocaleString()} ft · ${Math.round(p)} hPa</text>`;
+      s += `<line x1="${L}" x2="${L + PW}" y1="${Y(p)}" y2="${Y(p)}" stroke="rgba(203,213,225,0.5)" stroke-dasharray="3 4"/>
+        <text x="${L + PW - 4}" y="${Y(p) - 3}" text-anchor="end" fill="#cbd5e1" font-size="10" font-weight="600">${lbl} ${ft.toLocaleString()} ft · ${Math.round(p)} hPa</text>`;
     });
     // axes labels
     [1000, 850, 700, 500, 400, 300, 200].forEach(p => {
@@ -299,46 +315,168 @@
 
   // ---------------------------------------------------------------- precip type by elevation
   function renderPhase() {
-    const col = $("phase-column"), tbl = $("phase-table");
-    if (!col || !state.resort) return;
-    const o = om(), tls = o.elevation_timelines || {}, prof = (o.vertical_profile || [])[state.hour] || {};
-    const elevs = state.resort.elevations || {};
-    const tsum = ((tls.summit || [])[state.hour]) || {};
-    const sl = prof.snow_level_ft ?? tsum.snow_level_ft, wbz = prof.wet_bulb_zero_ft, fz = prof.freezing_level_ft;
-    const lo = Math.min(4000, (sl ?? 6000) - 1500), hi = Math.max((elevs.summit_ft || 9000) + 800, Math.min(14000, (fz ?? 0) + 600));
-    const W = 130, H = 280, T = 8, B = 8;
-    const Y = ft => T + (H - T - B) * (1 - (Math.max(lo, Math.min(hi, ft)) - lo) / (hi - lo));
-    let s = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="var(--font-sans)">
-      <defs><linearGradient id="phgrad" x1="0" y1="1" x2="0" y2="0">`;
-    if (wbz != null) {
-      const f = ft => ((Math.max(lo, Math.min(hi, ft)) - lo) / (hi - lo)).toFixed(3);
-      s += `<stop offset="0" stop-color="#4ade80" stop-opacity=".35"/><stop offset="${f(wbz - 1000)}" stop-color="#4ade80" stop-opacity=".35"/>
-        <stop offset="${f(wbz - 500)}" stop-color="#c084fc" stop-opacity=".4"/><stop offset="${f(wbz)}" stop-color="#7dd3fc" stop-opacity=".4"/><stop offset="1" stop-color="#7dd3fc" stop-opacity=".4"/>`;
-    } else s += `<stop offset="0" stop-color="#7dd3fc" stop-opacity=".4"/><stop offset="1" stop-color="#7dd3fc" stop-opacity=".4"/>`;
-    s += `</linearGradient></defs><rect x="40" y="${T}" width="34" height="${H - T - B}" rx="6" fill="url(#phgrad)" stroke="rgba(255,255,255,0.12)"/>`;
-    for (let ft = Math.ceil(lo / 1000) * 1000; ft <= hi; ft += 1000) s += `<text x="34" y="${Y(ft) + 4}" text-anchor="end" fill="#64748b" font-size="10.5" font-family="var(--font-mono)">${ft / 1000}k</text>`;
-    const line = (ft, color, dash, lbl) => ft == null ? "" : `<line x1="36" x2="78" y1="${Y(ft)}" y2="${Y(ft)}" stroke="${color}" stroke-width="2" ${dash ? `stroke-dasharray="${dash}"` : ""}/><text x="82" y="${Y(ft) + 4}" fill="${color}" font-size="11" font-weight="600">${lbl}</text>`;
-    s += line(fz, "#fbbf24", "4 3", "Freezing") + line(wbz, "#60a5fa", "", "WBZ") + line(sl, "#f8fafc", "", "Snow");
-    ["base", "mid", "summit"].forEach(t => {
-      const ft = elevs[`${t}_ft`]; if (!ft) return;
-      s += `<circle cx="57" cy="${Y(ft)}" r="4" fill="#0b1220" stroke="#f472b6" stroke-width="2"/>`;
-    });
-    col.innerHTML = s + `</svg>`;
+    const box = $("phase-svg");
+    if (!box || !state.resort) return;
+    const r = state.resort, o = om(), tls = o.elevation_timelines || {};
+    const h = state.hour;
+    const prof = (o.vertical_profile || [])[h] || {};
+    const elevs = r.elevations || {};
+    const tsum = ((tls.summit || [])[h]) || {};
+    const sl = prof.snow_level_ft ?? tsum.snow_level_ft;
+    const wbz = prof.wet_bulb_zero_ft ?? tsum.wet_bulb_zero_ft;
+    const fz = prof.freezing_level_ft ?? tsum.freezing_level_ft;
+    const pm = o.profile_model;
+    const mLabel = (o.model || {}).label || "model";
+    // Vertical range: fixed across hours and models (server scales), clamped around the mountain
+    const base = elevs.base_ft || 6200, top = elevs.summit_ft || 9000, lv = (o.scales || {}).levels_ft;
+    let lo = Math.min(base - 1000, lv ? lv[0] - 500 : base - 2000);
+    let hi = Math.max(top + 1000, lv ? lv[1] + 500 : top + 2000);
+    lo = Math.max(0, Math.max(base - 5000, Math.floor(lo / 1000) * 1000));
+    hi = Math.min(top + 7000, Math.ceil(hi / 1000) * 1000);
 
-    const row = t => {
-      const x = (tls[t] || [])[state.hour] || {};
-      return `<tr><th>${{ base: "Base", mid: "Mid", summit: "Summit" }[t]}<small>${(elevs[`${t}_ft`] || 0).toLocaleString()} ft</small></th>
-        <td>${tF(x.temp_f)}</td><td>${tF(x.wet_bulb_f)}</td><td>${dDiff(x.dew_point_depression_f ?? (x.temp_f - x.dew_point_f))}</td><td>${x.relative_humidity_pct ?? "--"}%</td>
-        <td><span class="phase-tag ${x.precip_phase || ""}">${x.precip_phase === "dry" ? "none" : (x.precip_phase_label || "--").toLowerCase()}</span></td></tr>`;
-    };
-    tbl.innerHTML = `<thead><tr><th></th><th>Dry bulb</th><th>Wet bulb</th><th>T − Td</th><th>RH</th><th>Precip</th></tr></thead>
-      <tbody>${row("summit")}${row("mid")}${row("base")}</tbody>`;
+    const W = Math.max(300, Math.round(box.clientWidth || 360)), narrow = W < 440;
+    const H = 300, T = 24, B = 10, PH = H - T - B;
+    const axW = 28, barX = axW + 6, barW = narrow ? 18 : 28, barR = barX + barW;
+    const tblX = barR + (narrow ? 20 : 36);
+    const Y = ft => T + PH * (1 - (Math.max(lo, Math.min(hi, ft)) - lo) / (hi - lo));
+    const f = ft => ((Math.max(lo, Math.min(hi, ft)) - lo) / (hi - lo)).toFixed(3);
+    const slx = sl ?? (wbz != null ? wbz - 500 : null);
+    let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" font-family="var(--font-sans)">
+      <defs><linearGradient id="phgrad" x1="0" y1="1" x2="0" y2="0">`;
+    if (slx != null) {
+      s += `<stop offset="0" stop-color="#4ade80" stop-opacity=".35"/><stop offset="${f(slx - 1000)}" stop-color="#4ade80" stop-opacity=".35"/>
+        <stop offset="${f(slx - 250)}" stop-color="#c084fc" stop-opacity=".4"/><stop offset="${f(slx + 500)}" stop-color="#7dd3fc" stop-opacity=".42"/><stop offset="1" stop-color="#7dd3fc" stop-opacity=".42"/>`;
+    } else s += `<stop offset="0" stop-color="#7dd3fc" stop-opacity=".4"/><stop offset="1" stop-color="#7dd3fc" stop-opacity=".4"/>`;
+    s += `</linearGradient></defs><rect x="${barX}" y="${T}" width="${barW}" height="${PH}" rx="6" fill="url(#phgrad)" stroke="rgba(255,255,255,0.12)"/>`;
+    const step = hi - lo > 10000 ? 2000 : 1000;
+    for (let ft = Math.ceil(lo / step) * step; ft <= hi; ft += step) s += `<text x="${axW}" y="${Y(ft) + 4}" text-anchor="end" fill="#64748b" font-size="10.5" font-family="var(--font-mono)">${ft / 1000}k</text>`;
+    const lvLine = (ft, color, dash, w) => ft == null ? "" : `<line x1="${barX - 4}" x2="${barR + 4}" y1="${Y(ft)}" y2="${Y(ft)}" stroke="${color}" stroke-width="${w}" ${dash ? `stroke-dasharray="${dash}"` : ""}/>`;
+    s += lvLine(fz, "#fbbf24", "4 3", 2) + lvLine(wbz, "#60a5fa", "", 2) + lvLine(sl, "#f8fafc", "", 2.2);
+
+    // table columns
+    // column widths scale to the space right of the bar (minimum widths fit the text)
+    const base_cols = narrow ? [["Air", 40], ["Wet bulb", 50], ["T − Td", 44], ["RH", 38]] : [["Air", 44], ["Wet bulb", 58], ["T − Td", 50], ["RH", 40], ["Precip", 62]];
+    const avail = W - tblX - 4, nameW0 = narrow ? 56 : 62, need = nameW0 + base_cols.reduce((a, c) => a + c[1], 0);
+    const k = Math.max(0.75, Math.min(1.6, avail / need));
+    const cols = base_cols.map(([l, w]) => [l, Math.round(w * k)]);
+    const nameW = Math.round(nameW0 * Math.min(k, 1.2));
+    let cx = tblX + nameW;
+    const colX = cols.map(([, w]) => { cx += w; return cx; });   // right edges
+    s += cols.map(([lbl], i) => `<text x="${i === 4 ? colX[i] - cols[i][1] + 6 : colX[i]}" y="12" text-anchor="${i === 4 ? "start" : "end"}" fill="#64748b" font-size="10.5" font-weight="600">${lbl}</text>`).join("");
+    if (narrow) s += `<text x="${tblX}" y="12" fill="#64748b" font-size="10.5" font-weight="600">Tier</text>`;
+
+    // rows positioned at their elevation, spread so they never overlap
+    const tiers = ["summit", "mid", "base"].filter(t => elevs[`${t}_ft`]);
+    const rows = tiers.map(t => ({ t, ft: elevs[`${t}_ft`], y: Y(elevs[`${t}_ft`]) }));
+    const gapY = 36;
+    rows.forEach((rw, i) => { rw.ry = Math.max(rw.y, T + 14, i ? rows[i - 1].ry + gapY : 0); });
+    const over = rows.length ? rows[rows.length - 1].ry - (H - 22) : 0;
+    if (over > 0) rows.forEach(rw => { rw.ry -= over; });
+    const fmtT = v => (v == null ? "--" : tF(v));
+    const phaseCol = { snow: "#7dd3fc", mix: "#c084fc", rain: "#4ade80", ice: "#fb7185", dry: "#64748b" };
+    const obsList = [];
+    rows.forEach(rw => {
+      const x = (tls[rw.t] || [])[h] || {};
+      const ob = h === 0 && window.Obs ? Obs.forTier(r, rw.t) : null;
+      if (ob) obsList.push(ob);
+      const mT = x.temp_f, mTw = x.wet_bulb_f, mDd = x.dew_point_depression_f ?? (x.temp_f != null && x.dew_point_f != null ? x.temp_f - x.dew_point_f : null), mRh = x.relative_humidity_pct;
+      const oTw = ob ? Obs.wetBulbF(ob.temp_f, ob.dew_point_f, ob.elevation_ft || rw.ft) : null;
+      const vals = ob ? [fmtT(ob.temp_f), fmtT(oTw), dDiff(ob.temp_f - ob.dew_point_f), `${Math.round(ob.humidity_pct)}%`] : [fmtT(mT), fmtT(mTw), dDiff(mDd), mRh != null ? `${mRh}%` : "--"];
+      const sub = ob ? [narrow ? fmtT(mT) : `model ${fmtT(mT)}`, fmtT(mTw), dDiff(mDd), mRh != null ? `${mRh}%` : ""] : null;
+      // tier line across the bar and the callout to its row
+      s += `<line x1="${barX - 3}" x2="${barR + 3}" y1="${rw.y}" y2="${rw.y}" stroke="rgba(203,213,225,0.55)" stroke-dasharray="3 3"/>
+        <path d="M${barR + 4},${rw.y} L${barR + 10},${rw.y} L${tblX - 10},${rw.ry} L${tblX - 3},${rw.ry}" fill="none" stroke="rgba(203,213,225,0.3)"/>`;
+      const ph = x.precip_phase || "dry";
+      const phTxt = ph === "dry" ? "none" : (x.precip_phase_label || ph).toLowerCase();
+      s += `<text x="${tblX}" y="${rw.ry + 4}" fill="#e2e8f0" font-size="12" font-weight="650">${{ base: "Base", mid: "Mid", summit: "Summit" }[rw.t]}</text>
+        <text x="${tblX}" y="${rw.ry + 17}" fill="${narrow ? (phaseCol[ph] || "#94a3b8") : "#64748b"}" font-size="10">${narrow ? phTxt : `${rw.ft.toLocaleString()} ft`}</text>`;
+      vals.forEach((v, i) => { s += `<text x="${colX[i]}" y="${rw.ry + 4}" text-anchor="end" fill="${ob ? "#f8fafc" : "#e2e8f0"}" font-size="12" style="font-variant-numeric:tabular-nums">${v}</text>`; });
+      if (sub) sub.forEach((v, i) => { if (v) s += `<text x="${colX[i]}" y="${rw.ry + 17}" text-anchor="end" fill="#64748b" font-size="9.5" style="font-variant-numeric:tabular-nums">${i ? v : v}</text>`; });
+      if (!narrow) s += `<text x="${colX[4] - cols[4][1] + 6}" y="${rw.ry + 4}" fill="${phaseCol[ph] || "#94a3b8"}" font-size="11.5" font-weight="600">${phTxt}</text>`;
+    });
+    box.innerHTML = s + `</svg>`;
+
+    // levels, highest first, with their source
+    const lsrc = pm ? pm.label : mLabel;
+    const levels = [
+      ["Freezing level", fz, `<i class="lvl-sw" style="border-top:2px dashed #fbbf24"></i>`, lsrc],
+      ["Wet-bulb zero", wbz, `<i class="lvl-sw" style="border-top:2px solid #60a5fa"></i>`, lsrc],
+      ["Snow level", sl, `<i class="lvl-sw" style="border-top:2px solid #f8fafc"></i>`, pm ? mLabel : (o.vertical_profile || []).length ? "wet-bulb zero − 500 ft" : mLabel],
+    ].filter(l => l[1] != null).sort((a, b) => b[1] - a[1]);
+    const lvBox = $("phase-levels");
+    if (lvBox) lvBox.innerHTML = levels.map(([n, v, sw, src]) => `<dt>${sw}${n} <small>${esc(src)}</small></dt><dd>${fmtFt(v)}</dd>`).join("") || `<dt>Levels</dt><dd>n/a</dd>`;
+    const t0 = tsum.time;
+    const when = t0 ? new Date(t0).toLocaleString([], { weekday: "short", hour: "numeric" }) : "";
+    const obsTxt = obsList.length ? ` Hour 0 values are resort station readings (${obsList.map(ob => `${(ob.name || "").replace(/,? el\. (\d+)'?/, " $1 ft")}`).join(", ")}; observed ${obsList[0].observed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}); small numbers are the model at each tier.` : "";
     const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
-    set("eff-snow-level-val", fmtFt(sl)); set("wbz-val", fmtFt(wbz)); set("freezing-level-val", fmtFt(fz));
-    const t0 = ((tls.summit || [])[state.hour] || {}).time;
-    set("phase-desc", (o.vertical_profile || []).length
-      ? `${t0 ? new Date(t0).toLocaleString([], { weekday: "short", hour: "numeric" }) : ""}. Snow fraction: 100% at or above the wet-bulb zero, 0% 1,000 ft below it; overridden by surface wet bulb (≤ 31 °F snow, ≥ 36 °F rain). Sleet/freezing rain risk: layer > +0.5 °C at least 1,000 ft deep above a sub-freezing wet bulb.`
-      : `${t0 ? new Date(t0).toLocaleString([], { weekday: "short", hour: "numeric" }) : ""}. ${(o.model || {}).label || "This model"}'s own snow level and precipitation type; wet bulb computed from its temperature and dew point.`);
+    set("phase-desc", pm
+      ? `${when}. Precipitation type and tier values: ${mLabel}, adjusted to each tier's elevation. Snow level: ${mLabel}. Freezing level and wet-bulb zero: ${pm.label} column.${obsTxt}`
+      : (o.vertical_profile || []).length
+        ? `${when}. Snow fraction: 100% at or above the wet-bulb zero, 0% 1,000 ft below it; overridden by surface wet bulb (≤ 31 °F snow, ≥ 36 °F rain). Sleet/freezing rain risk: layer > +0.5 °C at least 1,000 ft deep above a sub-freezing wet bulb.${obsTxt}`
+        : `${when}. ${mLabel}'s own snow level and precipitation type.${obsTxt}`);
+  }
+
+  // ---------------------------------------------------------------- dendritic growth zone
+  function renderDGZ() {
+    const box = $("dgz-chart");
+    if (!box || !state.resort) return;
+    const o = om(), prof = o.vertical_profile || [], elevs = state.resort.elevations || {};
+    const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
+    const pm = o.profile_model;
+    if (!prof.length) {
+      box.innerHTML = `<p class="mini-label" style="padding:12px 0">No vertical profile for this model.</p>`;
+      ["dgz-height", "dgz-rhi", "dgz-w"].forEach(id => set(id, "n/a"));
+      return;
+    }
+    const h = Math.min(state.hour, prof.length - 1), p = prof[h] || {};
+    const kind = x => x.dgz_base_ft == null ? "none" : (x.dgz_rhi_pct ?? 0) >= 100 ? ((x.dgz_lift_cm_s ?? -1) >= 10 ? "act" : "sat") : "dry";
+    const k = kind(p);
+    const badge = $("dgz-badge");
+    if (badge) { badge.textContent = { act: "Saturated and rising", sat: "Ice-saturated, weak lift", dry: "Subsaturated", none: "Not found" }[k]; badge.className = "chip " + (k === "act" ? "chip-ice" : ""); }
+    set("dgz-height", p.dgz_base_ft != null ? `${(p.dgz_base_ft / 1000).toFixed(1)}–${(p.dgz_top_ft / 1000).toFixed(1)}k ft` : "n/a");
+    set("dgz-pres", p.dgz_base_hpa != null ? `${p.dgz_base_hpa}–${p.dgz_top_hpa} hPa · ${(p.dgz_thickness_ft || 0).toLocaleString()} ft thick` : "");
+    set("dgz-rhi", p.dgz_rhi_pct != null ? `${p.dgz_rhi_pct}%` : "n/a");
+    set("dgz-w", p.dgz_lift_cm_s != null ? `${Math.abs(p.dgz_lift_cm_s).toFixed(0)} cm/s ${p.dgz_lift_cm_s >= 0.5 ? "up" : p.dgz_lift_cm_s <= -0.5 ? "down" : ""}` : "n/a");
+    const next = prof.slice(h, h + 24);
+    set("dgz-hours-val", `${next.filter(x => kind(x) === "act").length} of ${next.length} h`);
+    const st = ((o.elevation_timelines || {}).summit || []).slice(h, h + 24).filter(x => (x.precip_in || 0) >= 0.01 && x.slr);
+    const liq = st.reduce((a, x) => a + x.precip_in, 0);
+    set("dgz-crystal-val", liq > 0 ? `${(st.reduce((a, x) => a + x.slr * x.precip_in, 0) / liq).toFixed(1)}:1` : "no precipitation");
+    set("dgz-source", `Profile: ${pm ? `${pm.label} column at the summit point (${(o.model || {}).label} has no vertical profile)` : `${(o.model || {}).label || "model"} column at the summit point`}. Click the chart to pick an hour.`);
+
+    const W = Math.max(280, Math.round(box.clientWidth || 340)), H = 150, L = 40, R = 6, T = 6, Bm = 18, PW = W - L - R, PH = H - T - Bm;
+    const zlo = Math.min(4000, Math.floor(((elevs.base_ft || 6200) - 1500) / 1000) * 1000), zhi = 24000;
+    const Y = ft => T + PH * (1 - (Math.max(zlo, Math.min(zhi, ft)) - zlo) / (zhi - zlo));
+    const n = prof.length, dx = PW / n;
+    let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" font-family="var(--font-sans)">
+      <rect x="${L}" y="${T}" width="${PW}" height="${PH}" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.08)"/>`;
+    for (let ft = 8000; ft <= zhi; ft += 8000) s += `<line x1="${L}" x2="${L + PW}" y1="${Y(ft)}" y2="${Y(ft)}" stroke="rgba(255,255,255,0.05)"/><text x="${L - 5}" y="${Y(ft) + 3.5}" text-anchor="end" fill="#64748b" font-size="9.5" font-family="var(--font-mono)">${ft / 1000}k</text>`;
+    prof.forEach((x, i) => {
+      if (x.dgz_base_ft == null) return;
+      const kk = kind(x);
+      const fill = kk === "act" ? `fill="#22d3ee" fill-opacity="0.95"` : kk === "sat" ? `fill="#7dd3fc" fill-opacity="0.5"` : `fill="#d6bc96" fill-opacity="${(0.1 + 0.3 * Math.min(1, (x.dgz_rhi_pct || 0) / 100)).toFixed(2)}"`;
+      s += `<rect x="${(L + i * dx).toFixed(1)}" y="${Y(x.dgz_top_ft).toFixed(1)}" width="${(dx + 0.4).toFixed(1)}" height="${Math.max(1, Y(x.dgz_base_ft) - Y(x.dgz_top_ft)).toFixed(1)}" ${fill}/>`;
+    });
+    const fzp = prof.map((x, i) => x.freezing_level_ft != null ? `${i ? "L" : "M"}${(L + (i + 0.5) * dx).toFixed(1)},${Y(x.freezing_level_ft).toFixed(1)}` : "").join(" ").replace(/^ *L/, "M");
+    s += `<path d="${fzp}" fill="none" stroke="#fbbf24" stroke-opacity="0.7" stroke-width="1.2" stroke-dasharray="3 2"/>`;
+    [["summit", "Summit"], ["base", "Base"]].forEach(([t, lbl]) => {
+      const ft = elevs[`${t}_ft`]; if (!ft) return;
+      s += `<line x1="${L}" x2="${L + PW}" y1="${Y(ft)}" y2="${Y(ft)}" stroke="rgba(203,213,225,0.4)" stroke-dasharray="2 3"/><text x="${L + 3}" y="${Y(ft) - 3}" fill="#94a3b8" font-size="9.5">${lbl}</text>`;
+    });
+    (((o.elevation_timelines || {}).summit) || []).forEach((x, i) => {
+      const d = new Date(x.time);
+      if (d.getHours() === 0 && i > 0) s += `<line x1="${L + i * dx}" x2="${L + i * dx}" y1="${T}" y2="${T + PH}" stroke="rgba(255,255,255,0.06)"/><text x="${L + i * dx + 2}" y="${H - 5}" fill="#64748b" font-size="9.5">${d.toLocaleDateString([], { weekday: "short" })}</text>`;
+    });
+    s += `<line x1="${L + (h + 0.5) * dx}" x2="${L + (h + 0.5) * dx}" y1="${T}" y2="${T + PH}" stroke="#f8fafc" stroke-opacity="0.8" stroke-width="1.5"/>
+      <rect id="dgz-hit" x="${L}" y="${T}" width="${PW}" height="${PH}" fill="transparent" style="cursor:pointer"/></svg>`;
+    box.innerHTML = s;
+    const hit = $("dgz-hit"), svg = box.querySelector("svg");
+    hit && hit.addEventListener("click", ev => {
+      const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+      const loc = pt.matrixTransform(svg.getScreenCTM().inverse());
+      const hour = Math.max(0, Math.min(n - 1, Math.floor((loc.x - L) / dx)));
+      document.dispatchEvent(new CustomEvent("snow:sethour", { detail: { hour } }));
+    });
   }
 
   // ---------------------------------------------------------------- sources & verification
@@ -402,7 +540,7 @@
       <td>Depth ${S(m.snow_depth_current_inches)} (24 h ${num(m.snow_depth_24h_gain_inches) ? "+" + U.snow(m.snow_depth_24h_gain_inches) : "–"}, 48 h ${num(m.snow_depth_48h_gain_inches) ? "+" + U.snow(m.snow_depth_48h_gain_inches) : "–"})<br>
       SWE ${L(m.swe_current_inches)} (48 h +${L(m.swe_48h_gain_inches)}) · ${tF(m.air_temperature_f)}${m.snow_to_liquid_ratio ? ` · measured SLR ${m.snow_to_liquid_ratio}:1 (settled)` : ""}</td>
       <td>${cdec.status === "success" ? "live" : esc(cdec.status)} · ${ago(cdec.fetched_at_utc || cdec.timestamp_utc)}</td></tr>`);
-    ["KREV", "KOAK"].forEach(st => {
+    ["KREV"].forEach(st => {
       const so = observed(st);
       if (!so) return;
       obsRows.push(`<tr><td><b>Radiosonde ${st}</b><small>${esc(so.name || "")}</small></td><td>${so.levels ? `${so.levels.length} levels, valid ${utc(so.valid_utc)}` : esc(so.error_message || "unavailable")}</td>
@@ -420,13 +558,21 @@
     const tl0 = t => ((o.elevation_timelines || {})[t] || [])[0] || {};
     const stRows = ["base", "mid", "summit"].filter(t => st[t]).map(t => {
       const w = st[t], m = tl0(t), diff = (a, b) => (a != null && b != null ? `${a - b > 0 ? "+" : ""}${Math.round(a - b)}` : "–");
-      return `<tr><td><b>${esc(w.name || t)}</b><small>observed ${w.observed_at ? new Date(w.observed_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "n/a"}</small></td>
+      const nm = String(w.name || t).replace(/,?\s*el\.\s*[\d,]+'?\s*$/i, "");
+      const at = w.observed_at ? new Date(String(w.observed_at).replace(/([+-]\d{2})(\d{2})$/, "$1:$2")) : null;
+      return `<tr><td><b>${esc(nm)}</b><small>${w.elevation_ft ? w.elevation_ft.toLocaleString() + " ft · " : ""}observed ${at && !isNaN(at) ? at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "n/a"}</small></td>
         <td>${tF(w.temp_f)} <small>model ${tF(m.temp_f)} (Δ ${diff(w.temp_f, m.temp_f)}°F)</small></td>
         <td>${tF(w.dew_point_f)} <small>model ${tF(m.dew_point_f)}</small></td>
-        <td>${w.wind_dir || ""} ${w.wind_mph ?? "–"} g ${w.gust_mph ?? "–"} mph <small>model ${Math.round(m.wind_mph || 0)} g ${Math.round(m.gust_mph || 0)} (${(o.query_points || {})[t] ? ((o.query_points || {})[t].elevation_ft || 0).toLocaleString() + " ft" : ""})</small></td>
+        <td>${w.wind_dir || ""} ${w.wind_mph ?? "–"} g ${w.gust_mph ?? "–"} mph <small>model ${Math.round(m.wind_mph || 0)} g ${Math.round(m.gust_mph || 0)}</small></td>
         <td>${esc(w.skies || "")}<small>model cloud ${m.cloud_cover_pct != null ? Math.round(m.cloud_cover_pct) + "%" : "–"}</small></td></tr>`;
     });
     const stEl = $("stations-table");
+    const stSub = $("stations-sub");
+    if (stSub) {
+      const qp = o.query_points || {};
+      const tiers = ["base", "mid", "summit"].filter(t => st[t] && qp[t]).map(t => `${t} ${(qp[t].elevation_ft || 0).toLocaleString()} ft`);
+      stSub.textContent = `Measured at the resort's own stations. Model values are ${(o.model || {}).label || "the selected forecast"}'s first hour at the matching tier${tiers.length ? ` (${tiers.join(", ")})` : ""}; Δ is station minus model.`;
+    }
     if (stEl) stEl.innerHTML = stRows.length ? `<thead><tr><th>Resort station</th><th>Temperature</th><th>Dew point</th><th>Wind</th><th>Sky</th></tr></thead><tbody>${stRows.join("")}</tbody>`
       : `<tbody><tr><td class="muted">Resort weather stations unavailable.</td></tr></tbody>`;
 
@@ -451,8 +597,15 @@
     const sp = o.sensor_point || {};
     $("points-table").innerHTML = `<thead><tr><th>Point</th><th>Lat, lon</th><th>Elevation used</th><th>Location</th><th>Used for</th></tr></thead><tbody>
       ${prow("Base", pts.base || {}, tierUse)}${prow("Mid", pts.mid || {}, tierUse)}${prow("Summit", pts.summit || {}, tierUse + "; model sounding, model comparison, NWS grid")}
-      ${o.nbm_grid_points ? ["base", "mid", "summit"].map(t => prow(`NBM grid point (${t})`, { lat: o.nbm_grid_points[t].grid_lat, lon: o.nbm_grid_points[t].grid_lon, note: "nearest 2.5 km NBM grid point; NBM values are for this point's terrain" }, "NBM values for this tier")).join("") : ""}
-      ${prow(`Sensor ${esc(sp.id || cdec.station_id || "")}`, { lat: cdec.latitude ?? sp.lat, lon: cdec.longitude ?? sp.lon, elevation_ft: cdec.elevation_ft, note: "CDEC-listed elevation; published coordinates are rounded" }, "Forecast at the sensor for verification")}
+      ${o.nbm_grid_points ? ["base", "mid", "summit"].map(t => {
+        const a = (o.nbm_elevation_adjustment || {})[t];
+        const gp = o.nbm_grid_points[t];
+        const note = a ? `nearest 2.5 km cell (terrain from the NWS grid); moved ${a.dz_ft >= 0 ? "+" : ""}${a.dz_ft.toLocaleString()} ft to the tier using ${a.neighbors} surrounding cells ${a.neighbor_elevation_ft[0].toLocaleString()}–${a.neighbor_elevation_ft[1].toLocaleString()} ft${a.extrapolation_ft > 50 ? `, ${a.extrapolation_ft} ft beyond that range` : ""}; median temperature lapse ${a.lapse_f_per_kft ? a.lapse_f_per_kft.median : "?"} °F/1,000 ft`
+          : "nearest 2.5 km NBM grid point; values are for this cell's terrain";
+        return prow(`NBM cell (${t})`, { lat: gp.grid_lat, lon: gp.grid_lon, elevation_ft: a ? a.grid_elevation_ft : gp.grid_elevation_ft, note },
+          a ? `7-day snow ${U.snow(a.snow_total_grid_in)} at the cell → ${U.snow(a.snow_total_adjusted_in)} at ${a.target_elevation_ft.toLocaleString()} ft` : "NBM values for this tier");
+      }).join("") : ""}
+      ${prow(`Sensor ${esc(sp.id || cdec.station_id || "")}`, { lat: cdec.latitude ?? sp.lat, lon: cdec.longitude ?? sp.lon, elevation_ft: cdec.elevation_ft, note: cdec.location_note || "CDEC-listed elevation" }, "Forecast at the sensor for verification")}
       ${prow(`NWS ${(nws.grid || {}).wfo || ""} base cell`, { lat: (nws.grid || {}).lat, lon: (nws.grid || {}).lon, elevation_ft: (nws.grid || {}).elevation_ft, note: `grid ${(nws.grid || {}).x ?? ""},${(nws.grid || {}).y ?? ""}; 2.5 km cell mean elevation` }, "Alerts, Area Forecast Discussion, base snowfall")}
       ${nws.summit_grid ? prow(`NWS ${nws.summit_grid.wfo} summit cell`, { lat: nws.summit_grid.lat, lon: nws.summit_grid.lon, elevation_ft: nws.summit_grid.grid_elevation_ft, note: `grid ${nws.summit_grid.x},${nws.summit_grid.y}; the crest is the REV/STO office boundary` }, "Summit-cell gridded snowfall, shown beside the model forecast (not blended)") : ""}
       </tbody>`;
@@ -505,6 +658,16 @@
       if (p.key === "t") { const fz = U.celsius() ? 0 : 32; if (fz > lo && fz < hi) s += `<line x1="${L}" x2="${L + PW}" y1="${Y(fz)}" y2="${Y(fz)}" stroke="#fbbf24" stroke-opacity=".5" stroke-dasharray="5 4"/><text x="${L + 4}" y="${Y(fz) - 4}" fill="#fcd34d" font-size="9.5">${U.celsius() ? "0 °C" : "32 °F"}</text>`; }
       if (p.key === "vis" && !hasVis) { s += `<text x="${L + PW / 2}" y="${p.top + p.h / 2}" text-anchor="middle" fill="#64748b" font-size="11">This model does not provide visibility.</text>`; return; }
       const labels = [];
+      // resort station readings at hour 0 (temperature and humidity panels)
+      if (p.key === "t" || p.key === "rh") {
+        ["base", "mid", "summit"].forEach(t => {
+          const ob = window.Obs ? Obs.forTier(state.resort, t) : null;
+          if (!ob) return;
+          const v = p.key === "t" ? tv(ob.temp_f) : ob.humidity_pct;
+          if (v == null) return;
+          s += `<rect x="${X(0) - 4}" y="${Y(v) - 4}" width="8" height="8" transform="rotate(45 ${X(0)} ${Y(v)})" fill="${TIER_COLOR[t]}" stroke="#0b1220" stroke-width="1.2"><title>${t} station ${p.key === "t" ? tF(ob.temp_f) : Math.round(v) + "%"} at ${ob.observed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</title></rect>`;
+        });
+      }
       series.forEach(se => {
         s += `<path d="${path(se.v, Y)}" fill="none" stroke="${TIER_COLOR[se.t]}" stroke-width="${se.dash ? 1.4 : 2}" ${se.dash ? 'stroke-dasharray="5 4" opacity="0.75"' : ""}/>`;
         if (!se.dash) {
@@ -523,7 +686,9 @@
       <rect id="bands-hit" x="${L}" y="${panels[0].top}" width="${PW}" height="${axisY - panels[0].top}" fill="transparent" style="cursor:crosshair"/></svg>`;
     box.innerHTML = s;
     const sub = $("bands-sub");
-    if (sub) sub.textContent = `${(o.primary_model || {}).label || ""}. 2 m values are the model's near-surface field adjusted to each elevation with a fixed lapse rate; dashed lines are the model column's free-air temperature at the same height. Where they diverge (inversions, valley cold pools) the station data in Sources shows which one matched.`;
+    const anyObs = window.Obs && ["base", "mid", "summit"].some(t => Obs.forTier(state.resort, t));
+    const pmB = o.profile_model;
+    if (sub) sub.textContent = `${(o.primary_model || {}).label || ""}. Solid: 2 m values at each tier (${o.nbm_elevation_adjustment ? "NBM cells moved to the tier height with NBM's own hourly elevation relationship" : "the model's near-surface field, lapse-rate adjusted by Open-Meteo"}). Dashed: free-air temperature at the same height in the ${pmB ? pmB.label : "model"} column. Where they diverge (inversions, valley cold pools) the station readings show which one matched.${anyObs ? " Diamonds at the left edge: resort station readings now." : ""}`;
 
     const svg = box.querySelector("svg"), hit = $("bands-hit"), cross = $("bands-cross"), tip = $("bands-tip");
     hit.addEventListener("mousemove", ev => {
@@ -543,12 +708,14 @@
   }
 
   // ---------------------------------------------------------------- wiring
-  function renderAll() { renderSkewT(); renderHabit(); renderPhase(); renderSources(); renderBands(); }
+  function renderAll() { renderSkewT(); renderHabit(); renderPhase(); renderDGZ(); renderSources(); renderBands(); }
   window.Panels = {
-    onHour(h) { state.hour = h; renderPhase(); renderHabit(); if (state.skewSrc === "model") renderSkewT(); },
+    onHour(h) { state.hour = h; renderPhase(); renderDGZ(); renderHabit(); if (state.skewSrc === "model") renderSkewT(); },
   };
   document.addEventListener("snow:render", e => { state.resort = e.detail.resort; renderAll(); });
   document.addEventListener("snow:prefs", () => { if (state.resort) renderAll(); });
+  let rsz = null;
+  window.addEventListener("resize", () => { clearTimeout(rsz); rsz = setTimeout(() => { if (state.resort) { renderPhase(); renderDGZ(); } }, 180); });
   document.addEventListener("DOMContentLoaded", () => {
     const seg = $("skewt-source");
     seg && seg.addEventListener("click", ev => {

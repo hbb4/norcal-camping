@@ -25,10 +25,10 @@ from typing import Any, Dict, List, Optional
 
 try:
     from . import http_ssl  # noqa: F401
-    from .grib2_simple import read_messages, nearest_index
+    from .grib2_simple import read_messages, nearest_index, _lambert_latlon
 except ImportError:
     import http_ssl  # noqa: F401
-    from grib2_simple import read_messages, nearest_index
+    from grib2_simple import read_messages, nearest_index, _lambert_latlon
 
 BASE = "https://nomads.ncep.noaa.gov"
 FILTER = BASE + "/cgi-bin/filter_blend.pl"
@@ -37,6 +37,7 @@ VARS = ["TMP", "DPT", "RH", "WIND", "GUST", "WDIR", "VIS", "TCDC", "APCP", "ASNO
 LEVELS = ["2_m_above_ground", "10_m_above_ground", "surface", "0_m_above_mean_sea_level"]
 HOURS = list(range(1, 49)) + list(range(54, 169, 6))
 USER_AGENT = "SierraSnowDashboard/3.0"
+CACHE_VERSION = 2   # 2: also stores every grid point in BOX (for elevation adjustment)
 M_TO_FT = 3.28084
 
 
@@ -81,11 +82,12 @@ class NBMClient:
         cache = self.cache_dir / f"nbm_{key}.json"
         if cache.exists():
             data = json.loads(cache.read_text())
-            if set(points) <= set(data.get("points", {})):
+            if set(points) <= set(data.get("points", {})) and data.get("cache_version") == CACHE_VERSION:
                 data["from_cache"] = True
                 return data
         d, h = cyc.strftime("%Y%m%d"), cyc.strftime("%H")
         out = {k: {"rows": {}} for k in points}
+        box: Dict[str, Any] = {"latlon": None, "rows": {}}
         grid_cache: Dict = {}
         idx_cache: Dict = {}
         def get(fh):
@@ -127,9 +129,15 @@ class NBMClient:
                         i, glat, glon = idx_cache[(k, gk)]
                         out[k]["grid_lat"], out[k]["grid_lon"] = round(glat, 4), round(glon, 4)
                         out[k]["rows"].setdefault(str(fh), {})[f] = m["values"][i]
+                    # the filtered file holds only the BOX subgrid, so keep all of it
+                    if box["latlon"] is None:
+                        box["latlon"] = [[round(a, 4), round(b, 4)] for a, b in _lambert_latlon(m["grid"])]
+                        box["nx"], box["ny"] = m["grid"]["nx"], m["grid"]["ny"]
+                    if len(m["values"]) == len(box["latlon"]):
+                        box["rows"].setdefault(str(fh), {})[f] = [None if v is None else round(v, 3) for v in m["values"]]
         if failures > len(HOURS) // 4:
             return {"status": "error", "error_message": f"NBM download incomplete ({failures} of {len(HOURS)} files failed)"}
-        data = {"status": "success", "cycle_utc": cyc.isoformat(), "points": out, "failures": failures,
+        data = {"status": "success", "cache_version": CACHE_VERSION, "cycle_utc": cyc.isoformat(), "points": out, "box": box, "failures": failures,
                 "fetched_at_utc": datetime.now(timezone.utc).isoformat()}
         cache.write_text(json.dumps(data))
         for old in sorted(self.cache_dir.glob("nbm_*.json"))[:-4]:

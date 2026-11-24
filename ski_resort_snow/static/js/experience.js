@@ -154,7 +154,7 @@
       <text id="dgz-label" x="96" fill="#bae6fd" font-size="11" font-weight="700" style="paint-order:stroke" stroke="#0a1426" stroke-width="3">Dendrite zone</text>
       <g class="mtn-line" id="fz-line">
         <line x1="34" x2="800" y1="0" y2="0" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6 5" opacity=".9"/>
-        <text x="712" y="-6" text-anchor="end" fill="#fcd34d" font-size="10.5" font-weight="700" id="fz-text">Freezing</text>
+        <text x="76" y="-6" text-anchor="start" fill="#fcd34d" font-size="10.5" font-weight="700" style="paint-order:stroke" stroke="#0a1426" stroke-width="3" id="fz-text">Freezing</text>
       </g>
 
 
@@ -186,7 +186,7 @@
       hatch.setAttribute("y", y1 + 3); hatch.setAttribute("height", Math.max(2, y2 - y1 - 6));
       hatch.setAttribute("opacity", cross ? 1 : 0);
       lbl.setAttribute("y", (y1 + y2) / 2 + 4);
-      lbl.textContent = `Dendrite zone · ${prof.dgz_rh_pct ?? "?"}% RH · ${cross ? "rising, flakes growing fast ✦" : (prof.dgz_lift_cm_s ?? 0) >= 0 ? "weak lift" : "sinking"}`;
+      lbl.textContent = `Dendrite zone · ${prof.dgz_rh_pct ?? "?"}% RH · ${cross ? "saturated and rising" : (prof.dgz_lift_cm_s ?? 0) >= 0 ? "weak lift" : "sinking"}`;
       $("dgz-band").style.opacity = 1; lbl.style.opacity = 1;
     } else if ($("dgz-band")) { $("dgz-band").style.opacity = 0; if (lbl) lbl.style.opacity = 0; }
 
@@ -194,7 +194,8 @@
     ["base", "mid", "summit"].forEach(t => {
       const st = (tl[t] || [])[h] || {};
       const v = $(`pill-${t}-val`); if (v) v.textContent = U.metricSnow() ? `${U.snowBare(st.cumulative_snow_inches ?? 0)} cm` : `${U.snowBare(st.cumulative_snow_inches ?? 0)} in`;
-      const tt = $(`pill-${t}-temp`); if (tt) tt.textContent = U.temp(st.temp_f);
+      const ob = h === 0 && window.Obs ? Obs.forTier(r, t) : null;
+      const tt = $(`pill-${t}-temp`); if (tt) tt.textContent = ob ? `${U.temp(ob.temp_f)} obs` : U.temp(st.temp_f);
       const d = $(`dot-${t}`); if (d) d.setAttribute("fill", { snow: "#7dd3fc", mix: "#c084fc", rain: "#4ade80", ice: "#fb7185" }[st.precip_phase] || "#475569");
       const pillEl = $(`pill-${t}`); if (pillEl) pillEl.style.opacity = t === window.__snowTier ? 1 : 0.88;
     });
@@ -211,14 +212,18 @@
     $("scene-eyebrow").textContent = `${r.short_name || r.name} · ${dayName(d)} ${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${hourName(d)} · +${h} h · ${((r.sources || {}).open_meteo || {}).model ? r.sources.open_meteo.model.label : "model"}`;
 
     const ro = $("scene-readout");
+    const obT = h === 0 && window.Obs ? Obs.forTier(r, tier) : null;
+    const pm = ((r.sources || {}).open_meteo || {}).profile_model;
     if (ro) ro.innerHTML = `
-      <span class="chip"><svg><use href="#i-wind"/></svg>${tierName} wind ${Conditions.wind(ts)}</span>
-      ${fz ? `<span class="chip">Freezing level ${fmtFt(fz)}</span>` : ""}`;
+      <span class="chip"><svg><use href="#i-wind"/></svg>${obT
+        ? `${tierName} wind (station, ${obT.observed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}) ${obT.wind_dir || ""} ${Math.round(obT.wind_mph ?? 0)} mph, gusts ${Math.round(obT.gust_mph ?? 0)}`
+        : `${tierName} wind ${Conditions.wind(ts)}`}</span>
+      ${fz ? `<span class="chip">Freezing level ${fmtFt(fz)}${pm ? ` (${pm.label})` : ""}</span>` : ""}
+      ${h === 0 && window.Obs && ["base", "mid", "summit"].some(t => Obs.forTier(r, t)) ? `<span class="chip">Temperatures at this hour: resort stations</span>` : ""}`;
 
     // scrubber UI
-    const rng = $("time-scrubber");
-    if (rng) { rng.value = h; rng.style.setProperty("--p", `${(h / Math.max(1, rng.max)) * 100}%`); }
-    $("scrub-time").textContent = h === 0 ? `Now · ${hourName(d)}` : `${dayName(d)} ${hourName(d)} · +${h}h`;
+    document.querySelectorAll(".hour-scrubber").forEach(rng => { rng.value = h; rng.style.setProperty("--p", `${(h / Math.max(1, rng.max)) * 100}%`); });
+    document.querySelectorAll("[data-scrub-time]").forEach(el => { el.textContent = h === 0 ? `Now · ${hourName(d)}` : `${dayName(d)} ${hourName(d)} · +${h}h`; });
 
     if (window.Panels) window.Panels.onHour(h);
 
@@ -233,14 +238,15 @@
   }
 
   function buildScrubDays() {
-    const box = $("scrub-days"), tl = state.tl.summit || [];
-    if (!box || !tl.length) return;
+    const tl = state.tl.summit || [];
+    if (!tl.length) return;
     const n = tl.length - 1;
-    box.innerHTML = tl.map((x, i) => {
+    const html = tl.map((x, i) => {
       const d = new Date(x.time);
       return d.getHours() === 0 ? `<span style="left:${(i / n) * 100}%">${dayName(d)}</span>` : "";
     }).join("");
-    $("time-scrubber").max = n;
+    document.querySelectorAll("[data-scrub-days]").forEach(box => { box.innerHTML = html; });
+    document.querySelectorAll(".hour-scrubber").forEach(r => { r.max = n; });
   }
 
   // ---------------------------------------------------------------- particles
@@ -568,7 +574,6 @@
   }
 
   function togglePlay(force) {
-    const btn = $("btn-play");
     const play = force ?? !state.playing;
     if (state.playing) { clearInterval(state.playing); state.playing = null; }
     if (play) {
@@ -578,7 +583,7 @@
         setHour(state.hour + 1);
       }, 260);
     }
-    if (btn) btn.innerHTML = `<svg><use href="#i-${state.playing ? "pause" : "play"}"/></svg>`;
+    document.querySelectorAll("[data-play]").forEach(btn => { btn.innerHTML = `<svg><use href="#i-${state.playing ? "pause" : "play"}"/></svg>`; });
   }
 
   function onRender(e) {
@@ -601,9 +606,8 @@
 
   function setupChrome() {
     // scrubber
-    const rng = $("time-scrubber");
-    rng && rng.addEventListener("input", () => { togglePlay(false); setHour(+rng.value); });
-    $("btn-play") && $("btn-play").addEventListener("click", () => togglePlay());
+    document.querySelectorAll(".hour-scrubber").forEach(rng => rng.addEventListener("input", () => { togglePlay(false); setHour(+rng.value); }));
+    document.querySelectorAll("[data-play]").forEach(b => b.addEventListener("click", () => togglePlay()));
     $("best-when") && $("best-when").addEventListener("click", e => { const h = e.currentTarget.dataset.hour; if (h != null) setHour(+h); });
 
     // snow toggle (persisted per viewer)
@@ -690,6 +694,7 @@
   }
 
   document.addEventListener("snow:render", onRender);
+  document.addEventListener("snow:sethour", e => { togglePlay(false); setHour(e.detail.hour); });
   document.addEventListener("snow:tier", e => {
     window.__snowTier = e.detail.tier;
     if (state.resort) { renderOutlook(state.resort); updateScene(state.hour); }

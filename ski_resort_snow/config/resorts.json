@@ -51,7 +51,7 @@
       "cdec_station": {
         "station_id": "SQV",
         "station_name": "Squaw Valley Gold Coast",
-        "elevation_ft": 8200,
+        "elevation_ft": 8010,
         "county": "Placer",
         "basin": "Truckee",
         "sensors": {
@@ -59,8 +59,9 @@
           "snow_depth_sensor": 18,
           "air_temp_sensor": 4
         },
-        "latitude": 39.194,
-        "longitude": -120.276
+        "latitude": 39.18986,
+        "longitude": -120.26576,
+        "location_note": "NRCS AWDB 784:CA:SNTL location and elevation (the station owner); CDEC lists 8,200 ft at 39.194, -120.276"
       },
       "snotel_site": {
         "site_id": 784,
@@ -115,6 +116,24 @@
           "view": "Village plaza, Funitel base, and tram building",
           "embed_page": "https://www.palisadestahoe.com/mountain-information/webcams"
         }
+      ],
+      "priority_lifts": [
+        "Siberia",
+        "KT-22",
+        "Headwall",
+        "Emigrant",
+        "Granite Chief",
+        "Silverado",
+        "Shirley Lake",
+        "Gold Coast",
+        "Far East",
+        "Wa She Shu",
+        "Red Dog",
+        "Resort Chair",
+        "Solitude",
+        "Base to Base",
+        "Aerial Tram",
+        "Funitel"
       ]
     },
     {
@@ -215,6 +234,17 @@
           "view": "Alpine ridge line looking into Wolverine Bowl and Beaver Bowl",
           "embed_page": "https://www.palisadestahoe.com/mountain-information/webcams"
         }
+      ],
+      "priority_lifts": [
+        "Summit",
+        "Roundhouse",
+        "Treeline Cirque",
+        "Scott",
+        "Sherwood Express",
+        "Alpine Bowl Chair",
+        "Lakeview",
+        "Yellow",
+        "Base to Base"
       ]
     }
   ],

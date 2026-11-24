@@ -36,3 +36,6 @@ ski_resort_snow/data/models/
 
 # NBM cycle cache
 ski_resort_snow/data/cache/
+
+# CSSL calibration data written by cssl_sync.py (local, regenerated or appended by cron)
+ski_resort_snow/data/tuning/

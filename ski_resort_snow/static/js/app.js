@@ -153,6 +153,31 @@ function setupTabs() {
   });
 }
 
+/* ---------------- Observations for the T=0 frame ----------------
+   Resort weather stations (base, mid, summit) from the resort feed. Used only at
+   hour 0 and only when the reading is recent; every later hour uses the forecast. */
+const Obs = {
+  forTier(resort, tier, maxAgeMin = 90) {
+    const st = ((((resort || {}).sources || {}).resort_official || {}).weather_stations || {})[tier];
+    if (!st || st.temp_f == null || !st.observed_at) return null;
+    const t = new Date(String(st.observed_at).replace(/([+-]\d{2})(\d{2})$/, "$1:$2"));
+    const age = (Date.now() - t) / 60000;
+    if (!(age >= -15 && age <= maxAgeMin)) return null;
+    return { ...st, observed: t, age_min: Math.max(0, Math.round(age)) };
+  },
+  wetBulbF(tf, tdf, elevFt) {
+    if (tf == null || tdf == null) return null;
+    const p = 1013.25 * Math.pow(1 - 2.25577e-5 * elevFt * 0.3048, 5.25588);
+    const t = (tf - 32) * 5 / 9, td = (tdf - 32) * 5 / 9;
+    const es = x => 6.112 * Math.exp(17.67 * x / (x + 243.5));
+    const e = es(td);
+    let lo = td, hi = t;
+    for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; (es(m) - 6.6e-4 * p * (t - m) > e) ? (hi = m) : (lo = m); }
+    return ((lo + hi) / 2) * 9 / 5 + 32;
+  },
+};
+window.Obs = Obs;
+
 /* ---------------- Forecast model selection ----------------
    The main dataset carries the default model (NBM). Other models live in
    data/models/<resort>/<model>.json and are loaded when selected. */
@@ -208,7 +233,8 @@ function renderModelBar(resort) {
   const note = document.getElementById("model-note");
   const gp = om.nbm_grid_points;
   const shared = gp && gp.mid && gp.summit && gp.mid.grid_lat === gp.summit.grid_lat && gp.mid.grid_lon === gp.summit.grid_lon;
-  if (note) note.textContent = resort._modelError || `${(om.primary_model || {}).label || ""} · ${(om.model || {}).hours_available ?? "?"} h · fetched ${Fmt.ago(om.fetched_at_utc)}${shared ? " · mid and summit share one 2.5 km grid point" : ""}`;
+  const adjNote = om.nbm_elevation_adjustment ? " · values moved from the 2.5 km cells to each tier's elevation" : (shared ? " · mid and summit share one 2.5 km grid point" : "");
+  if (note) note.textContent = resort._modelError || `${(om.primary_model || {}).label || ""} · ${(om.model || {}).hours_available ?? "?"} h · fetched ${Fmt.ago(om.fetched_at_utc)}${adjNote}`;
 }
 
 let renderSeq = 0;
@@ -300,13 +326,44 @@ function renderKPIs(resort) {
   const srcNote = document.getElementById("range-source");
   const nMem = (c.range_source && (c.range_source.match(/\((\d+) members/) || [])[1]) || null;
   if (srcNote) srcNote.textContent = nMem ? `Shapes: ${nMem} ensemble members (GEFS, ECMWF ENS, ICON-EPS), each converted to snow with the ${(om.model || {}).label || "selected model"}'s hourly snow fraction and snow/liquid ratio. Tick: ${(om.model || {}).label || "model"} value. Axis is fixed across models and elevations.` : "Ensemble unavailable.";
-  const nwsEl = document.getElementById("nws-line");
+  // Tier comparison: selected model and NWS, both at the tier elevation
+  const tc = document.getElementById("tier-compare");
   const ng = c.nws_gridded || {};
-  const sn = v => `${U.snowBare(v ?? 0)} ${U.snowAxisUnit()}`;
-  const thru = iso => { if (!iso) return ""; const d = new Date(iso); return ` through ${d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "America/Los_Angeles" })}, ${d.toLocaleTimeString("en-US", { hour: "numeric", timeZone: "America/Los_Angeles" })}`; };
-  const cellTxt = cl => cl && cl.office ? `${cl.office} cell ${cl.elevation_ft ? cl.elevation_ft.toLocaleString() + " ft" : ""}: 24 h ${sn(cl["24h"])}, 48 h ${sn(cl["48h"])}, ${sn(cl.total)}${thru(cl.through_utc) || " grid total"}` : null;
-  if (nwsEl) nwsEl.textContent = [cellTxt(ng.summit_cell), cellTxt(ng.base_cell)].filter(Boolean).length
-    ? `NWS gridded forecast (shown separately, not blended): ${[cellTxt(ng.summit_cell), cellTxt(ng.base_cell)].filter(Boolean).join(" · ")}` : "";
+  const nt = ng.tiers || {};
+  const elv = resort.elevations || {};
+  const sn = v => (v == null ? "–" : `${U.snowBare(v)} ${U.snowAxisUnit()}`);
+  const thruIso = (nt.summit || {}).through_utc || (ng.summit_cell || {}).through_utc;
+  const thruTxt = thruIso ? new Date(thruIso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Los_Angeles" }) : "end";
+  const label = (om.model || {}).label || "Model";
+  if (tc) {
+    const row = t => {
+      const m = om[t] || {}, w = nt[t] || {};
+      const v = k => (w[k] || {}).value;
+      return `<tr><td><b>${{ base: "Base", mid: "Mid", summit: "Summit" }[t]}</b><small>${(elv[`${t}_ft`] || 0).toLocaleString()} ft</small></td>
+        <td>${sn(m.snow_24h_inches)}</td><td>${sn(m.snow_48h_inches)}</td><td>${sn(m.snow_7d_total_inches)}</td>
+        <td>${sn(v("24h"))}</td><td>${sn(v("48h"))}</td><td>${sn(v("total"))}</td></tr>`;
+    };
+    tc.innerHTML = `<thead><tr><th></th><th colspan="3" class="grp">${label}</th><th colspan="3" class="grp">NWS gridded</th></tr>
+      <tr><th></th><th>24 h</th><th>48 h</th><th>7 d</th><th>24 h</th><th>48 h</th><th>to ${thruTxt}</th></tr></thead>
+      <tbody>${row("summit")}${row("mid")}${row("base")}</tbody>`;
+  }
+  const nwsEl = document.getElementById("nws-line");
+  if (nwsEl) {
+    const adj = om.nbm_elevation_adjustment;
+    const parts = [];
+    if (adj) {
+      const cells = ["base", "mid", "summit"].filter(t => adj[t]).map(t => `${t} ${adj[t].grid_elevation_ft.toLocaleString()} ft`).join(", ");
+      const ex = ["summit", "mid", "base"].filter(t => adj[t] && adj[t].extrapolation_ft > 50).map(t => `${t} ${adj[t].extrapolation_ft.toLocaleString()} ft beyond the nearest-cell height range`);
+      parts.push(`NBM cells (${cells}) are moved to each tier height using NBM's own relationship with terrain height across the ~25 surrounding cells, refit every hour${ex.length ? `; ${ex.join(", ")}` : ""}.`);
+    }
+    if (nt.summit && nt.summit.total) parts.push(`NWS values: the same regression on the NWS forecast's own neighboring cells (${nt.summit.total.cells} cells; NWS cell at the summit point ${(nt.summit.total.cell_elevation_ft || 0).toLocaleString()} ft, ${sn(nt.summit.total.cell_value)} unadjusted). NWS is shown beside the model and is not blended into it.`);
+    else {
+      const cellTxt = cl => cl && cl.office ? `${cl.office} cell ${cl.elevation_ft ? cl.elevation_ft.toLocaleString() + " ft" : ""}: 24 h ${sn(cl["24h"])}, 48 h ${sn(cl["48h"])}, ${sn(cl.total)} to ${thruTxt}` : null;
+      const cl = [cellTxt(ng.summit_cell), cellTxt(ng.base_cell)].filter(Boolean);
+      if (cl.length) parts.push(`NWS gridded forecast at its grid cells (not elevation-adjusted, not blended): ${cl.join(" · ")}`);
+    }
+    nwsEl.textContent = parts.join(" ");
+  }
   renderDistribution(resort);
   const pdef = document.getElementById("powder-def");
   if (pdef && c.powder_score_definition) pdef.title = c.powder_score_definition;
@@ -370,62 +427,59 @@ function renderDistribution(resort) {
   const c = resort.consensus_forecast || {};
   const om = resort.sources.open_meteo || {};
   const sc = (om.scales || {}).distribution_in;
-  const rows = [["24h", "h24", "24 h"], ["48h", "h48", "48 h"], ["7d", "d7", "7 days"]];
-  const tiers = [["summit", "#7dd3fc", "Summit"], ["base", "#fbbf24", "Base"]];
+  const periods = [["24h", "h24", "24 h"], ["48h", "h48", "48 h"], ["7d", "d7", "7 days"]];
+  // base on the left of each center line, summit on the right
+  const sides = [["base", "#fbbf24", "Base", -1], ["summit", "#7dd3fc", "Summit", 1]];
   const unit = U.snowAxisUnit();
   const fmt = v => `${U.snowBare(v ?? 0)} ${unit}`;
-  // Fixed axis from the server (95th percentile of members across all models, or the largest model value),
-  // so it never changes with the model; members beyond it are counted at the right edge.
-  const allMax = sc ? Math.max(1, sc) : Math.max(1, ...rows.flatMap(([k, m]) => tiers.flatMap(([t]) => [((c[t] || {})[k] || {}).value || 0, ...((((c[t] || {}).members || {})[m]) || [])])));
-  // Draw at the container's real pixel width so text stays at its set size.
-  const W = Math.max(280, Math.round(box.clientWidth || 360));
-  const narrow = W < 420;
-  const L = narrow ? 44 : 60, R = 8, rowH = narrow ? 70 : 86, top = 18, PW = W - L - R;
+  const allMax = sc ? Math.max(1, sc) : Math.max(1, ...periods.flatMap(([k, m]) => sides.flatMap(([t]) => [((c[t] || {})[k] || {}).value || 0, ...((((c[t] || {}).members || {})[m]) || [])])));
   const dt = document.getElementById("dist-title");
   const nMembers = ((c.summit || {}).members || {}).d7 ? c.summit.members.d7.length : 0;
   if (dt) dt.textContent = `${nMembers ? nMembers + " ensemble members" : "Ensemble"} vs. ${(om.model || {}).label || "selected model"}, next 24 h, 48 h and 7 days`;
-  const H = top + rows.length * rowH + 20;
+
+  const W = Math.max(280, Math.round(box.clientWidth || 360));
+  const L = 40, R = 6, T = 22, PH = 170, labH = 50, H = T + PH + labH;
+  const gap = W < 480 ? 8 : 18;
+  const pw = (W - L - R - gap * 2) / 3;
   const maxIn = (() => { const v = U.snowNum(allMax) * 1.05; const st = niceStep(v, 4); return Math.ceil(v / st) * st; })();
-  const X = inches => L + PW * Math.min(1, U.snowNum(inches) / maxIn);
+  const Y = v => T + PH * (1 - Math.min(1, v / maxIn));
   let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" font-family="var(--font-sans)">`;
-  const tickStep = niceStep(maxIn, narrow ? 3 : 4);
+  const tickStep = niceStep(maxIn, 4);
   for (let v = 0; v <= maxIn + 1e-6; v += tickStep) {
-    const x = L + PW * v / maxIn;
-    const last = v + tickStep > maxIn + 1e-6;
-    s += `<line x1="${x}" x2="${x}" y1="${top}" y2="${top + rows.length * rowH}" stroke="rgba(255,255,255,0.06)"/>
-      <text x="${x}" y="${H - 4}" text-anchor="${last ? "end" : "middle"}" fill="#94a3b8" font-size="11" style="font-variant-numeric:tabular-nums">${+v.toFixed(1)}${last ? " " + unit : ""}</text>`;
+    s += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="rgba(255,255,255,${v === 0 ? 0.18 : 0.06})"/>
+      <text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" fill="#94a3b8" font-size="11" style="font-variant-numeric:tabular-nums">${+v.toFixed(1)}</text>`;
   }
-  rows.forEach(([k, mk, label], r) => {
-    const y0 = top + r * rowH + rowH / 2;
-    s += `<line x1="${L}" x2="${L + PW}" y1="${y0}" y2="${y0}" stroke="rgba(255,255,255,0.18)"/>
-      <text x="${L - 8}" y="${y0 + 4}" text-anchor="end" fill="#cbd5e1" font-size="12" font-weight="600">${label}</text>`;
-    tiers.forEach(([t, col], ti) => {
+  s += `<text x="${L - 6}" y="${T - 10}" text-anchor="end" fill="#64748b" font-size="10">${unit}</text>`;
+  periods.forEach(([k, mk, label], pi) => {
+    const x0 = L + pi * (pw + gap), cx = x0 + pw / 2, hw = pw / 2 - 4;
+    s += `<line x1="${cx}" x2="${cx}" y1="${T}" y2="${T + PH}" stroke="rgba(255,255,255,0.22)"/>`;
+    sides.forEach(([t, col, , dir]) => {
       const mem = (((c[t] || {}).members || {})[mk]) || [];
-      const dir = ti === 0 ? -1 : 1, hMax = rowH / 2 - 8;
       if (mem.length >= 5) {
-        // Gaussian kernel density, bandwidth from Silverman's rule with a floor of 2% of the axis,
-        // reflected at zero so the curve does not leak below 0.
+        // Gaussian kernel density (Silverman bandwidth, floor 2% of the axis), reflected at zero
         const vals = mem.map(v => U.snowNum(v)).sort((a, b) => a - b);
         const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
         const sd = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length);
         const bw = Math.max(maxIn * 0.02, 1.06 * sd * Math.pow(vals.length, -0.2));
-        const n = 160;
-        const xs = Array.from({ length: n + 1 }, (_, i) => maxIn * i / n);
-        const dens = xs.map(x => vals.reduce((a, v) => a + Math.exp(-0.5 * ((x - v) / bw) ** 2) + Math.exp(-0.5 * ((x + v) / bw) ** 2), 0));
+        const n = 140;
+        const ys = Array.from({ length: n + 1 }, (_, i) => maxIn * i / n);
+        const dens = ys.map(y => vals.reduce((a, v) => a + Math.exp(-0.5 * ((y - v) / bw) ** 2) + Math.exp(-0.5 * ((y + v) / bw) ** 2), 0));
         const dmax = Math.max(...dens) || 1;
-        const pts = xs.map((x, i) => `${(L + PW * x / maxIn).toFixed(1)},${(y0 + dir * hMax * dens[i] / dmax).toFixed(1)}`);
-        s += `<path d="M${L},${y0} L${pts.join(" L")} L${L + PW},${y0} Z" fill="${col}" fill-opacity="${ti === 0 ? 0.32 : 0.22}" stroke="${col}" stroke-width="1.3"/>`;
-        const beyond = vals.filter(v => v > maxIn).length;
-        if (beyond) s += `<text x="${L + PW - 2}" y="${y0 + dir * (hMax - 2) + (dir > 0 ? 0 : 8)}" text-anchor="end" fill="${col}" font-size="11">${beyond} member${beyond > 1 ? "s" : ""} > ${+maxIn.toFixed(0)} ${unit} ▸</text>`;
+        const pts = ys.map((y, i) => `${(cx + dir * hw * dens[i] / dmax).toFixed(1)},${Y(y).toFixed(1)}`);
+        s += `<path d="M${cx},${Y(0)} L${pts.join(" L")} L${cx},${Y(maxIn)} Z" fill="${col}" fill-opacity="${t === "summit" ? 0.3 : 0.24}" stroke="none"/>
+          <path d="${pts.map((q, i) => dens[i] / dmax > 0.004 ? q : null).reduce((acc, q, i, arr) => q ? acc + (arr[i - 1] ? " L" : " M") + q : acc, "").trim()}" fill="none" stroke="${col}" stroke-width="1.2"/>`;
         const med = vals[Math.floor(vals.length / 2)];
-        s += `<circle cx="${L + PW * Math.min(1, med / maxIn)}" cy="${y0 + dir * 4}" r="3" fill="${col}" stroke="#0b1220" stroke-width="1"/>`;
+        s += `<circle cx="${cx + dir * 5}" cy="${Y(med)}" r="3" fill="${col}" stroke="#0b1220" stroke-width="1"><title>${t} ensemble median ${fmt(med)}</title></circle>`;
+        const beyond = vals.filter(v => v > maxIn).length;
+        if (beyond) s += `<text x="${cx + dir * 4}" y="${T + 10}" text-anchor="${dir < 0 ? "end" : "start"}" fill="${col}" font-size="10">▲ ${beyond}</text>`;
       }
       const v = ((c[t] || {})[k] || {}).value;
-      if (v != null) s += `<line x1="${X(v)}" x2="${X(v)}" y1="${y0}" y2="${y0 + dir * (hMax + 3)}" stroke="#f8fafc" stroke-width="2"/>`;
+      if (v != null) s += `<line x1="${cx}" x2="${cx + dir * hw * 0.85}" y1="${Y(U.snowNum(v))}" y2="${Y(U.snowNum(v))}" stroke="#f8fafc" stroke-width="2"><title>${t} ${(om.model || {}).label || "model"} ${fmt(v)}</title></line>`;
     });
-    const sv = ((c.summit || {})[k] || {}).value, bv = ((c.base || {})[k] || {}).value;
-    s += `<text x="${L + PW}" y="${y0 - rowH / 2 + 12}" text-anchor="end" font-size="12" style="font-variant-numeric:tabular-nums">
-        <tspan fill="#7dd3fc">Summit ${fmt(sv)}</tspan><tspan fill="#64748b"> · </tspan><tspan fill="#fbbf24">Base ${fmt(bv)}</tspan></text>`;
+    const by = T + PH + 16;
+    s += `<text x="${cx}" y="${by}" text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="650">${label}</text>
+      <text x="${cx}" y="${by + 15}" text-anchor="middle" font-size="11" style="font-variant-numeric:tabular-nums" fill="#fbbf24">Base ${fmt(((c.base || {})[k] || {}).value)}</text>
+      <text x="${cx}" y="${by + 29}" text-anchor="middle" font-size="11" style="font-variant-numeric:tabular-nums" fill="#7dd3fc">Summit ${fmt(((c.summit || {})[k] || {}).value)}</text>`;
   });
   box.innerHTML = s + "</svg>";
 }
@@ -526,15 +580,16 @@ function renderHourlyDualAxisChart(resort) {
   const tierFt = elevs[`${currentTier}_ft`];
   const sub = document.getElementById("chart-tier-subtitle");
   const isNBM = (om.model || {}).id === "nbm";
-  if (sub) sub.textContent = `${TIER_LABEL[currentTier]} (${tierFt ? tierFt.toLocaleString() + " ft" : "--"}). Elevation selector is in the 7-day section. ${isNBM ? "Snowfall is the NBM's own snowfall field (its snow/liquid ratio and phase), at the nearest 2.5 km grid point" : "Snowfall uses the unadjusted Cobb-style snow/liquid ratio"}; wind is at this elevation.`;
+  if (sub) sub.textContent = `${TIER_LABEL[currentTier]} (${tierFt ? tierFt.toLocaleString() + " ft" : "--"}). ${isNBM ? (om.nbm_elevation_adjustment ? "Snowfall is the NBM's own snowfall field, moved from its 2.5 km cell to this elevation with NBM's hourly elevation relationship" : "Snowfall is the NBM's own snowfall field at the nearest 2.5 km grid point") : "Snowfall uses the unadjusted Cobb-style snow/liquid ratio"}; wind is at this elevation.`;
   const lgs = document.getElementById("legend-snow"); if (lgs) lgs.textContent = isNBM ? "Snowfall (NBM snowfall field)" : "Snowfall (Cobb-style SLR, unadjusted)";
   const lgr = document.getElementById("legend-raw"); if (lgr) lgr.style.display = isNBM ? "none" : "";
   const ceb = document.getElementById("chart-eyebrow");
   if (ceb) ceb.textContent = `Model: ${(om.primary_model || {}).label || ""} · ${tl.length} h · fetched ${Fmt.ago(om.fetched_at_utc)}`;
-  ["base", "mid", "summit"].forEach(t => {
-    const el = document.getElementById(`btn-${t}-elev`);
-    if (el && elevs[`${t}_ft`]) el.textContent = `${elevs[`${t}_ft`].toLocaleString()}'`;
+  document.querySelectorAll("[data-tier-elev]").forEach(el => {
+    const ft = elevs[`${el.dataset.tierElev}_ft`];
+    if (ft) el.textContent = `${ft.toLocaleString()} ft`;
   });
+  const fdl = document.getElementById("fan-det-label"); if (fdl) fdl.textContent = `${(om.model || {}).label || "Selected model"} (deterministic)`;
 
   if (!tl.length) {
     container.innerHTML = `<p style="padding:30px;color:#94a3b8;text-align:center;">Hourly timeline data unavailable.</p>`;
@@ -627,8 +682,8 @@ function renderHourlyDualAxisChart(resort) {
   // ---- Panel 2: hourly rate ----
   {
     const p = panels.rate; title(p);
-    const maxRate = (om.scales || {}).rate_in_hr != null ? U.snowNum(om.scales.rate_in_hr) : Math.max(...tl.map(x => U.snowNum(x.snowfall_rate_in_hr || 0)));
-    const ax = niceAxis(maxRate, U.snowNum(1), 2);
+    // Fixed 0-3 in/hr (0-7.5 cm/hr): rates above that are rare; a bar that exceeds it is capped and marked.
+    const ax = U.metricSnow() ? { max: 7.5, step: 2.5 } : { max: 3, step: 1 };
     for (let v = 0; v <= ax.max + 1e-6; v += ax.step) grid(p, v, ax.max, `${+v.toFixed(2)}`, v === 0);
     const bw = Math.max(3, step - 3);
     tl.forEach((x, i) => {
@@ -636,6 +691,7 @@ function renderHourlyDualAxisChart(resort) {
       if (r <= 0) return;
       const h = Math.max(1.5, p.h * Math.min(r, ax.max) / ax.max);
       s += `<rect x="${xOf(i) + 1.5}" y="${p.top + p.h - h}" width="${bw}" height="${h}" rx="2" fill="#f8fafc" fill-opacity="${0.55 + 0.45 * (x.snow_fraction ?? 1)}"/>`;
+      if (r > ax.max) s += `<path d="M${xOf(i) + 1.5},${p.top - 1} l${bw / 2},-5 l${bw / 2},5 Z" fill="#fbbf24"><title>${U.snow(x.snowfall_rate_in_hr)}/hr</title></path>`;
     });
     const tot24 = tl.slice(0, 24).reduce((a, x) => a + (x.snowfall_rate_in_hr || 0), 0);
     s += `<text x="${padL + plotW + 6}" y="${p.top + 12}" fill="#cbd5e1" font-size="10">Next 24h</text>`;
@@ -848,7 +904,12 @@ function renderSounding(resort) {
   const set = (id, v, html) => { const el = document.getElementById(id); if (el && v != null) el[html ? "innerHTML" : "textContent"] = v; };
   const width = (id, pct, left) => { const el = document.getElementById(id); if (el) { el.style.width = `${Math.max(0, Math.min(100, pct))}%`; if (left != null) el.style.left = `${left}%`; } };
   const eb = document.getElementById("atmo-eyebrow");
-  if (eb) { const q = (om.query_points || {}).summit || {}; eb.textContent = `Model sounding (${(om.primary_model || {}).label || "HRRR → GFS"}) at ${q.lat ?? "?"}, ${q.lon ?? "?"} · cards: ${snd.basis || "next 24 h"}`; }
+  if (eb) {
+    const q = (om.query_points || {}).summit || {}, pm = om.profile_model;
+    eb.textContent = pm
+      ? `Column: ${pm.label} at ${q.lat ?? "?"}, ${q.lon ?? "?"} (${(om.model || {}).label} has no vertical profile) · snow level and surface values: ${(om.model || {}).label}`
+      : `Model sounding (${(om.primary_model || {}).label || "model"}) at ${q.lat ?? "?"}, ${q.lon ?? "?"}`;
+  }
 
   // DGZ
   const badge = document.getElementById("dgz-badge");
@@ -1171,12 +1232,26 @@ function renderLiftsAndOperations(resort) {
     lifts.sort((a, b) => (isExposed(b.name) - isExposed(a.name)) || (order[statusCls(a.status)] - order[statusCls(b.status)]) || a.name.localeCompare(b.name));
     if (sub) sub.textContent = `Resort lift status${rep.status === "stale" ? " (stale)" : ""}: ${rep.lifts_open} of ${rep.lifts_total} open or scheduled; operations ${(rep.operating_status || "n/a").toLowerCase()}. ` +
       `Wind-exposed lifts also show the peak daytime (8 AM–4 PM) summit gust forecast for the next 24 h${peakRow.time ? ` (${new Date(peakRow.time).toLocaleString([], { weekday: "short", hour: "numeric" })})` : ""}: 45–64 mph intermittent holds possible, ≥ 65 mph holds likely.`;
-    grid.innerHTML = lifts.map(l => {
+    const card = l => {
       const exp = isExposed(l.name);
       return `<div class="lift-item"><div><b>${l.name}</b><small>${l.type || ""} · ${l.area || ""}</small></div>
         <div class="lift-tags"><span class="lift-status-tag st-${statusCls(l.status)}">${(l.status || "unknown").toLowerCase()}</span>
         ${exp ? `<span class="lift-status-tag tag-${gustLevel}" title="Wind-exposed lift">${gustLabel}</span>` : ""}</div></div>`;
-    }).join("");
+    };
+    // Priority lifts in the configured order (prefix match on the feed name), the rest behind an expander
+    const pri = resort.priority_lifts || [];
+    const used = new Set();
+    const first = [];
+    pri.forEach(p => {
+      const hit = lifts.find(l => !used.has(l.name) && l.name.toLowerCase().startsWith(p.toLowerCase()));
+      if (hit) { used.add(hit.name); first.push(hit); }
+    });
+    const rest = lifts.filter(l => !used.has(l.name));
+    const openDetails = grid.querySelector("details.lift-more");
+    const wasOpen = openDetails ? openDetails.open : false;
+    grid.innerHTML = (first.length ? first : lifts).map(card).join("") +
+      (first.length && rest.length ? `<details class="lift-more"${wasOpen ? " open" : ""}><summary>All other lifts (${rest.length}) · ${rest.filter(l => ["open", "sched"].includes(statusCls(l.status))).length} open or scheduled</summary>
+        <div class="lift-grid lift-grid-inner">${rest.map(card).join("")}</div></details>` : "");
   } else {
     if (sub) sub.textContent = `Resort lift status unavailable. Peak daytime summit gust forecast, next 24 h: ${Math.round(peak)} mph (45–64 intermittent holds possible, ≥ 65 holds likely).`;
     grid.innerHTML = exposedNames.map(n => `<div class="lift-item"><div><b>${n}</b><small>wind-exposed</small></div><span class="lift-status-tag tag-${gustLevel}">${gustLabel}</span></div>`).join("");

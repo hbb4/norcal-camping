@@ -269,3 +269,428 @@ class TestNBM(unittest.TestCase):
         self.assertAlmostEqual(late[0]["precip_in"], 0.1, places=3)
         self.assertAlmostEqual(late[0]["snowfall_rate_in_hr"], 1.2, places=2)
         self.assertTrue(late[0]["interpolated"])
+
+
+class TestNBMDownscale(unittest.TestCase):
+    """Synthetic NBM box where temperature falls 3 F and 6 h snowfall rises 0.5 in per
+    1,000 ft: the adjustment must recover those gradients at a target above its cell."""
+
+    def _box(self):
+        import math
+        lats = [39.15 + 0.02 * j for j in range(5)]
+        lons = [-120.30 + 0.025 * i for i in range(5)]
+        ll, z = [], {}
+        for a in lats:
+            for b in lons:
+                ll.append([round(a, 4), round(b, 4)])
+                # terrain: a smooth hill, 6,000-8,600 ft
+                elev = 6000 + 2600 * math.exp(-(((a - 39.19) / 0.03) ** 2 + ((b - (-120.25)) / 0.04) ** 2))
+                z[f"{a:.4f},{b:.4f}"] = {"elevation_ft": round(elev)}
+        rows = {}
+        for fh in (1, 2, 3, 4, 5, 6):
+            t_k, d_k, ap, asn, slr = [], [], [], [], []
+            for a, b in ll:
+                e = z[f"{a:.4f},{b:.4f}"]["elevation_ft"]
+                tf = 40 - 3.0 * (e - 6000) / 1000
+                t_k.append((tf - 32) * 5 / 9 + 273.15)
+                d_k.append((tf - 8 - 32) * 5 / 9 + 273.15)
+                ap.append(2.54)                                   # 0.1 in liquid per hour
+                snow_in = max(0.0, (0.5 / 6) * (e - 6000) / 1000)  # snow grows with height
+                asn.append(snow_in / 39.3701)
+                slr.append(10.0)
+            rows[str(fh)] = {"tmp_k": t_k, "dpt_k": d_k, "apcp_1h": ap, "asnow_1h": asn, "slr": slr,
+                             "pop_1h": [90] * len(ll), "snowlvl_m": [1500] * len(ll)}
+        return {"cycle_utc": "2026-11-24T00:00:00+00:00", "box": {"latlon": ll, "rows": rows}}, z
+
+    def test_gradients_recovered(self):
+        from datetime import datetime, timezone
+        from collectors.nbm_client import NBMClient
+        from collectors.nbm_downscale import Downscaler
+        nbm, terrain = self._box()
+        ds = Downscaler(nbm, terrain, NBMClient.to_steps)
+        self.assertTrue(ds.ok)
+        start = datetime(2026, 11, 24, 0, tzinfo=timezone.utc)
+        steps, diag = ds.adjust(39.19, -120.25, 9000, start)
+        self.assertEqual(len(steps), 6)
+        dz = 9000 - diag["grid_elevation_ft"]
+        cell_t = 40 - 3.0 * (diag["grid_elevation_ft"] - 6000) / 1000
+        self.assertAlmostEqual(steps[0]["temp_f"], cell_t - 3.0 * dz / 1000, delta=0.3)
+        self.assertAlmostEqual(diag["lapse_f_per_kft"]["median"], -3.0, delta=0.05)
+        # 6 h snow at 9,000 ft from the synthetic rule: 0.5 in per 1,000 ft above 6,000 ft
+        self.assertAlmostEqual(diag["snow_total_adjusted_in"], 1.5, delta=0.1)
+        self.assertGreater(diag["snow_total_adjusted_in"], diag["snow_total_grid_in"])
+        # liquid has no elevation dependence, so it must stay put
+        self.assertAlmostEqual(diag["liquid_total_adjusted_in"], diag["liquid_total_grid_in"], delta=0.02)
+
+    def test_regress_values(self):
+        from collectors.nbm_client import NBMClient
+        from collectors.nbm_downscale import Downscaler
+        nbm, terrain = self._box()
+        ds = Downscaler(nbm, terrain, NBMClient.to_steps)
+        vals = {i: 2.0 + 1.0 * (ds.z[i] - 6000) / 1000 for i in range(len(ds.ll))}
+        r = ds.regress_values(vals, 39.19, -120.25, 9000)
+        self.assertAlmostEqual(r["value"], 5.0, delta=0.15)
+        self.assertAlmostEqual(r["slope_per_kft"], 1.0, delta=0.05)
+
+
+class TestCSSL(unittest.TestCase):
+    """Snow Lab home page parsing: daily series from the embedded props, board reading from the text."""
+
+    def _html(self):
+        props = {"snowfallData": [{"dayIndex": 1, "date": "2026-10-01", "current": None},
+                                  {"dayIndex": 2, "date": "2026-10-02", "current": 2.0},
+                                  {"dayIndex": 3, "date": "2026-10-03", "current": 5.0}],
+                 "precipitationData": [{"dayIndex": 1, "date": "2026-10-01", "current": 0.1},
+                                       {"dayIndex": 2, "date": "2026-10-02", "current": 0.4},
+                                       {"dayIndex": 3, "date": "2026-10-03", "current": 0.9}],
+                 "sweData": [{"dayIndex": i, "date": f"10-0{i}", "current": 0.1 * i} for i in (1, 2, 3)]}
+        chunk = json.dumps(json.dumps(props))   # page embeds the props as an escaped JS string
+        return ("<html><body><span>Snowfall data last updated Oct 3, 8:11 AM PST</span>"
+                "<div>24-Hour Snowfall</div><div>3 in</div><div>24-Hour Snowfall SWE</div><div>0.3 in</div>"
+                "<div>7-Day Snowfall</div><div>5 in</div><div>Current Temperature</div><div>28.4°F</div>"
+                f"<script>self.__next_f.push([1,{chunk}])</script></body></html>")
+
+    def test_parse_home(self):
+        from datetime import date
+        from collectors.cssl_client import parse_home
+        r = parse_home(self._html(), today=date(2026, 10, 3))
+        self.assertEqual(r["water_year"], 2027)
+        self.assertEqual([d["snow_new_in"] for d in r["daily"]], [None, 2.0, 3.0])
+        self.assertEqual([d["precip_new_in"] for d in r["daily"]], [0.1, 0.3, 0.5])
+        b = r["board"]
+        self.assertEqual((b["snow_24h_in"], b["snow_24h_swe_in"], b["snow_7d_in"], b["temp_f"]), (3.0, 0.3, 5.0, 28.4))
+        self.assertEqual(b["board_updated_pst"], "2026-10-03T08:11:00-08:00")
+
+    def test_import_archive(self):
+        """Dryad quirks: byte-order mark, an unnamed duplicate column, 'T' traces, '1,003' season totals, '--'."""
+        import csv as csvmod
+        import os
+        import tempfile
+        import zipfile
+        from collectors.cssl_client import import_zip
+        hdr = ("Date,Air Temp Max (C),Air Temp Min (C),24-hour Total Precip (mm),Season Total Precip (mm),"
+               "% of Precip as Snow,% of Precip as Rain,New Snow (cm),Season Total Snow (cm),Snowpack depth (cm),"
+               "Snow Water Equivalent (cm),Remarks")
+        wy2021 = ("﻿" + hdr + ",\n"
+                  "2020-11-09,2.0,-9.6,10,\"1,003\",100,0,24.5,24.5,24.375,2.0,--,24.5\n"
+                  "2020-11-10,1.0,-8.0,T,\"1,003\",--,--,T,24.5,24,2.0,--,0\n")
+        wy2025 = hdr + "\n2024-10-01,27,8,0,0,0,0,0,0,0,0,\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            zp = os.path.join(tmp, "doi_10_6078_D1941T__v20251001.zip")
+            with zipfile.ZipFile(zp, "w") as z:
+                z.writestr("WY2021.csv", wy2021.encode("utf-8"))
+                z.writestr("WY2025.csv", wy2025.encode("utf-8"))
+                z.writestr("../README.md", "notes")
+            r = import_zip(zp, os.path.join(tmp, "archive"))
+            self.assertEqual(len(r["header_variants"]), 1)
+            self.assertEqual(r["unnamed"], {"WY2021.csv": 1})
+            self.assertTrue(os.path.exists(os.path.join(tmp, "archive", "v20251001", "README.md")))
+            self.assertFalse(os.path.exists(os.path.join(tmp, "README.md")))
+            d = r["daily"]
+            self.assertEqual((d["days"], d["water_years"], d["missing_water_years"]), (3, 2, [2022, 2023, 2024]))
+            self.assertEqual(d["unparsed_values"], {})
+            with open(d["file"]) as fh:
+                rows = list(csvmod.DictReader(fh))
+        first, trace, wy25 = rows
+        self.assertEqual((first["water_year"], first["season_precip_mm"], first["new_snow_cm"], first["remarks"]),
+                         ("2021", "1003", "24.5", ""))
+        self.assertEqual((trace["precip_mm"], trace["precip_trace"], trace["new_snow_cm"], trace["new_snow_trace"],
+                          trace["precip_snow_pct"]), ("0", "1", "0", "1", ""))
+        self.assertEqual((wy25["water_year"], wy25["tmax_c"]), ("2025", "27"))
+
+
+class TestNRCS(unittest.TestCase):
+    """SNOTEL hourly: payload parsing, water-year files filled to every hour, incremental merge."""
+
+    @staticmethod
+    def _payload(triplet, values):
+        """values: {element: [(date, value, qc, qa)]}"""
+        return [{"stationTriplet": triplet, "data": [
+            {"stationElement": {"elementCode": el},
+             "values": [dict({"date": d, "value": v, "qcFlag": qc}, **({"qaFlag": qa} if qa else {}))
+                        for d, v, qc, qa in rows]} for el, rows in values.items()]}]
+
+    def test_parse_values(self):
+        from collectors.nrcs_client import parse_values
+        p = self._payload("784:CA:SNTL", {"WTEQ": [("2021-10-01 00:00", 1.0, "V", "A")],
+                                          "TOBS": [("2021-10-01 00:00", 21.9, "C", None)],
+                                          "PREC": [("2021-10-01 00:00", None, "S", "R")],
+                                          "XXXX": [("2021-10-01 00:00", 5, "V", None)]})
+        cell = parse_values(p)["784:CA:SNTL"]["2021-10-01 00:00"]
+        self.assertEqual((cell["wteq_in"], cell["wteq_qc"], cell["wteq_qa"]), ("1", "V", "A"))
+        self.assertEqual((cell["tobs_f"], cell["tobs_qc"], cell["tobs_qa"]), ("21.9", "C", ""))
+        self.assertEqual((cell["prec_in"], cell["prec_qc"]), ("", "S"))
+        self.assertNotIn("xxxx", " ".join(cell))
+
+    def test_water_year_files_and_merge(self):
+        import csv as csvmod
+        import tempfile
+        from datetime import datetime
+        from collectors.nrcs_client import apply_values, parse_values, read_csv
+        until = datetime(2021, 10, 1, 2, 0)
+        p = self._payload("784:CA:SNTL", {"WTEQ": [("2021-09-30 23:00", 0.0, "V", "A"), ("2021-10-01 01:00", 0.1, "V", None)],
+                                          "TOBS": [("2021-10-01 01:00", 30.5, "C", None)]})
+        with tempfile.TemporaryDirectory() as tmp:
+            changed = apply_values(tmp, parse_values(p), until)
+            self.assertEqual(changed, {"SQV": {2021: 1, 2022: 1}})
+            wy21 = read_csv(Path(tmp) / "SQV" / "WY2021.csv")
+            self.assertEqual(len(wy21), 8760)                       # every hour of WY2021, blanks included
+            self.assertEqual(wy21["2021-09-30 23:00"]["wteq_in"], "0")
+            self.assertEqual(wy21["2020-10-01 00:00"]["wteq_in"], "")
+            with open(Path(tmp) / "SQV" / "WY2022.csv") as f:
+                rows = list(csvmod.DictReader(f))
+            self.assertEqual([r["time_pst"] for r in rows], ["2021-10-01 00:00", "2021-10-01 01:00", "2021-10-01 02:00"])
+            self.assertEqual(rows[1]["time_utc"], "2021-10-01T09:00Z")
+            # an NRCS edit to one element keeps the other elements of that hour
+            edit = self._payload("784:CA:SNTL", {"WTEQ": [("2021-10-01 01:00", 0.2, "E", "P")]})
+            apply_values(tmp, parse_values(edit), until)
+            r = read_csv(Path(tmp) / "SQV" / "WY2022.csv")["2021-10-01 01:00"]
+            self.assertEqual((r["wteq_in"], r["wteq_qc"], r["wteq_qa"], r["tobs_f"]), ("0.2", "E", "P", "30.5"))
+
+    def test_update_uses_changed_since(self):
+        import tempfile
+        from datetime import datetime
+        from unittest import mock
+        from collectors import nrcs_client as n
+        calls = []
+
+        def fake_fetch(triplets, begin, end, changed_since=None):
+            calls.append((len(triplets), begin, end, changed_since))
+            return self._payload("848:CA:SNTL", {"SNWD": [("2026-11-24 09:00", 32, "V", None)]})
+
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "state.json").write_text(json.dumps({"first_wy": 2027, "last_sync_pst": "2026-11-24 08:00"}))
+            with mock.patch.object(n, "fetch", fake_fetch), \
+                    mock.patch.object(n, "now_pst", lambda: datetime(2026, 11, 24, 10, 0)):
+                r = n.update(tmp)
+            self.assertEqual(calls, [(7, datetime(2026, 10, 1), datetime(2026, 11, 24, 10, 0), datetime(2026, 11, 23, 8, 0))])
+            self.assertEqual(r["changed"], {"WC3": 1})
+            self.assertEqual(n.read_csv(Path(tmp) / "WC3" / "WY2027.csv")["2026-11-24 09:00"]["snwd_in"], "32")
+            self.assertEqual(len(n.read_csv(Path(tmp) / "SQV" / "WY2027.csv")), 55 * 24 - 13)   # Oct 1 00:00 .. Nov 24 10:00
+            self.assertEqual(json.loads((Path(tmp) / "state.json").read_text())["last_sync_pst"], "2026-11-24 10:00")
+
+
+def _bits_writer():
+    """Tiny MSB-first bit writer for building GRIB2 test messages."""
+    state = {"v": 0, "n": 0}
+
+    def put(value, width):
+        if width:
+            state["v"] = (state["v"] << width) | (value & ((1 << width) - 1))
+            state["n"] += width
+
+    def pad():
+        r = (-state["n"]) % 8
+        put(0, r)
+
+    def data():
+        pad()
+        return state["v"].to_bytes(state["n"] // 8, "big") if state["n"] else b""
+    return put, pad, data
+
+
+def _pack_complex(ints, order=2, group_len=7, missing=(), tmpl=3, D=1):
+    """Encode integers as GRIB2 sections 5 and 7 (template 5.2/5.3). `missing`: storage positions."""
+    import struct
+    miss = set(missing)
+    seq = [x for k, x in enumerate(ints) if k not in miss]
+    if tmpl == 3:
+        d = [0] * min(order, len(seq))
+        for n in range(order, len(seq)):
+            d.append(seq[n] - seq[n - 1] if order == 1 else seq[n] - 2 * seq[n - 1] + seq[n - 2])
+        minsd = min(d[order:]) if len(d) > order else 0
+        packed_seq = [0] * min(order, len(seq)) + [x - minsd for x in d[order:]]
+    else:
+        minsd, packed_seq = 0, list(seq)
+    it = iter(packed_seq)
+    full = [None if k in miss else next(it) for k in range(len(ints))]   # None = missing
+    groups = [full[k:k + group_len] for k in range(0, len(full), group_len)]
+    nbits = 12
+    refs, widths, vals = [], [], []
+    for g in groups:
+        real = [x for x in g if x is not None]
+        if not real:
+            refs.append((1 << nbits) - 1); widths.append(0); vals.append([]); continue
+        ref = min(real)
+        span = max(real) - ref + (1 if miss else 0)    # with missing values on, all-ones is reserved in every group
+        w = span.bit_length()
+        refs.append(ref); widths.append(w)
+        vals.append([((1 << w) - 1) if x is None else x - ref for x in g])
+    put, pad, data = _bits_writer()
+    nb_extra = 2
+    if tmpl == 3:
+        for v in ([seq[0], seq[1]] if order == 2 else [seq[0]]) + [minsd]:
+            put((1 << 15) | -v if v < 0 else v, nb_extra * 8)
+    for r in refs:
+        put(r, nbits)
+    pad()
+    bw = max(widths).bit_length()
+    for w in widths:
+        put(w, bw)
+    pad()
+    for w, v in zip(widths, vals):
+        for x in v:
+            put(x, w)
+    body = data()
+    sm16 = lambda v: (0x8000 | -v) if v < 0 else v
+    s5 = struct.pack(">IBIH", 0, 5, len(ints), tmpl) + struct.pack(">fHH", 0.0, sm16(0), sm16(D))
+    s5 += bytes([nbits, 1, 1, 1 if miss else 0]) + struct.pack(">ff", 9999.0, 0.0)
+    s5 += struct.pack(">IBBIBIB", len(groups), 0, bw, group_len, 1, len(groups[-1]), 0)
+    if tmpl == 3:
+        s5 += bytes([order, nb_extra])
+    s5 = struct.pack(">I", len(s5)) + s5[4:]
+    s7 = struct.pack(">IB", 5 + len(body), 7) + body
+    return s5, s7
+
+
+class TestGrib2Complex(unittest.TestCase):
+    """Complex packing decoder: spatial differencing order 1/2, missing values, early stop, row order."""
+
+    def _field(self, n=500):
+        import math
+        return [int(500 + 300 * math.sin(k / 9.0) + (k % 13) * 3 + (40 if k % 97 == 0 else 0)) for k in range(n)]
+
+    def test_order2_with_missing_and_stop(self):
+        from collectors.grib2_complex import decode
+        ints = self._field()
+        ints[100:120] = [0] * 20                       # a constant run -> zero-width groups
+        missing = {5, 6, 7, 250} | set(range(301, 315))   # includes one fully missing group
+        s5, s7 = _pack_complex(ints, order=2, missing=missing)
+        got = decode(s5, s7)
+        want = [None if k in missing else x / 10 for k, x in enumerate(ints)]
+        self.assertEqual(len(got), len(ints))
+        for a, b in zip(got, want):
+            self.assertTrue((a is None and b is None) or abs(a - b) < 1e-9, (a, b))
+        part = decode(s5, s7, stop=260)
+        self.assertEqual(len(part), 260)
+        self.assertEqual(part, got[:260])
+
+    def test_order1_and_template_52(self):
+        from collectors.grib2_complex import decode
+        ints = self._field(300)
+        for tmpl, order in ((3, 1), (2, 0)):
+            s5, s7 = _pack_complex(ints, order=order, tmpl=tmpl)
+            self.assertEqual([round(v * 10) for v in decode(s5, s7)], ints)
+
+    def test_storage_index_boustrophedon(self):
+        from collectors.grib2_complex import storage_index
+        self.assertEqual(storage_index(0, 0, 5, 0x50), 0)
+        self.assertEqual(storage_index(0, 1, 5, 0x50), 9)    # odd rows run right to left
+        self.assertEqual(storage_index(4, 1, 5, 0x50), 5)
+        self.assertEqual(storage_index(0, 1, 5, 0x40), 5)
+
+
+class TestNBMArchive(unittest.TestCase):
+    """Index parsing, grid geometry, storm-day leads, partial downloads."""
+
+    GRID = {"tmpl": 30, "radius": 6371200.0, "nx": 2345, "ny": 1597, "la1": 19.229, "lo1": -126.2766, "lad": 25.0,
+            "lov": -95.0, "dx": 2539.703, "dy": 2539.703, "scan": 0x50, "latin1": 25.0, "latin2": 25.0}
+
+    def test_parse_idx(self):
+        from collectors.nbm_archive import parse_idx
+        idx = ("1:0:d=2024120112:APCP:surface:23-24 hour acc fcst:\n"
+               "2:1000:d=2024120112:APCP:surface:18-24 hour acc fcst:\n"
+               "3:2500:d=2024120112:APCP:surface:18-24 hour acc fcst:prob >0.254:prob fcst 255/255\n"
+               "4:3000:d=2024120112:TMP:2 m above ground:24 hour fcst:\n"
+               "5:4200:d=2024120112:TMP:2 m above ground:24 hour fcst:ens std dev\n"
+               "6:5000:d=2024120112:var discipline=0 center=7 local_table=1 parmcat=1 parm=233:surface:24 hour fcst:\n"
+               "7:6000:d=2024120112:ASNOW:surface:18-24 hour acc fcst:\n")
+        got = parse_idx(idx, 24)
+        self.assertEqual(got["apcp_6h"], (1000, 2499))
+        self.assertEqual(got["apcp_1h"], (0, 999))
+        self.assertEqual(got["tmp_k"], (3000, 4199))
+        self.assertEqual(got["slr"], (5000, 5999))
+        self.assertEqual(got["asnow_6h"], (6000, None))
+        self.assertNotIn("tmp_k", parse_idx(idx, 18))
+
+    def test_geometry_and_layout(self):
+        from collectors import nbm_archive as na
+        i, j = na.grid_ij(self.GRID, 39.19, -120.27)
+        la, lo = na.cell_latlon(self.GRID, round(i), round(j))
+        self.assertLess(abs(la - 39.19), 0.02)
+        self.assertLess(abs(lo + 120.27), 0.02)
+        lay = na.box_layout(self.GRID, na.EXT_BOX, live_latlons=[(la, lo)])
+        self.assertEqual(len(lay["latlon"]), lay["nx"] * lay["ny"])
+        self.assertLess(lay["latlon"][0][0], lay["latlon"][-1][0])              # south to north
+        self.assertLess(lay["latlon"][0][1], lay["latlon"][lay["nx"] - 1][1])   # west to east
+        self.assertEqual(lay["latlon"][lay["live_cells"][0]], [la, lo])
+        self.assertEqual(lay["stop"], max(lay["storage"]) + 1)
+
+    def test_lead_files(self):
+        from datetime import datetime, timezone
+        from collectors.nbm_archive import lead_files
+        self.assertEqual(lead_files("2026-11-18", 1), (datetime(2026, 11, 18, 12, tzinfo=timezone.utc), [6, 12, 18, 24]))
+        self.assertEqual(lead_files("2026-11-18", 2), (datetime(2026, 11, 17, 12, tzinfo=timezone.utc), [30, 36, 42, 48]))
+
+    def test_partial_download_matches_full(self):
+        import struct
+        from unittest import mock
+        from collectors import nbm_archive as na
+        from collectors.grib2_complex import decode, sections
+        ints = [int(1000 + 400 * ((k * 37) % 101) / 101 + (k % 7)) for k in range(40000)]
+        s5, s7 = _pack_complex(ints, order=2, group_len=25)
+        s3 = bytearray(81); s3[0:4] = struct.pack(">I", 81); s3[4] = 3; s3[12:14] = struct.pack(">H", 30)
+        s4 = bytearray(34); s4[0:4] = struct.pack(">I", 34); s4[4] = 4; s4[7:9] = struct.pack(">H", 0)
+        s4[9], s4[10], s4[17], s4[22], s4[23] = 0, 0, 1, 103, 0; s4[24:28] = struct.pack(">I", 2)
+        s1 = struct.pack(">IB", 21, 1) + bytes(16)
+        s6 = struct.pack(">IBB", 6, 6, 255)
+        body = s1 + bytes(s3) + bytes(s4) + s5 + s6 + s7 + b"7777"
+        msg = b"GRIB" + bytes([0, 0, 0, 2]) + struct.pack(">Q", 16 + len(body)) + body
+        served = []
+
+        def fake_request(url, rng=None, **kw):
+            a, b = rng
+            chunk = msg[a:(len(msg) if b is None else b + 1)]
+            served.append(len(chunk))
+            return chunk
+
+        stop = 15000
+        reader = na.ArchiveReader()
+        reader.layout = lambda grid: {"stop": stop, "storage": list(range(stop))}
+        with mock.patch.object(na, "_request", fake_request), mock.patch.object(na, "HEAD_MIN", 1024):
+            part, _, nbytes = reader.fetch_message("u", (0, len(msg) - 1))
+        sec = sections(part)
+        self.assertEqual([round(v * 10) for v in decode(sec[5], sec[7], stop=stop)], ints[:stop])
+        self.assertLess(nbytes, 0.6 * len(msg))
+        self.assertEqual(sum(served), nbytes)
+
+
+class TestStormDays(unittest.TestCase):
+    """SNOTEL storm-days: 04:00 PST medians, suspect and midnight values ignored, confirmation."""
+
+    def test_storm_day(self):
+        import tempfile
+        from datetime import date, datetime, timedelta
+        from collectors.nrcs_client import write_csv
+        from collectors.storm_days import storm_days
+        with tempfile.TemporaryDirectory() as tmp:
+            for code, gain, gauge in (("SQV", 1.0, 0.5), ("WC3", 0.1, 0.1), ("TCC", 0.0, 0.0)):
+                rows = {}
+                t = datetime(2026, 11, 17, 0)
+                while t < datetime(2026, 11, 20, 0):
+                    k = t.strftime("%Y-%m-%d %H:%M")
+                    storm = min(1.0, max(0.0, (t - datetime(2026, 11, 18, 8)).total_seconds() / 14400))   # 08:00-12:00 PST
+                    rows[k] = {"wteq_in": f"{5 + gain * storm:.2f}", "wteq_qc": "V", "prec_in": f"{3 + gauge * storm:.2f}",
+                               "prec_qc": "V", "snwd_in": f"{30 + 10 * gain * storm:.0f}", "snwd_qc": "V", "tobs_f": "25", "tobs_qc": "C"}
+                    t += timedelta(hours=1)
+                rows["2026-11-18 03:00"]["wteq_in"], rows["2026-11-18 03:00"]["wteq_qc"] = "206", "S"     # suspect spike
+                rows["2026-11-19 00:00"]["wteq_in"], rows["2026-11-19 00:00"]["wteq_qc"] = "9.9", "E"     # edited midnight
+                write_csv(f"{tmp}/{code}/WY2027.csv", rows, 2027, datetime(2026, 11, 19, 23))
+            days = storm_days(tmp, report_sites=["SQV", "WC3", "TCC"], first=date(2026, 11, 17), last=date(2026, 11, 18))
+        self.assertEqual([d["date"] for d in days], ["2026-11-18"])
+        d = days[0]
+        self.assertEqual(d["triggered_by"], ["SQV"])
+        self.assertEqual(d["obs"]["SQV"]["swe_gain_in"], 1.0)
+        self.assertTrue(d["confirmed"])
+        self.assertEqual(d["confirmed_by"], "gauge")
+        self.assertEqual(d["obs"]["TCC"]["swe_gain_in"], 0.0)
+
+    def test_anchor_drops_suspect(self):
+        from datetime import date
+        from collectors.storm_days import anchor
+        vals = {2: ("5.0", "V"), 3: ("206", "S"), 4: ("5.1", "V"), 5: ("206", "S"), 6: ("5.2", "E")}
+        rows = {f"2026-11-18 {h:02d}:00": {"time_pst": f"2026-11-18 {h:02d}:00", "wteq_in": v, "wteq_qc": q}
+                for h, (v, q) in vals.items()}
+        self.assertEqual(anchor(rows, date(2026, 11, 18), "wteq_in"), 5.1)   # 5.2 if the suspect values were kept
+        rows["2026-11-18 04:00"]["wteq_qc"] = "S"
+        self.assertIsNone(anchor(rows, date(2026, 11, 18), "wteq_in"))        # fewer than 3 usable hours

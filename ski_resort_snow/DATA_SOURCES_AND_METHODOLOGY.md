@@ -24,7 +24,7 @@ Seven models, each for 168 h. The page defaults to **NBM**; the model bar at the
 
 | Page label | Source | Grid | Snowfall / SLR / snow level | Vertical profile |
 |---|---|---|---|---|
-| **NBM** (default) | NOAA NOMADS, native NBM v4 GRIB2 (`nbm_client.py`, `grib2_simple.py`) | 2.5 km | NBM's own ASNOW, SNOWLR, SNOWLVL | **none**: profile panels say so |
+| **NBM** (default) | NOAA NOMADS, native NBM GRIB2 (`nbm_client.py`, `grib2_simple.py`) | 2.5 km | NBM's own ASNOW, SNOWLR, SNOWLVL | none; profile panels use the HRRR/GFS column, labeled |
 | ECMWF HRES | Open-Meteo `ecmwf_ifs` | 9 km | our method on the ECMWF IFS 0.25° column | ECMWF IFS 0.25° |
 | ECMWF AIFS | Open-Meteo `ecmwf_aifs025_single` | 0.25° | our method | own, with vertical velocity |
 | HRRR/GFS | Open-Meteo `gfs_seamless` | HRRR 3 km to ~47 h, then GFS | our method | own, with vertical velocity |
@@ -32,7 +32,7 @@ Seven models, each for 168 h. The page defaults to **NBM**; the model bar at the
 | UKMO | Open-Meteo `ukmo_seamless` | 10 km | our method | own, with vertical velocity (~150 h) |
 | GEM | Open-Meteo `gem_seamless` | 10–15 km | our method (no lift weighting) | own, no vertical velocity |
 
-**NBM** is read straight from NOAA: NOMADS's grib filter returns a small box around the resorts as simple-packed GRIB2 on the NBM Lambert conformal grid, decoded with the standard library. Fields at the nearest 2.5 km grid point to each tier and sensor: 2 m temperature, dew point and RH; 10 m wind, gust and direction; visibility; cloud cover; precipitation (APCP), snowfall (ASNOW), snow/liquid ratio (SNOWLR), snow level (SNOWLVL) and the probability of ≥ 0.254 mm precipitation. Hours 1–48 are hourly; after 48 h NBM's 6-hour values are used (accumulations spread evenly over the 6 hours, other fields interpolated; those hours are flagged). One 00/06/12/18Z cycle is downloaded once (~68 small files, a few minutes) and cached in `data/cache/`. NBM values are for the grid point's own terrain (no lapse-rate adjustment); the wet bulb shown for NBM is computed from its temperature and dew point.
+**NBM** is read straight from NOAA: NOMADS's grib filter returns a small box around the resorts as simple-packed GRIB2 on the NBM Lambert conformal grid, decoded with the standard library. Fields at the nearest 2.5 km grid point to each tier and sensor: 2 m temperature, dew point and RH; 10 m wind, gust and direction; visibility; cloud cover; precipitation (APCP), snowfall (ASNOW), snow/liquid ratio (SNOWLR), snow level (SNOWLVL) and the probability of ≥ 0.254 mm precipitation. Hours 1–48 are hourly; after 48 h NBM's 6-hour values are used (accumulations spread evenly over the 6 hours, other fields interpolated; those hours are flagged). One 00/06/12/18Z cycle is downloaded once (~68 small files, a few minutes) and cached in `data/cache/`; every cell in the box (9 × 8 = 72 cells, 5,200–8,600 ft) is kept, not just the nearest ones. NBM values are then moved from each cell's terrain height to the tier elevation (section 3.1); the wet bulb shown for NBM is computed from its temperature and dew point.
 
 **Ensembles** (`ensemble-api.open-meteo.com`): GEFS (NOAA, 31 members), ECMWF ENS (51) and ICON-EPS (40), about 120 members in all, precipitation only, at each tier's coordinates and elevation. Each member's hourly liquid is multiplied by the **selected model's** hourly snow-per-liquid factor at that tier (snow fraction × SLR; for NBM, NBM's snowfall ÷ precipitation), then summed into daily, cumulative, 24 h, 48 h and 7-day totals whose 10th/25th/50th/75th/90th percentiles drive the fan chart, the day tiles and the ranges. The share of members with ≥ 0.01 in in an hour is the chance of precipitation for the Open-Meteo models (NBM uses its own probability). The summary card draws the members' 24 h, 48 h and 7-day snow totals as a kernel density (Gaussian kernel, Silverman bandwidth with a floor of 2% of the axis), summit above the axis and base below, with the selected model's value as a tick. Because snow fraction and SLR come from one deterministic model, the spread describes precipitation amount and timing uncertainty only, not snow-level or SLR uncertainty.
 
@@ -43,17 +43,18 @@ Seven models, each for 168 h. The page defaults to **NBM**; the model bar at the
 The Sierra crest is the boundary between NWS Reno (REV) and NWS Sacramento (STO). The base points of both resorts are in REV; both summit points fall in STO's grid.
 
 - Alerts and the Area Forecast Discussion (Key Messages / Synopsis section) come from the office covering the **base** point (REV).
-- Gridded snowfall (`snowfallAmount`, mm per interval) is summed over the next 24 h, 48 h and the full grid, both at the **summit** cell (STO, ~7,700 ft mean cell elevation) and the **base** cell (REV, ~6,300 ft). Both cells are shown under the snowfall distribution next to the model values. They are not blended into the model numbers.
+- Gridded snowfall (`snowfallAmount`, mm per interval) is summed over the next 24 h, 48 h and the full grid (about 7 days; the end time is shown), at the **summit** cell (STO, 7,726 ft cell elevation at Palisades) and the **base** cell (REV, 6,283 ft).
+- The NWS forecast grid and the NBM grid share the same 2.5 km cells (the NWS cell at Palisades' summit point is centered 30 m from the NBM point), so cell elevations come from the NWS grid metadata (`/gridpoints/...` → `elevation`, cached in `config/grid_terrain.json`).
+- **Elevation-adjusted NWS values:** the snowfall at the ~25 NWS cells within 6 km of each tier (`fetch_cells_snowfall`, cached 2 h because each response is large) goes through the same local regression as NBM (section 3.1), using the NWS values themselves. The page shows these beside the model at each tier; they are not blended into the model numbers.
 - Grid cells are resolved from coordinates at run time (`/points/{lat},{lon}`); the configured grid in older versions (REV 41,82) was wrong.
 
 ### 2.3 Observations
 
 | Source | What | Endpoint |
 |---|---|---|
-| CDEC SQV (Squaw Valley Gold Coast, 8,200 ft) | SWE (sensor 3), snow depth (sensor 18), air temperature (sensor 4), hourly, PST | `cdec.water.ca.gov/dynamicapp/req/JSONDataServlet` |
+| CDEC SQV (Squaw Valley Gold Coast; NRCS SNOTEL 784, 8,010 ft at 39.1899, −120.2658 per NRCS, which owns it; CDEC lists 8,200 ft) | SWE (sensor 3), snow depth (sensor 18), air temperature (sensor 4), hourly, PST | `cdec.water.ca.gov/dynamicapp/req/JSONDataServlet` |
 | CDEC WC3 (Ward Creek #3, 6,750 ft) | same | same |
 | Radiosonde KREV (Reno, 1,516 m) | latest 00Z/12Z sounding | `mesonet.agron.iastate.edu/json/raob.py` |
-| Radiosonde KOAK (Oakland) | latest 00Z/12Z sounding; upwind Pacific inflow | same |
 | Caltrans CWWP2 D3/D10 | chain-control checkpoints | `cwwp2.dot.ca.gov/data/d3/cc/ccStatusD03.json` |
 
 Earlier versions read CDEC sensor 82 (not reported at SQV) and the wrong JSON key, so depth showed 0.
@@ -84,6 +85,24 @@ Open-Meteo selects the model grid cell nearest the coordinates and adjusts **tem
 
 Earlier versions queried all tiers at the village coordinates.
 
+### 3.1 NBM elevation adjustment (`nbm_downscale.py`)
+A 2.5 km cell rarely sits at a tier's height. Palisades mid (8,010 ft) and summit (9,050 ft) share one cell at 7,726 ft; Alpine's base (6,835 ft) falls in a 7,772 ft cell. No lapse rate or snowfall-elevation rule is assumed. Instead, at every forecast hour, NBM's own relationship with terrain is measured over the cells within 7 km of the tier (Gaussian distance weights, σ = 3 km, typically 22–26 cells), and the nearest cell's value is moved along it:
+
+value(tier) = value(cell) + b · (z_tier − z_cell) [+ c · (x_tier − x_cell)]
+
+| Field | Predictors | Notes |
+|---|---|---|
+| Temperature, dew point | elevation | lapse clamped to −5.5 … +8 °F per 1,000 ft (dry adiabatic to strong inversion); RH recomputed |
+| Snow/liquid ratio | elevation | |
+| Precipitation, snowfall | elevation + distance across the crest | fit on the cumulative totals at each hour (smoother than hourly amounts), kept non-decreasing; x is toward ENE because the west slope gets more precipitation at the same height |
+| Wind, gusts, cloud, visibility, chance of precipitation, snow level | not adjusted | |
+
+Elevation beyond the neighbors' range is capped at 1,000 ft of extrapolation; Palisades' summit is 450 ft above the highest nearby cell (8,599 ft), and the page says so.
+
+**Why this form:** in the Nov 24 06Z cycle, 7-day precipitation around Palisades barely depends on elevation (R² 0.01–0.09), while 7-day snowfall rises ~3 in per 1,000 ft (R² ≈ 0.9) through phase and snow/liquid ratio. NBM's implied snow fraction goes from ~0 at 1,500 ft below its snow level to ~1 at 1,000 ft above, and its SLR rises ~1.1 per 1,000 ft. The temperature lapse varied hour to hour (median −2.0 °F per 1,000 ft, range −4 to −1).
+
+**Leave-one-out check** (each cell predicted from its neighbors, Nov 24 06Z): 7-day snowfall MAE 1.64 in using the nearest cell vs 0.45 in adjusted (2.57 vs 0.46 in where the cells differ by ≥ 500 ft); temperature ~1.8 °F vs ~1.0 °F; dew point 1.4 vs 0.5 °F. This tests consistency with NBM's own field across one cycle, not accuracy against observations; the calibration plan covers that.
+
 ## 4. Derived quantities
 
 ### 4.1 Model sounding (where and how)
@@ -91,7 +110,7 @@ Earlier versions queried all tiers at the village coordinates.
 - **What:** temperature, RH, geopotential height, vertical velocity and wind on up to 19 pressure levels, 1000–200 hPa (models with fewer native levels return fewer). Open-Meteo's vertical velocity is negative for rising air; it is flipped so positive = ascent.
 - **Derived per level:** dew point (Magnus), RH w.r.t. ice, wet bulb from the psychrometric equation solved with pressure.
 - **Used for:** wet-bulb zero / snow level, freezing level, DGZ, sleet/freezing-rain check, SLR, free-air wind and free-air temperature at each tier height, skew-T, crystal-habit diagram.
-- **Surface-only models:** NBM uses the GFS column and ECMWF HRES uses the ECMWF IFS 0.25° column; the page labels this ("NBM + GFS sounding").
+- **Surface-only models:** NBM has no column; its profile panels (skew-T, DGZ, freezing level, wet-bulb zero, free-air temperature) use the HRRR/GFS column and say so, while the snow level stays NBM's own. ECMWF HRES uses the ECMWF IFS 0.25° column.
 - Levels below the terrain are model extrapolations; the skew-T shades everything below the base.
 
 ### 4.1b Tier temperature: 2 m vs. free air
@@ -127,7 +146,12 @@ The 24 h, 48 h and 7-day numbers are the selected model's values at the base and
 
 Chart axes (accumulation, hourly rate, wind, 7-day fan, distribution, elevation temperatures) are computed once per refresh across every model and elevation, so switching models or elevations never rescales them. The distribution axis ends at the larger of the highest model 7-day value and the 95th percentile of ensemble members across all models; members beyond it are counted at the right edge ("4 members > 40 in") rather than stretching the axis for a few outliers.
 
-For a model with no vertical profile (NBM), the DGZ and skew-T panels say so. The moisture and crest-wind card still fills from surface fields: base mixing ratio from NBM's own temperature and dew point, summit wind from NBM's 10 m wind at the nearest grid point.
+The table next to the distribution gives the selected model and the elevation-adjusted NWS forecast at each tier for 24 h, 48 h and the NWS horizon. The hourly snowfall panel is fixed at 0–3 in/hr; hours above that are capped and marked.
+
+NBM's moisture and crest-wind card uses NBM's surface fields (base mixing ratio from its temperature and dew point, summit 10 m wind).
+
+### 4.7 Observations at hour 0
+At the first hour (and only when the reading is under 90 minutes old), the hero temperatures, the summit wind chip, the precipitation-type table and the first point of the temperature/humidity chart use the resort's weather stations (Palisades Base 6,200 ft, Mid-Mountain 8,000 ft, Siberia Crest 8,700 ft; Alpine 6,950 / 8,120 / 8,543 ft). The model value at the tier is shown beside the reading. Every later hour is forecast. No correction from the observed difference is carried into later hours: whether and how fast such a difference persists is a calibration question (TUNING_PLAN.md, section 9).
 
 ### 4.6 Powder index
 0.55 × max(24 h snow, 0.6 × 48 h snow) at the summit, minus 1.2 if summit gusts > 60 mph (0.5 if > 45); clamped 1–10. Wind can only lower it.
@@ -152,7 +176,7 @@ All descriptive text is generated from the data by fixed rules, not written per 
 - Lift status is the resort's (open / scheduled / closed / hold). Lifts on the configured wind-exposed list also show the peak daytime (8 AM–4 PM) summit gust forecast for the next 24 h, categorized < 45 / 45–64 / ≥ 65 mph.
 
 ## 7. Skew-T and crystal-habit diagrams
-- Skew-T log-P: 45° skew, 1050–200 hPa. Dry adiabats θ = 240–440 K; pseudo-adiabats integrated from 1000 hPa. Sources: model sounding at the scrubber hour, or the latest REV/OAK radiosonde. Tier elevations are drawn at their interpolated pressure.
+- Skew-T log-P: 45° skew, 1050–200 hPa. Dry adiabats θ = 240–440 K; pseudo-adiabats integrated from 1000 hPa. Sources: model sounding at the scrubber hour (HRRR/GFS column when NBM is selected), or the latest Reno radiosonde. The 0 °C isotherm is a thin white line. Tier elevations are drawn at their interpolated pressure.
 - Crystal habit: temperature 0 to −30 °C vs. supersaturation over ice, regions after Nakaya (1954) and Libbrecht (2005), water-saturation curve = es,water/es,ice − 1. Model levels above the base between 0 and −30 °C that are ice-supersaturated are plotted.
 
 ## 8. API

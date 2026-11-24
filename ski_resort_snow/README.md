@@ -4,14 +4,16 @@ Snow forecast, observation and road-condition dashboard for Palisades Tahoe (Oly
 
 ## What it shows
 
-- **Forecast**, 7 days, from one selectable model at a time: NBM (default, read natively from NOAA including its own snowfall, snow/liquid ratio and snow level), ECMWF HRES, ECMWF AIFS, HRRR/GFS, ICON, UKMO, GEM. NWS gridded snowfall is shown separately, never blended. ~120 ensemble members (GEFS, ECMWF ENS, ICON-EPS) give the distributions. Each base/mid/summit tier is queried at its own coordinates.
-- **Snowfall** = model liquid × snow fraction (from the wet-bulb zero height) × snow/liquid ratio (Cobb-style habit × lift, unadjusted). An experimental wind/near-freezing adjustment, Kuchera, 10:1 and the API's 7:1 field are shown for comparison. Calibration plan: [TUNING_PLAN.md](TUNING_PLAN.md).
+- **Forecast**, 7 days, from one selectable model at a time: NBM (default, read natively from NOAA including its own snowfall, snow/liquid ratio and snow level), ECMWF HRES, ECMWF AIFS, HRRR/GFS, ICON, UKMO, GEM. NBM's 2.5 km cells are moved to each tier's elevation using NBM's own hourly relationship with terrain around the resort. NWS gridded snowfall is adjusted the same way and shown beside the model at each tier, never blended. ~120 ensemble members (GEFS, ECMWF ENS, ICON-EPS) give the distributions. Each base/mid/summit tier is queried at its own coordinates.
+- **Snowfall**: NBM's own snowfall field (elevation-adjusted). For the Open-Meteo models: liquid × snow fraction (from the wet-bulb zero height) × snow/liquid ratio (Cobb-style habit × lift, unadjusted); an experimental wind/near-freezing adjustment, Kuchera, 10:1 and the API's 7:1 field are shown for comparison. Calibration plan: [TUNING_PLAN.md](TUNING_PLAN.md).
+- **Now**: a station observations section (right after the overview) lists the resort's base, mid and summit weather stations beside the selected model's first hour. At hour 0 the scene, phase panel and pills also use the station readings.
 - **Elevation time series**: temperature (2 m and free air), RH and visibility at base, mid and summit.
 - **Uncertainty**: 10th–90th percentile ranges from the ensembles; 7-day fan chart.
-- **Atmospheric profile**: DGZ height and pressure, ice saturation and lift; precipitation type by elevation with dry bulb, wet bulb and dew-point depression per tier; skew-T log-P (model at any hour, or the latest Reno/Oakland radiosonde); ice-crystal habit diagram.
-- **Observations**: CDEC snow pillows SQV (8,200 ft) and WC3 (6,750 ft), radiosondes, NWS Reno discussion and alerts.
+- **Atmospheric profile**: DGZ height and pressure, ice saturation and lift; precipitation type by elevation with dry bulb, wet bulb and dew-point depression per tier; skew-T log-P (model at any hour, or the latest Reno radiosonde; HRRR/GFS column when NBM is selected); ice-crystal habit diagram. A second time slider in this section moves with the one in the hero.
+- **Observations**: CDEC snow pillows SQV (8,010 ft, NRCS location) and WC3 (6,750 ft), radiosondes, NWS Reno discussion and alerts.
 - **Verification**: every forecast is archived and compared with the snow sensors once its 48 h window has passed.
-- **Roads**: Caltrans chain controls on routed road geometry, with Interstate/US/California shields.
+- **Roads**: Caltrans chain controls on routed road geometry, with Interstate, U.S. Route and California State Route shields drawn to the real sign designs.
+- **Lifts**: the lifts you care about first (configured order in `config/resorts.json` → `priority_lifts`), the rest behind an expander.
 - **Settings**: °F/°C, in/cm, home resort, snowfall alert threshold.
 
 See [DATA_SOURCES_AND_METHODOLOGY.md](DATA_SOURCES_AND_METHODOLOGY.md) for every formula, threshold and endpoint.
@@ -26,6 +28,9 @@ ski_resort_snow/
 ├── DATA_SOURCES_AND_METHODOLOGY.md # Comprehensive data source & mathematical methodology documentation
 ├── dashboard.html                 # Modern, responsive dark-theme web dashboard (Leaflet + SVG)
 ├── update_snow_data.py            # CLI script to fetch all sources & compile data/live_snow_data.json
+├── cssl_sync.py                   # Snow Lab calibration data: season log + Dryad archive import (cron: scripts/cssl_cron.sh)
+├── nrcs_sync.py                   # SNOTEL hourly snow water, depth, precipitation, temperature (7 sites, WY2021 on)
+├── nbm_archive_sync.py            # Past NBM forecasts (AWS archive) for SNOTEL storm-days
 ├── server.py                      # Server: refreshes data on launch, every 30 min (roads 5 min), /api/status
 ├── config/
 │   ├── resorts.json               # GPS coordinates, elevation bands, CDEC station IDs, NWS grid coords
@@ -34,10 +39,19 @@ ski_resort_snow/
 ├── collectors/
 │   ├── __init__.py
 │   ├── open_meteo_client.py       # Named models, sounding, SLR methods, ensembles, model comparison
-│   ├── raob_client.py             # Observed radiosondes (REV, OAK) from IEM
+│   ├── nbm_client.py              # NOAA NBM from NOMADS (grid box around the resorts)
+│   ├── grib2_simple.py            # Pure-Python GRIB2 reader (Lambert grid, simple packing)
+│   ├── grib2_complex.py           # GRIB2 complex packing + spatial differencing (NBM archive files)
+│   ├── nbm_archive.py             # NBM archive on AWS: index, byte ranges, extended box
+│   ├── storm_days.py              # Storm-days from SNOTEL hourly data (QC rules applied)
+│   ├── nbm_downscale.py           # Moves NBM/NWS cell values to tier elevations (local regression)
+│   ├── grid_terrain.py            # 2.5 km cell terrain heights from the NWS grid (cached)
+│   ├── raob_client.py             # Observed radiosonde (REV) from IEM
 │   ├── verification.py            # Forecast archive and verification against CDEC sensors
 │   ├── nws_client.py              # NOAA/NWS API client (snow grids, alerts, period forecasts)
 │   ├── cdec_snotel_client.py      # Real-time CDEC/SNOTEL telemetry (SQV 8,010' & WC3 6,750')
+│   ├── nrcs_client.py             # NRCS AWDB hourly SNOTEL history for calibration (flags kept)
+│   ├── cssl_client.py             # Central Sierra Snow Lab season page + Dryad archive
 │   ├── resort_scraper.py          # Official resort mountain report parser (snow stake & lift ops)
 │   ├── caltrans_client.py         # Caltrans CWWP2 District 3 & 10 chain controls & pass closures
 │   └── aggregator.py              # Cross-source reconciliation, consensus forecast, & storm scores
@@ -109,6 +123,28 @@ python3 update_snow_data.py --mock
 ### 3. Run Unit Tests
 ```bash
 python3 -m unittest discover -s tests
+```
+
+### 4. Calibration data (optional, for TUNING_PLAN.md)
+```bash
+python3 cssl_sync.py            # log this season from cssl.berkeley.edu, check the Dryad version
+python3 cssl_sync.py import     # unpack the Dryad zip downloaded in the browser
+```
+Cron (three runs a day; the lab posts its 8 AM board by 9 AM PST):
+```
+30 9,13,18 * * * /bin/bash /Users/bhimes/himesblakeblake/projects/camping/ski_resort_snow/scripts/cssl_cron.sh
+```
+SNOTEL hourly history (seven sites; AWDB keeps the full record, so no schedule is needed):
+```bash
+python3 nrcs_sync.py            # merge values added or edited since the last sync (backfills on first run)
+python3 nrcs_sync.py status     # what is on disk
+```
+Past NBM forecasts for those storm-days (from the NOAA archive on AWS):
+```bash
+python3 nbm_archive_sync.py storm-days     # storm-days from the SNOTEL data
+python3 nbm_archive_sync.py fetch          # day-1 forecasts for every confirmed storm-day (~6.7 GB, resumable)
+python3 nbm_archive_sync.py terrain        # cell heights for the extended box (once)
+python3 nbm_archive_sync.py status
 ```
 
 ---

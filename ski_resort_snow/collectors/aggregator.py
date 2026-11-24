@@ -23,6 +23,8 @@ try:
     from .caltrans_client import CaltransClient
     from .raob_client import RaobClient
     from .nbm_client import NBMClient
+    from .grid_terrain import terrain_ft
+    from .nbm_downscale import Downscaler
     from .verification import ForecastVerifier
 except ImportError:
     import http_ssl  # noqa: F401
@@ -33,6 +35,8 @@ except ImportError:
     from caltrans_client import CaltransClient
     from raob_client import RaobClient
     from nbm_client import NBMClient
+    from grid_terrain import terrain_ft
+    from nbm_downscale import Downscaler
     from verification import ForecastVerifier
 
 try:
@@ -46,6 +50,14 @@ M_PER_FT = 0.3048
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def ds_dist(ds, i: int, lat: float, lon: float) -> float:
+    """km between box cell i and a lat/lon (same flat projection the downscaler uses)."""
+    import math
+    x = (lon + 120.25) * 111.0 * math.cos(math.radians(39.17))
+    y = (lat - 39.17) * 111.0
+    return math.hypot(ds.xy[i][0] - x, ds.xy[i][1] - y)
 
 
 class SnowAggregator:
@@ -127,13 +139,13 @@ class SnowAggregator:
         out = self.refresh_roads({"road_conditions": prev.get("road_conditions"), **out})
         say("Caltrans chain controls", "done" if out["road_conditions"].get("is_live_feed") else "stale")
 
-        say("Radiosondes (REV, OAK)", "running")
+        say("Radiosonde (REV)", "running")
         soundings = {}
-        for st in ("KREV", "KOAK"):
+        for st in ("KREV",):
             r = self.raob.latest(st)
             soundings[st] = self._keep_or_fail(r, (prev.get("observed_soundings") or {}).get(st), r.get("status") == "success")
         out["observed_soundings"] = soundings
-        say("Radiosondes (REV, OAK)", "done")
+        say("Radiosonde (REV)", "done")
 
         say("NBM (NOAA)", "running")
         nbm_pts = {}
@@ -147,7 +159,35 @@ class SnowAggregator:
             nbm_all = self.nbm.fetch(nbm_pts, progress=lambda m: say(m, "running"))
         except Exception as e:
             nbm_all = {"status": "error", "error_message": f"{type(e).__name__}: {e}"}
+        if nbm_all.get("status") == "success" and (nbm_all.get("box") or {}).get("latlon"):
+            try:   # terrain height of every NBM cell in the box (cached permanently after the first lookup)
+                nbm_all["terrain"] = terrain_ft([tuple(p) for p in nbm_all["box"]["latlon"]], self.config_dir / "grid_terrain.json",
+                                                progress=lambda m: say(m, "running"))
+            except Exception as e:
+                nbm_all["terrain"] = {}
+                say(f"NBM terrain lookup failed: {e}", "running")
         say("NBM (NOAA)", "done" if nbm_all.get("status") == "success" else "error")
+
+        # NWS gridded snowfall at the cells around every tier, for the same elevation regression
+        ds = Downscaler(nbm_all, nbm_all.get("terrain") or {}, NBMClient.to_steps) if nbm_all.get("box") else None
+        ds = ds if ds and ds.ok else None
+        nws_cells, cell_index = {}, {}
+        if ds:
+            say("NWS grid cells", "running")
+            for resort in self.resorts_cfg.get("resorts", []):
+                for t, e in resort["elevations"].items():
+                    for i, (a, b) in enumerate(ds.ll):
+                        info = (nbm_all["terrain"] or {}).get(f"{a:.4f},{b:.4f}")
+                        if info and ds_dist(ds, i, e["latitude"], e["longitude"]) <= 6.0:
+                            key = f"{info['wfo']}/{info['x']}/{info['y']}"
+                            cell_index[key] = i
+            try:
+                nws_cells = self.nws.fetch_cells_snowfall({k: {} for k in cell_index}, self.data_dir / "cache" / "nws_cells.json",
+                                                          progress=lambda m: say(m, "running"))
+            except Exception as e:
+                nws_cells = {}
+                say(f"NWS grid cells failed: {e}", "running")
+            say("NWS grid cells", "done" if nws_cells else "error")
 
         for resort in self.resorts_cfg.get("resorts", []):
             rid, name = resort["id"], resort["short_name"]
@@ -176,6 +216,8 @@ class SnowAggregator:
             say(f"{name}: NWS", "running")
             b, s = tiers["base"], tiers["summit"]
             nws = self.nws.fetch_resort_forecast(lat=b["lat"], lon=b["lon"], summit_lat=s["lat"], summit_lon=s["lon"])
+            if ds and nws_cells and nws.get("status") == "success":
+                nws["tier_estimates"] = self._nws_tiers(ds, nws_cells, cell_index, resort)
             nws = self._keep_or_fail(nws, psrc.get("noaa_nws"), nws.get("status") == "success")
             say(f"{name}: NWS", "done" if nws["status"] == "success" else nws["status"])
 
@@ -183,7 +225,8 @@ class SnowAggregator:
             cdec = self.cdec.fetch_station_telemetry(station_id=cd.get("station_id", "SQV"), elevation_ft=cd.get("elevation_ft", 8000),
                                                      station_name=cd.get("station_name", ""))
             if cdec.get("status") == "success":
-                cdec.update({"latitude": cd.get("latitude"), "longitude": cd.get("longitude")})
+                cdec.update({"latitude": cd.get("latitude"), "longitude": cd.get("longitude"),
+                             "location_note": cd.get("location_note", "")})
             cdec = self._keep_or_fail(cdec, psrc.get("cdec_snotel"), cdec.get("status") == "success")
             say(f"{name}: CDEC sensor", "done" if cdec["status"] == "success" else cdec["status"])
 
@@ -218,6 +261,7 @@ class SnowAggregator:
                 "elevations": {"base_ft": elevs["base"]["feet"], "mid_ft": elevs["mid"]["feet"], "summit_ft": elevs["summit"]["feet"],
                                "vertical_drop_ft": resort["stats"]["vertical_drop_ft"]},
                 "consensus_forecast": self._calculate_consensus(resort, om, nws),
+                "priority_lifts": resort.get("priority_lifts", []),
                 "sources": {"resort_official": report, "open_meteo": om, "noaa_nws": nws, "cdec_snotel": cdec},
             }
 
@@ -232,6 +276,10 @@ class SnowAggregator:
         say("Verification archive", "running")
         try:
             self.verifier.save_snapshot(out)
+            try:
+                self.verifier.log_station_pairs(out)
+            except Exception as e:
+                say(f"station log failed: {e}", "running")
             out["verification"] = self.verifier.verify()
         except Exception as e:
             out["verification"] = {"error": str(e), "history": []}
@@ -280,6 +328,7 @@ class SnowAggregator:
                               "48h": g.get("next_48h_inches"), "total": g.get("total_snow_inches"), "through_utc": g.get("total_through_utc")},
                 "summit_cell": {"office": sg.get("wfo"), "elevation_ft": sg.get("grid_elevation_ft"), "24h": sg.get("next_24h_inches"),
                                 "48h": sg.get("next_48h_inches"), "total": sg.get("total_snow_inches"), "through_utc": sg.get("total_through_utc")} if sg else None,
+                "tiers": (nws or {}).get("tier_estimates"),
             },
             "powder_score": round(max(1.0, min(10.0, score)), 1),
             "powder_score_definition": "0.55 x max(24 h snow, 0.6 x 48 h snow) at the summit (selected model), minus 1.2 if summit gusts > 60 mph (0.5 if > 45); range 1-10",
@@ -289,14 +338,39 @@ class SnowAggregator:
         }
 
     @staticmethod
+    def _nws_tiers(ds, cells: Dict[str, Any], index: Dict[str, int], resort: Dict[str, Any]) -> Dict[str, Any]:
+        """NWS gridded snowfall moved to each tier's elevation with the NBM-style local regression
+        on the NWS cells' own values (not on NBM's)."""
+        out = {}
+        for t, e in resort["elevations"].items():
+            tier = {"elevation_ft": e["feet"]}
+            for win, key in (("24h", "next_24h_inches"), ("48h", "next_48h_inches"), ("total", "total_snow_inches")):
+                vals = {index[k]: c.get(key) for k, c in cells.items() if c and k in index and c.get(key) is not None}
+                tier[win] = ds.regress_values(vals, e["latitude"], e["longitude"], e["feet"])
+            thr = [c.get("total_through_utc") for c in cells.values() if c and c.get("total_through_utc")]
+            tier["through_utc"] = min(thr) if thr else None
+            out[t] = tier
+        return out
+
+    @staticmethod
     def _scales(models: Dict[str, Any]) -> Dict[str, Any]:
         """Axis limits shared by every model and elevation, so switching never rescales a chart."""
         cum = rate = gust = 0.0
         tmin, tmax = 200.0, -200.0
         dist = 0.0
+        lv_lo, lv_hi = 1e9, -1e9
         for mo in models.values():
             if mo.get("status") != "success":
                 continue
+            for x in mo.get("vertical_profile") or []:
+                for k in ("snow_level_ft", "wet_bulb_zero_ft", "freezing_level_ft"):
+                    v = x.get(k)
+                    if v is not None:
+                        lv_lo, lv_hi = min(lv_lo, v), max(lv_hi, v)
+            for x in (mo.get("elevation_timelines") or {}).get("summit", []):
+                v = x.get("snow_level_ft")
+                if v is not None:
+                    lv_lo, lv_hi = min(lv_lo, v), max(lv_hi, v)
             for t, tl in (mo.get("elevation_timelines") or {}).items():
                 for x in tl:
                     cum = max(cum, x.get("cumulative_snow_inches") or 0, x.get("model_cumulative_inches") or 0)
@@ -315,4 +389,5 @@ class SnowAggregator:
                     dist = max(dist, ms[int(0.95 * (len(ms) - 1))])
                 dist = max(dist, (mo.get(t) or {}).get("snow_7d_total_inches") or 0)
         return {"cumulative_in": round(cum, 1), "rate_in_hr": round(rate, 2), "gust_mph": round(gust),
-                "temp_f": [round(tmin), round(tmax)] if tmax > tmin else None, "distribution_in": round(dist, 1)}
+                "temp_f": [round(tmin), round(tmax)] if tmax > tmin else None, "distribution_in": round(dist, 1),
+                "levels_ft": [round(lv_lo), round(lv_hi)] if lv_hi > lv_lo else None}

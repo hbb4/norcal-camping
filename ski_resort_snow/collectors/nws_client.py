@@ -105,6 +105,37 @@ class NWSClient:
                 "fallback_available": True
             }
 
+    def fetch_cells_snowfall(self, cells: Dict[str, Dict[str, Any]], cache_path, max_age_s: int = 7200, progress=None) -> Dict[str, Any]:
+        """Gridded snowfall (next 24 h, 48 h, grid total) at several NWS cells, keyed "WFO/x/y".
+        Used to move the NWS forecast to each tier's elevation with the same local regression
+        as NBM. Cached for max_age_s because each /gridpoints response is large."""
+        from pathlib import Path
+        from concurrent.futures import ThreadPoolExecutor
+        cache_path = Path(cache_path)
+        cache = {}
+        if cache_path.exists():
+            try:
+                cache = json.loads(cache_path.read_text())
+            except Exception:
+                cache = {}
+        now = datetime.now(timezone.utc)
+        fresh = lambda e: e and (now - datetime.fromisoformat(e["fetched_at_utc"])).total_seconds() < max_age_s
+        todo = [k for k in cells if not fresh(cache.get(k))]
+
+        def one(k):
+            wfo, x, y = k.split("/")
+            r = self._fetch_grid_snowfall(wfo, int(x), int(y))
+            return k, ({**r, "fetched_at_utc": now.isoformat()} if r else None)
+        if todo:
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                for n, (k, r) in enumerate(pool.map(one, todo)):
+                    if r:
+                        cache[k] = r
+                    if progress and (n + 1) % 10 == 0:
+                        progress(f"NWS grid cells {n + 1}/{len(todo)}")
+            cache_path.write_text(json.dumps(cache))
+        return {k: cache.get(k) for k in cells}
+
     def _get_json(self, url: str) -> Dict[str, Any]:
         req = urllib.request.Request(url, headers={"User-Agent": self.USER_AGENT, "Accept": "application/geo+json"})
         with urllib.request.urlopen(req, timeout=self.timeout_sec) as response:

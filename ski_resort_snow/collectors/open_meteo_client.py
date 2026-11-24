@@ -295,6 +295,7 @@ class OpenMeteoClient:
                 for x in p:
                     x.pop("_levels", None)
                     x.pop("_skewt", None)
+            self._attach_profile(outputs.get("nbm"), outputs.get("hrrr_gfs"))
 
             comparison = [{**o["model"], **(o.get("summit_summary") or {}), **({"error": o.get("error_message")} if o.get("status") == "error" else {})}
                           for o in outputs.values()]
@@ -317,6 +318,56 @@ class OpenMeteoClient:
                 "timestamp_utc": datetime.now(timezone.utc).isoformat(),
                 "error_message": f"{type(e).__name__}: {e}",
             }
+
+    @staticmethod
+    def _attach_profile(nbm_out: Optional[Dict[str, Any]], src: Optional[Dict[str, Any]], src_label: str = "HRRR/GFS") -> None:
+        """NBM has no vertical profile. Give its profile panels the HRRR/GFS column (freezing level,
+        wet-bulb zero, DGZ, skew-T), keep NBM's own snow level, and label the source everywhere."""
+        if not nbm_out or nbm_out.get("status") != "success" or not src or src.get("status") != "success":
+            return
+        sl_by_time = {x["time"]: x.get("snow_level_ft") for x in nbm_out.get("hourly_timeline", [])}
+        prof = []
+        for x in src.get("vertical_profile", []):
+            y = dict(x)
+            y["snow_level_ft"] = sl_by_time.get(x["time"])
+            y["snow_level_source"] = "NBM"
+            prof.append(y)
+        nbm_out["vertical_profile"] = prof
+        nbm_out["sounding_hourly"] = src.get("sounding_hourly", [])
+        nbm_out["profile_model"] = {"id": "hrrr_gfs", "label": src_label,
+                                    "note": f"NBM has no vertical profile; freezing level, wet-bulb zero, DGZ and the skew-T come from {src_label}. Snow level is NBM's."}
+        snd = dict(src.get("atmospheric_sounding") or {})
+        if snd:
+            snd["available"] = True
+            snd["profile_model"] = src_label
+            ph = dict(snd.get("precipitation_phase_analysis") or {})
+            sls = [v for v in (sl_by_time.get(x["time"]) for x in src.get("vertical_profile", [])[:24]) if v is not None]
+            if sls:
+                sl = sum(sls) / len(sls)
+                base = ph.get("base_village_elevation_ft")
+                ph["effective_snow_level_ft"] = round(sl)
+                ph["snow_level_source"] = "NBM"
+                if base is not None:
+                    ph["base_rain_risk"] = "LOW" if base > sl + 500 else ("MODERATE" if base >= sl else "HIGH")
+            snd["precipitation_phase_analysis"] = ph
+            own = (nbm_out.get("atmospheric_sounding") or {}).get("moisture_and_dynamics")
+            if own:
+                snd["moisture_and_dynamics"] = own
+            nbm_out["atmospheric_sounding"] = snd
+        # per-tier free-air temperature and the column levels on the timelines, labeled by source
+        for tier, tl in (nbm_out.get("elevation_timelines") or {}).items():
+            src_tl = {x["time"]: x for x in (src.get("elevation_timelines") or {}).get(tier, [])}
+            prof_t = {x["time"]: x for x in prof}
+            for x in tl:
+                o, pr = src_tl.get(x["time"]), prof_t.get(x["time"])
+                if o:
+                    x["free_air_temp_f"] = o.get("free_air_temp_f")
+                if pr:
+                    x["freezing_level_ft"] = pr.get("freezing_level_ft")
+                    x["wet_bulb_zero_ft"] = pr.get("wet_bulb_zero_ft")
+                x["column_source"] = src_label
+        fl = [x.get("freezing_level_ft") for x in prof[:24] if x.get("freezing_level_ft") is not None]
+        nbm_out["avg_freezing_level_ft"] = round(sum(fl) / len(fl)) if fl else None
 
     @staticmethod
     def _surface_moisture(base_tl: List[Dict[str, Any]], summit_tl: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -349,10 +400,20 @@ class OpenMeteoClient:
         if not nbm or nbm.get("status") != "success":
             return {"status": "error", "model": card, "error_message": (nbm or {}).get("error_message", "NBM not fetched")}
         start = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
-        parsed, points = {}, {}
+        try:
+            from .nbm_downscale import Downscaler
+        except ImportError:
+            from nbm_downscale import Downscaler
+        ds = Downscaler(nbm, nbm.get("terrain") or {}, NBMClient.to_steps) if nbm.get("box") else None
+        ds = ds if ds and ds.ok else None
+        parsed, points, adjust = {}, {}, {}
         for k, t in tiers.items():
             pt = nbm["points"].get(k) or {}
-            steps = NBMClient.to_steps(nbm["cycle_utc"], pt.get("rows", {}), round(t["elevation_m"] * M_TO_FT), start)
+            elev_ft = round(t["elevation_m"] * M_TO_FT)
+            if ds:
+                steps, adjust[k] = ds.adjust(t["lat"], t["lon"], elev_ft, start)
+            else:
+                steps = NBMClient.to_steps(nbm["cycle_utc"], pt.get("rows", {}), elev_ft, start)
             p_hpa = std_pressure_hpa(t["elevation_m"])
             for x in steps:   # wet bulb and mixing ratio from NBM's own T and Td (psychrometric; our calculation)
                 if x["temp_f"] is not None and x["dew_point_f"] is not None:
@@ -364,7 +425,8 @@ class OpenMeteoClient:
                 x["chance_rain_pct"] = round((x["precip_probability"] or 0) * (1 - (x["snow_fraction"] or 0)))
             parsed[k] = self._summarize_tier(steps, labels[k], round(t["elevation_m"] * M_TO_FT), ensembles.get(k), False, nbm=True)
             parsed[k]["hourly_timeline_48h"] = steps[:TIMELINE_HOURS]
-            points[k] = {"grid_lat": pt.get("grid_lat"), "grid_lon": pt.get("grid_lon")}
+            points[k] = {"grid_lat": pt.get("grid_lat"), "grid_lon": pt.get("grid_lon"),
+                         **({"grid_elevation_ft": adjust[k]["grid_elevation_ft"]} if k in adjust else {})}
         summit = parsed["summit"]
         s_tl = summit["hourly_timeline_48h"]
         card.update({"runs": [{"model": "NBM v4 CONUS", "run_init_utc": nbm["cycle_utc"], "run_available_utc": nbm.get("fetched_at_utc")}],
@@ -373,6 +435,7 @@ class OpenMeteoClient:
             "status": "success", "source": "NOAA NBM (NOMADS)", "timestamp_utc": now, "fetched_at_utc": nbm.get("fetched_at_utc", now),
             "model": card, "primary_model": {"id": "nbm", "label": "NBM (2.5 km)", "runs": card["runs"]},
             "nbm_grid_points": points,
+            "nbm_elevation_adjustment": adjust or None,
             "summit_summary": {"liquid_24h": summit["liquid_24h_inches"], "liquid_48h": summit["liquid_48h_inches"],
                                "liquid_7d": summit["liquid_7d_inches"], "snow_48h": summit["snow_48h_inches"],
                                "snow_7d": summit["snow_7d_total_inches"], "covers_48h": summit["hours_available"] >= 47,
@@ -395,9 +458,14 @@ class OpenMeteoClient:
         }
         if sensor and nbm["points"].get("sensor"):
             sp = nbm["points"]["sensor"]
-            st = NBMClient.to_steps(nbm["cycle_utc"], sp.get("rows", {}), round(sensor["elevation_m"] * M_TO_FT), start)
+            s_elev = round(sensor["elevation_m"] * M_TO_FT)
+            s_diag = None
+            if ds:
+                st, s_diag = ds.adjust(sensor["lat"], sensor["lon"], s_elev, start)
+            else:
+                st = NBMClient.to_steps(nbm["cycle_utc"], sp.get("rows", {}), s_elev, start)
             out["sensor_point"] = {"id": sensor.get("id"), "lat": sensor["lat"], "lon": sensor["lon"], "model": "NBM",
-                                   "elevation_ft": round(sensor["elevation_m"] * M_TO_FT),
+                                   "elevation_ft": s_elev, "elevation_adjustment": s_diag,
                                    "hourly": [{k: x.get(k) for k in ("time", "precip_in", "snowfall_rate_in_hr", "slr", "snow_fraction", "temp_f")} for x in st[:48]]}
         return out
 
