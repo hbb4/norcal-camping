@@ -96,7 +96,7 @@
   function modelLevels(h) {
     const sh = om().sounding_hourly || [];
     const rec = sh[Math.min(h, sh.length - 1)];
-    return rec ? { time: rec.time, levels: rec.levels } : null;
+    return rec ? { time: rec.time, levels: rec.levels, ground_m: rec.ground_m } : null;
   }
   function observed(st) { return (((typeof snowData !== "undefined" && snowData) || {}).observed_soundings || {})[st] || null; }
   function pressureAtHeight(levels, zM) {
@@ -133,6 +133,27 @@
       groundP = levels[0] ? levels[0][0] : null;
     }
     $("skewt-sub").textContent = title;
+    // init and valid time, prominently
+    const RUN_NAMES = { ncep_hrrr_conus: "HRRR", ncep_gfs025: "GFS", ncep_gfs013: "GFS", ecmwf_ifs: "ECMWF IFS", ecmwf_ifs025: "ECMWF IFS 0.25°",
+      ecmwf_aifs025_single: "ECMWF AIFS", dwd_icon: "ICON", ukmo_global_deterministic_10km: "UKMO", cmc_gem_gdps: "GEM", cmc_gem_rdps: "GEM regional" };
+    const tEl = $("skewt-times");
+    if (tEl) {
+      const fmtLocal = d => d.toLocaleString([], { weekday: "short", month: "numeric", day: "numeric", hour: "numeric" });
+      const fmtUtc = d => `${String(d.getUTCMonth() + 1).padStart(2, "0")}/${String(d.getUTCDate()).padStart(2, "0")} ${String(d.getUTCHours()).padStart(2, "0")}Z`;
+      if (src === "model") {
+        const o = om(), valid = new Date(modelLevels(state.hour).time);
+        const runs = ((o.profile_model && o.profile_model.runs) || o.column_runs || (o.model || {}).runs || []).filter(r => r.run_init_utc);
+        let r = runs[0];
+        if (runs.length > 1 && r && (valid - new Date(r.run_init_utc)) / 3600e3 > 47) r = runs[1];   // HRRR hands over to GFS after ~47 h
+        const init = r ? new Date(r.run_init_utc) : null;
+        tEl.innerHTML = `<span><small>Init</small>${init ? `${fmtUtc(init)} <em>${esc(RUN_NAMES[r.model] || r.model || "")}</em>` : "n/a"}</span>
+          <span><small>Valid</small>${fmtLocal(valid)} <em>${fmtUtc(valid)}</em></span>
+          ${init ? `<span><small>Forecast hour</small>+${Math.round((valid - init) / 3600e3)} h</span>` : ""}`;
+      } else {
+        const o = observed(src), v = new Date(o.valid_utc);
+        tEl.innerHTML = `<span><small>Observed</small>${esc(o.name || src)} radiosonde</span><span><small>Valid</small>${fmtLocal(v)} <em>${fmtUtc(v)}</em></span>`;
+      }
+    }
 
     const W = 760, H = 580, L = 52, R = 92, T = 32, B = 30, PW = W - L - R, PH = H - T - B;
     const pTop = 200, pBot = 1050, Tmin = -40, Tmax = 40;
@@ -218,20 +239,28 @@
     box.innerHTML = s;
 
     const svg = box.querySelector("svg"), hit = $("sk-hit"), cross = $("sk-cross"), out = $("skewt-readout");
-    hit.addEventListener("mousemove", ev => {
-      const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
-      const loc = pt.matrixTransform(svg.getScreenCTM().inverse());
-      const p = pAt(loc.y);
-      cross.setAttribute("y1", loc.y); cross.setAttribute("y2", loc.y); cross.setAttribute("visibility", "visible");
+    const baseFt = elevs.base_ft || 6200;
+    const basePres = pressureAtHeight(levels, baseFt / FT) || groundP;
+    const showAt = (p, lead) => {
       const interp = idx => { for (let i = 0; i < lv.length - 1; i++) { const a = lv[i], b = lv[i + 1]; if (p <= a[0] && p >= b[0] && a[idx] != null && b[idx] != null) { const f = (Math.log(p) - Math.log(a[0])) / (Math.log(b[0]) - Math.log(a[0])); return a[idx] + f * (b[idx] - a[idx]); } } return null; };
       const t = interp(2), td = interp(3), z = interp(1), ws = interp(5), wd = interp(4), w = hasW ? interp(6) : null;
       const rh = t != null && td != null ? rhFrom(t, td) : null;
-      out.innerHTML = `<b>${Math.round(p)} hPa</b> · ${z != null ? `${Math.round(z * FT).toLocaleString()} ft` : ""}${groundP && p > groundP ? " (below base)" : ""}<br>
+      out.innerHTML = `${lead ? `<span class="mini-label">${lead}</span><br>` : ""}<b>${Math.round(p)} hPa</b> · ${z != null ? `${Math.round(z * FT).toLocaleString()} ft` : ""}${groundP && p > groundP + 0.5 ? " (below base)" : ""}<br>
         T ${tC(t)} · Td ${tC(td)} · Tw ${t != null && td != null ? tC(wetBulbP(t, td, p)) : "--"}<br>
         T−Td ${t != null && td != null ? (U.celsius() ? `${(t - td).toFixed(1)} °C` : `${((t - td) * 1.8).toFixed(0)} °F`) : "--"} · RH ${rh != null ? Math.round(rh) : "--"}% (ice ${t != null && td != null ? Math.round(rhIce(t, td)) : "--"}%)<br>
         Wind ${wd != null ? Math.round(wd) + "°" : "--"} ${ws != null ? Math.round(ws) + " mph" : ""}${w != null ? ` · vertical motion ${w > 0 ? "+" : ""}${w.toFixed(0)} cm/s` : ""}`;
+    };
+    const mgr = src === "model" ? (modelLevels(state.hour) || {}).ground_m : null;
+    const belowGround = mgr != null && baseFt / FT < mgr - 50;
+    const showBase = () => { if (basePres) showAt(basePres, `Base ${baseFt.toLocaleString()} ft${belowGround ? ` · below this column's terrain (${Math.round(mgr * FT).toLocaleString()} ft), so these values are extrapolated` : ""} · hover for other levels`); };
+    showBase();
+    hit.addEventListener("mousemove", ev => {
+      const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+      const loc = pt.matrixTransform(svg.getScreenCTM().inverse());
+      cross.setAttribute("y1", loc.y); cross.setAttribute("y2", loc.y); cross.setAttribute("visibility", "visible");
+      showAt(pAt(loc.y));
     });
-    hit.addEventListener("mouseleave", () => cross.setAttribute("visibility", "hidden"));
+    hit.addEventListener("mouseleave", () => { cross.setAttribute("visibility", "hidden"); showBase(); });
   }
 
   function barb(x, y, dirDeg, kt) {
@@ -498,6 +527,17 @@
       ["Wet-bulb zero", wbz, `<i class="lvl-sw" style="border-top:2px solid #60a5fa"></i>`, lsrc],
       ["Snow level", sl, `<i class="lvl-sw" style="border-top:2px solid #f8fafc"></i>`, pm ? mLabel : (o.vertical_profile || []).length ? "wet-bulb zero − 500 ft" : mLabel],
     ].filter(l => l[1] != null).sort((a, b) => b[1] - a[1]);
+    // base rain risk for this hour: the base elevation against this hour's snow level
+    const prb = $("phase-risk-badge");
+    if (prb) {
+      const baseFt = elevs.base_ft, slh = slx;
+      const xb = (tls.base || [])[h] || {};
+      const dryH = (xb.precip_in || 0) < 0.005;
+      const risk = baseFt == null || slh == null ? null : baseFt > slh + 500 ? "low" : baseFt >= slh ? "moderate" : "high";
+      prb.textContent = risk ? `Base rain risk: ${risk}${dryH ? " (dry)" : ""}` : "Base rain risk: n/a";
+      prb.className = "chip " + (risk === "low" ? "chip-good" : risk === "moderate" ? "chip-warn" : risk === "high" ? "chip-bad" : "");
+      prb.title = risk ? `Selected hour: snow level ${Math.round(slh).toLocaleString()} ft, base ${baseFt.toLocaleString()} ft. Low: base more than 500 ft above the snow level; moderate: base at or up to 500 ft above it; high: base below it.${dryH ? " No precipitation at the base this hour." : ""}` : "";
+    }
     const lvBox = $("phase-levels");
     if (lvBox) lvBox.innerHTML = levels.map(([n, v, sw, src]) => `<dt>${sw}${n} <small>${esc(src)}</small></dt><dd>${fmtFt(v)}</dd>`).join("") || `<dt>Levels</dt><dd>n/a</dd>`;
     const t0 = tsum.time;

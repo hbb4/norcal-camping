@@ -58,7 +58,7 @@ FORECAST_HOURS = 168
 DEFAULT_MODEL = "nbm"
 # Static blends shown as their own entries in the model selector (config/sources.json "blends" overrides).
 # NBM is left out: it is already a blend that includes GFS and ECMWF.
-DEFAULT_BLENDS = [{"id": "blend", "label": "Blend", "members": {"ecmwf_hres": 1, "aifs": 1, "hrrr_gfs": 1, "icon": 1, "ukmo": 1, "gem": 1},
+DEFAULT_BLENDS = [{"id": "blend", "label": "Equal blend", "members": {"ecmwf_hres": 1, "aifs": 1, "hrrr_gfs": 1, "icon": 1, "ukmo": 1, "gem": 1},
                    "profile_from": "ecmwf_hres", "min_weight_share": 0.5}]
 BLEND_MEAN_KEYS = {   # key -> rounding
     "precip_in": 3, "snowfall_rate_in_hr": 2, "model_snowfall_in_hr": 2, "slr_kuchera": 1, "slr_experimental": 1, "snow_fraction": 2,
@@ -483,14 +483,22 @@ class OpenMeteoClient:
     def _blend_output(self, bl: Dict[str, Any], outputs: Dict[str, Any], parsed_by_model: Dict[str, Any], profiles: Dict[str, Any],
                       has_w: Dict[str, bool], tiers: Dict[str, Any], labels: Dict[str, str], ensembles: Dict[str, Any], now: str) -> Optional[Dict[str, Any]]:
         nominal = {mid: float(wt) for mid, wt in (bl.get("members") or {}).items() if wt and wt > 0}
-        w = {mid: wt for mid, wt in nominal.items() if mid in parsed_by_model and (outputs.get(mid) or {}).get("status") == "success"}
+
+        def member_steps(mid, k):
+            # Open-Meteo models: the full parsed tier; NBM (read natively from NOAA): its elevation-adjusted timeline
+            if mid in parsed_by_model:
+                return parsed_by_model[mid][k]["_steps"]
+            return ((outputs.get(mid) or {}).get("elevation_timelines") or {}).get(k)
+
+        w = {mid: wt for mid, wt in nominal.items() if (outputs.get(mid) or {}).get("status") == "success"
+             and all(member_steps(mid, k) for k in tiers)}
         if len(w) < 2:
             return None
         min_w = float(bl.get("min_weight_share", 0.5)) * sum(nominal.values())
         parsed = {}
         lead_w = {mid: c for mid, c in (bl.get("lead_weights") or {}).items() if mid in w}
         for k in tiers:
-            steps = self._blend_steps({mid: parsed_by_model[mid][k]["_steps"] for mid in w}, w, min_w, lead_w)
+            steps = self._blend_steps({mid: member_steps(mid, k) for mid in w}, w, min_w, lead_w)
             if not steps:
                 return None
             p = self._summarize_tier(steps, labels[k], round(tiers[k]["elevation_m"] * M_TO_FT), ensembles.get(k), True)
@@ -511,6 +519,7 @@ class OpenMeteoClient:
         out["blend"] = {"members": out["model"]["members"], "missing": missing, "profile_from": src["label"],
                         "lead_weights": {names.get(mid, mid): c for mid, c in lead_w.items()} or None, "weights_note": bl.get("weights_note"),
                         "rule": f"hourly weighted mean of the members present; stops when under {round(100 * float(bl.get('min_weight_share', 0.5)))}% of the member weight remains"}
+        out["column_runs"] = ((outputs.get(src["id"]) or {}).get("model") or {}).get("runs") or []   # the profile panels' model run
         out["primary_model"]["label"] = f"{m['label']} ({len(w)} models)" if len(w) > 2 else f"{m['label']} ({' + '.join(names.get(mid, mid) for mid in w)})"
         out["source"] = f"Blend of {len(w)} Open-Meteo models"
         out["methodology"]["blend"] = out["blend"]["rule"]
@@ -531,7 +540,7 @@ class OpenMeteoClient:
             prof.append(y)
         nbm_out["vertical_profile"] = prof
         nbm_out["sounding_hourly"] = src.get("sounding_hourly", [])
-        nbm_out["profile_model"] = {"id": "hrrr_gfs", "label": src_label,
+        nbm_out["profile_model"] = {"id": "hrrr_gfs", "label": src_label, "runs": (src.get("model") or {}).get("runs") or [],
                                     "note": f"NBM has no vertical profile; freezing level, wet-bulb zero, DGZ and the skew-T come from {src_label}. Snow level is NBM's."}
         snd = dict(src.get("atmospheric_sounding") or {})
         if snd:

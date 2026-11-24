@@ -179,6 +179,7 @@ class CaltransClient:
                 "checkpoints_matched": len(matched_cc) if matched_cc else 0,
                 "feed": feed,
                 "feed_note": road.get("feed_note", ""),
+                "display": road.get("display", "monitored"),
                 "polyline": road.get("polyline", [])
             })
 

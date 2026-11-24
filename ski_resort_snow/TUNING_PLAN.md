@@ -15,7 +15,7 @@ Goal: replace every hand-set choice in the pipeline with values fit on several w
 | 5 | Open-Meteo models: snow/liquid ratio | Cobb-style habit × lift, unadjusted | wind effect, near-0 °C effect, habit curve scale, riming term (original plan, sections 5–6) |
 | 6 | Open-Meteo models: rain/snow transition | snow level = WBZ − 500 ft; linear over 1,000 ft | WBZ offset, transition depth, surface wet-bulb thresholds |
 | 7 | Wind per tier | 10 m (base), free-air (summit), 60% blend (mid) | blend weights per tier against the resort stations |
-| 8 | Blend weights | Blend: equal; Skill blend: 1/MAE from an Open-Meteo hindcast at SQV and WC3 (ICON 1.17, AIFS 1.12, HRRR/GFS 1.09, HRES 0.98, GEM 0.82, UKMO 0.81; 62 cold wet site-days from Mar 2025); HRRR-early blend: HRRR/GFS half the weight to 18 h, equal by 48 h; ECMWF pair: equal (`config/sources.json` → `blends`) | Skill weights per lead day from the per-model archive (`data/archive/models/`, from Nov 24, 2026) against SQV snow-water gains (`blend_weights.py`, weight ∝ 1/MAE, ≥ 15 cold wet days per model and lead). Adopt only if leave-one-month-out MAE of the blend improves. |
+| 8 | Blend weights | Equal blend: equal; Skill blend (beta): 1/MAE from an Open-Meteo hindcast at SQV and WC3 (ICON 1.17, AIFS 1.12, HRRR/GFS 1.09, HRES 0.98, GEM 0.82, UKMO 0.81; 62 cold wet site-days from Mar 2025); Short-range blend: NBM 3, HRRR/GFS 4 to 18 h falling to 1 by 48 h, the other five 1 each; ECMWF pair: equal; a long-lead skill blend is fitted with `blend_weights.py --hindcast --lead-day N --apply blend_skill_long` (`config/sources.json` → `blends`) | Skill weights per lead day from the per-model archive (`data/archive/models/`, from Nov 24, 2026) against SQV snow-water gains (`blend_weights.py`, weight ∝ 1/MAE, ≥ 15 cold wet days per model and lead). Adopt only if leave-one-month-out MAE of the blend improves. |
 
 ## 2. Ground truth (confirmed Nov 24, 2026, by test requests)
 
@@ -163,6 +163,19 @@ Non-SNOTEL CDEC stations with hourly snow sensors nearby: HYS Huysink (6,600 ft)
 | 5. Baseline scoring report (raw vs adjusted NBM, NWS, SLR methods) | `calibration_baseline.py` → `data/tuning/reports/nbm_baseline.md` | NBM raw vs adjusted at the seven SNOTEL sites: started Nov 24, 2026 (first 16 storm-days: temperature MAE 2.79 → 2.35 °F with the adjustment, liquid unchanged); full day-1 sample when the download completes. NWS gridded has no archive; SLR methods need the Open-Meteo pulls (step 4). |
 | 6. Fit, cross-validate, write `calibration.json` | parameters and report | |
 | 7. Wire into the dashboard | calibrated labels | |
+
+## 7b. How to run the remaining steps
+
+All commands run from `ski_resort_snow/`. Outputs go to `data/tuning/` (not committed). Long downloads can be stopped and rerun; finished files are skipped. To keep a long run going with the lid open and the screen off: `caffeinate -i python3 …`; to keep it running after closing the terminal: `nohup caffeinate -i python3 … > data/tuning/<name>.log 2>&1 &`.
+
+1. SNOTEL hourly up to date (seconds): `python3 nrcs_sync.py`
+2. Storm-days from SNOTEL (seconds): `python3 nbm_archive_sync.py storm-days`
+3. NBM day-1 forecasts for every confirmed storm-day (step 3; about 400 cycles, ~6.7 GB, 2-6 h depending on the connection; 149 cycles were already on disk on Nov 24, 2026): `python3 -u nbm_archive_sync.py fetch | tee data/tuning/nbm/fetch.log`. Day 2 and 3 as well (about 3x more): add `--leads 1,2,3`.
+4. NBM baseline scores at the SNOTEL sites (step 5; about a minute): `python3 calibration_baseline.py --md` → `data/tuning/reports/nbm_baseline.md`.
+5. Skill-blend weights, short lead (a few minutes the first time, then cached): `python3 blend_weights.py --hindcast --write --apply blend_skill`. Long lead, e.g. day 3: `python3 blend_weights.py --hindcast --lead-day 3 --write --apply blend_skill_long`. `--apply` writes the weights into `config/sources.json`; the blend appears or changes on the next data refresh (`python3 update_snow_data.py`, or the running server's hourly refresh).
+6. Weights from the live per-model archive (once ~15 cold, wet days have accumulated): `python3 blend_weights.py --write`.
+7. Temperature coupling weights (grows with every pipeline run): `python3 station_bias.py`.
+8. Not built yet: step 4 (Open-Meteo Historical Forecast pulls of the full surface and column fields for the SLR terms) and the HRRR pressure-level archive for free-air temperature in past winters.
 
 ## 8. Known limits
 

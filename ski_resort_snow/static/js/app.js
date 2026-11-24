@@ -944,14 +944,7 @@ function renderSounding(resort) {
   set("dgz-hours-val", dgz.saturated_and_rising_hours_24h != null ? `${dgz.saturated_and_rising_hours_24h} of 24` : "n/a");
   set("dgz-crystal-val", dgz.avg_summit_slr ? `${dgz.avg_summit_slr}:1` : "n/a");
 
-  // Phase card header (the column and table follow the scrubber; see panels.js)
-  const risk = ph.base_rain_risk;
-  const pr = document.getElementById("phase-risk-badge");
-  if (pr) {
-    pr.textContent = risk ? `Base rain risk: ${risk.toLowerCase()}` : "--";
-    pr.className = "chip " + (risk === "LOW" ? "chip-good" : risk === "MODERATE" ? "chip-warn" : risk === "HIGH" ? "chip-bad" : "");
-    pr.title = ph.base_rain_risk_criteria || "";
-  }
+  // Phase card header: the base rain risk badge follows the slider (panels.js renderPhase)
 
   // Moisture and crest wind: hourly, see panels.js renderMoisture
 }
@@ -961,6 +954,8 @@ function renderSounding(resort) {
    Native dark retina tiles (CARTO, no key) instead of CSS-inverted OSM,
    OSRM-routed road geometry, on-map labels and an R-level legend.
    ========================================================================== */
+// Nevada roads (no live feed) are drawn as thin reference lines, left out of the list and the counts
+const isContext = seg => seg.display === "context" || seg.id === "nv28_east_shore" || seg.id === "us50_east_shore";
 const R_LEVELS = [
   ["R-0", "#10b981", "No controls"],
   ["R-1", "#f59e0b", "Chains or snow tires (4WD/AWD exempt)"],
@@ -1023,7 +1018,7 @@ function initRoadMap() {
     const div = L.DomUtil.create("div", "map-legend");
     div.innerHTML = `<div class="map-legend-title">Caltrans chain control</div>` +
       R_LEVELS.map(([lvl, c, txt]) => `<div class="map-legend-row"><span class="map-legend-line${lvl === "CLOSED" ? " dashed" : ""}" style="--c:${c}"></span><b>${lvl}</b><span>${txt}</span></div>`).join("") +
-      `<div class="map-legend-row"><span class="map-legend-line" style="--c:#64748b"></span><b>NV</b><span>Nevada road, no live feed</span></div>` +
+      `<div class="map-legend-row"><span class="map-legend-line map-legend-thin" style="--c:#94a3b8"></span><b>NV</b><span>Nevada roads, shown for reference</span></div>` +
       `<div class="map-legend-row"><span class="map-legend-pass"></span><b>▲</b><span>Mountain pass</span></div><div class="map-legend-foot">Full definitions below the map</div>`;
     L.DomEvent.disableClickPropagation(div);
     return div;
@@ -1047,6 +1042,20 @@ function updateRoadMapData() {
     const isClosed = seg.status === "CLOSED";
     const color = seg.status_color || (isClosed ? "#e11d48" : "#10b981");
     const minor = /road/.test(seg.id);
+    if (isContext(seg)) {
+      // Nevada roads around the east shore: a thin reference line and the route shield, no status
+      L.polyline(seg.polyline, { color: "#94a3b8", weight: 1.6, opacity: 0.7, interactive: false }).addTo(roadMap);
+      const pl = seg.polyline;
+      let k = Math.floor(pl.length / 2);
+      if (seg.shield_coords) {
+        let best = Infinity;
+        pl.forEach((pt, i) => { const dd = (pt[0] - seg.shield_coords[0]) ** 2 + (pt[1] - seg.shield_coords[1]) ** 2; if (dd < best) { best = dd; k = i; } });
+      }
+      L.marker(pl[k], { icon: L.divIcon({ className: "", html: `<div class="map-shield map-shield-context">${window.routeShield ? routeShield(seg.route, 20) : ""}</div>`, iconSize: null }), pane: "labels", interactive: false })
+        .bindTooltip(`${seg.name}: shown for reference; no live road-condition feed`, { direction: "top" })
+        .addTo(roadLabelLayer);
+      return;
+    }
 
     // dark casing under the colored line so it reads on any tile
     const casing = L.polyline(seg.polyline, { color: "#020617", weight: minor ? 6 : 8, opacity: 0.85, interactive: false });
@@ -1096,14 +1105,14 @@ function renderRoadList() {
   const container = document.getElementById("road-list-container");
   if (!container || !snowData || !snowData.road_conditions) return;
   const rc = snowData.road_conditions;
-  const segments = rc.segments || [];
+  const segments = (rc.segments || []).filter(s => !isContext(s));
   const sum = document.getElementById("roads-summary");
   if (sum) {
     const active = segments.filter(s => !["R-0", "UNKNOWN", "NO FEED"].includes(s.status));
-    const noFeed = segments.filter(s => s.status === "NO FEED").length;
+    const noFeed = 0;
     const fresh = rc.status !== "stale" && rc.is_live_feed;
     sum.innerHTML = `${fresh ? `Fetched ${new Date(rc.fetched_at_utc).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} (${Fmt.ago(rc.fetched_at_utc)})` : `<span class="warn-text">Not current: last successful fetch ${Fmt.ago(rc.fetched_at_utc)}${rc.stale_reason ? ` (${rc.stale_reason})` : ""}</span>`}` +
-      ` · ${active.length ? `${active.length} of ${segments.length - noFeed} corridors under controls` : `no chain controls on ${segments.length - noFeed} Caltrans corridors`}${noFeed ? ` · ${noFeed} Nevada road${noFeed > 1 ? "s" : ""} without a live feed` : ""} · server re-checks every 5 min`;
+      ` · ${active.length ? `${active.length} of ${segments.length} corridors under controls` : `no chain controls on ${segments.length} Caltrans corridors`} · server re-checks every 5 min`;
   }
   container.innerHTML = segments.map(seg => `
     <div class="road-card" onclick="focusRoadSegment('${seg.id}')">

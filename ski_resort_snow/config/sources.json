@@ -112,7 +112,7 @@
   "blends": [
     {
       "id": "blend",
-      "label": "Blend",
+      "label": "Equal blend",
       "description": "Equal-weight mean of the six single models (NBM is left out: it is already a blend). Members missing at an hour are dropped from that hour; the blend stops when under half the member weight remains. Profile panels use the ECMWF IFS column.",
       "members": {
         "ecmwf_hres": 1,
@@ -127,8 +127,8 @@
     },
     {
       "id": "blend_skill",
-      "label": "Skill blend",
-      "description": "The six single models weighted by skill: weight = 1/MAE of each model's 12Z-12Z liquid against the SQV and WC3 pillows' snow-water gain on cold, wet days, scaled to average 1 (Open-Meteo Historical Forecast hindcast, 2025-03-01 to 2026-11-24, 62 site-days; blend_weights.py --hindcast). The five-model fit over WY2023 on ranks the members the same way. The hindcast uses short-lead runs, so the weights reflect day-1 skill.",
+      "label": "Skill blend (beta)",
+      "description": "Beta: weights fitted from a short-lead hindcast only (see fitted); they will be refit from the live per-model archive and longer-lead hindcasts before the beta label comes off. The six single models weighted by skill: weight = 1/MAE of each model's 12Z-12Z liquid against the SQV and WC3 pillows' snow-water gain on cold, wet days, scaled to average 1 (Open-Meteo Historical Forecast hindcast, 2025-03-01 to 2026-11-24, 62 site-days; blend_weights.py --hindcast). The five-model fit over WY2023 on ranks the members the same way. The hindcast uses short-lead runs, so the weights reflect day-1 skill.",
       "members": {
         "ecmwf_hres": 0.98,
         "aifs": 1.12,
@@ -155,13 +155,14 @@
       }
     },
     {
-      "id": "blend_hrrr",
-      "label": "HRRR-early blend",
-      "description": "Same six models, but HRRR/GFS carries half the weight through 18 h (weight 5 against 1 for each other model), fading linearly to equal weights by 48 h, where HRRR hands over to GFS.",
+      "id": "blend_short",
+      "label": "Short-range blend",
+      "description": "NBM and HRRR/GFS as the major members, the other five models as minor ones. Weights: NBM 3 throughout; HRRR/GFS 4 through 18 h, falling linearly to 1 by 48 h (where HRRR hands over to GFS); ECMWF HRES, AIFS, ICON, UKMO and GEM 1 each. In the first 18 h NBM is 25% and HRRR/GFS 33% of the total; after 48 h NBM is 33%. NBM's hourly fields are the same NOAA product the NBH text bulletin is printed from. NBM already blends HRRR, GFS, ECMWF and others, so those models count twice here.",
       "members": {
+        "nbm": 3,
+        "hrrr_gfs": 1,
         "ecmwf_hres": 1,
         "aifs": 1,
-        "hrrr_gfs": 1,
         "icon": 1,
         "ukmo": 1,
         "gem": 1
@@ -170,11 +171,11 @@
         "hrrr_gfs": [
           [
             0,
-            5
+            4
           ],
           [
             18,
-            5
+            4
           ],
           [
             48,
@@ -182,7 +183,7 @@
           ]
         ]
       },
-      "weights_note": "HRRR/GFS half the weight to 18 h, equal by 48 h",
+      "weights_note": "NBM and HRRR/GFS major to 48 h, then NBM",
       "profile_from": "hrrr_gfs",
       "min_weight_share": 0.5
     },

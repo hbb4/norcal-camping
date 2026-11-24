@@ -46298,7 +46298,8 @@
           -119.91709
         ]
       ],
-      "polyline_source": "OSRM routed on OpenStreetMap road network; high point from USGS EPQS"
+      "polyline_source": "OSRM routed on OpenStreetMap road network; high point from USGS EPQS",
+      "display": "context"
     },
     {
       "id": "us50_east_shore",
@@ -50706,7 +50707,8 @@
           -119.89648
         ]
       ],
-      "polyline_source": "OSRM routed on OpenStreetMap road network; high point from USGS EPQS"
+      "polyline_source": "OSRM routed on OpenStreetMap road network; high point from USGS EPQS",
+      "display": "context"
     },
     {
       "id": "olympic_valley_road",

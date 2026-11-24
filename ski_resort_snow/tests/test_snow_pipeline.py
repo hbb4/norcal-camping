@@ -897,3 +897,40 @@ class TestCalibrationBaseline(unittest.TestCase):
         raw, adj = box.estimate(vals, 39.19, -120.25, 9000, cross=False, lapse_clamp=True)
         self.assertAlmostEqual(adj, 40 - 9.0, delta=0.05)
         self.assertNotAlmostEqual(raw, adj, delta=0.5)                 # the nearest cell sits lower than 9,000 ft
+
+
+class TestBlendWeightsLongLead(unittest.TestCase):
+    """--lead-day uses the Previous Runs API variable; --apply writes weights into the config."""
+
+    def test_lead_day_fetch_and_apply(self):
+        import io
+        import tempfile
+        from unittest import mock
+        import blend_weights as bw
+        seen = {}
+
+        class Resp(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def fake_urlopen(req, timeout=0):
+            seen["url"] = req.full_url
+            return Resp(json.dumps({"hourly": {"time": ["2026-02-17T13:00"], "precipitation_previous_day3": [0.2]}}).encode())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(bw, "HINDCAST_DIR", Path(tmp) / "hc"), mock.patch("urllib.request.urlopen", fake_urlopen):
+                out = bw.fetch_hindcast("gem_seamless", "SQV", 39.19, -120.27, "2025-11-01", "2026-04-30", lead_day=3)
+            self.assertEqual(out, {"2026-02-17T13:00": 0.2})
+            self.assertIn("previous-runs-api", seen["url"])
+            self.assertIn("precipitation_previous_day3", seen["url"])
+            self.assertTrue((Path(tmp) / "hc" / "gem_seamless_SQV_2025-11-01_2026-04-30_d3.json").exists())
+            cfg = Path(tmp) / "config"; cfg.mkdir()
+            (cfg / "sources.json").write_text(json.dumps({"sources": [], "blends": [{"id": "blend", "label": "Equal blend", "members": {"a": 1}}]}))
+            with mock.patch.object(bw, "BASE_DIR", Path(tmp)):
+                bw.apply_weights("blend_skill_long", {"icon": {"weight": 1.2, "mae": 0.4}, "gem": {"weight": 0.8, "mae": 0.6}, "ukmo": {"weight": None, "mae": 0.9}},
+                                 {"created": "2026-11-24T00:00:00", "lead": "day-3 lead", "period": "2025-11-01 to 2026-11-24", "site_days": 40})
+            d = json.loads((cfg / "sources.json").read_text())
+        b = next(x for x in d["blends"] if x["id"] == "blend_skill_long")
+        self.assertEqual(b["members"], {"icon": 1.2, "gem": 0.8})       # members without enough windows are left out
+        self.assertEqual(b["label"], "Long-lead skill blend (beta)")
+        self.assertEqual(b["fitted"]["site_days"], 40)
