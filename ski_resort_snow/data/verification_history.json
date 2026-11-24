@@ -1,0 +1,80 @@
+[
+ {
+  "resort_id": "palisades_tahoe",
+  "issued_utc": "2026-11-18T07:36:32.650191+00:00",
+  "station": "SQV",
+  "elevation_ft": 8200,
+  "model": "Open-Meteo best_match (pre-change pipeline)",
+  "proxy": "mid tier forecast at 8,010 ft used for the 8,200 ft sensor; SLR was Kuchera",
+  "window_start_utc": "2026-11-18T07:00:00+00:00",
+  "window_end_utc": "2026-11-20T07:00:00+00:00",
+  "forecast_liquid_in": 4.54,
+  "observed_swe_gain_in": 3.3,
+  "liquid_error_pct": 38,
+  "forecast_snow_in": {
+   "primary": 67.3,
+   "kuchera": 67.4,
+   "fixed_10": 45.4
+  },
+  "observed_depth_gain_in": 14.0,
+  "observed_slr_settled": 4.2,
+  "verified_at_utc": "2026-11-24T06:15:58.882746+00:00",
+  "resort_report": {
+   "as_of_utc": "2026-11-24T06:43:53.628509+00:00",
+   "storm_total_in": 45.0,
+   "mid": {
+    "elevation_ft": 8000,
+    "new_24h_in": 0.0,
+    "new_72h_in": 2.0,
+    "new_7d_in": 42.0,
+    "base_depth_in": 46.0
+   },
+   "base": {
+    "elevation_ft": 6200,
+    "new_24h_in": 0.0,
+    "new_72h_in": 0.0,
+    "new_7d_in": 44.0,
+    "base_depth_in": 32.0
+   }
+  }
+ },
+ {
+  "resort_id": "alpine_meadows",
+  "issued_utc": "2026-11-18T07:36:32.650191+00:00",
+  "station": "WC3",
+  "elevation_ft": 6750,
+  "model": "Open-Meteo best_match (pre-change pipeline)",
+  "proxy": "base tier forecast at 6,835 ft used for the 6,750 ft sensor; SLR was Kuchera",
+  "window_start_utc": "2026-11-18T07:00:00+00:00",
+  "window_end_utc": "2026-11-20T07:00:00+00:00",
+  "forecast_liquid_in": 4.05,
+  "observed_swe_gain_in": 3.9,
+  "liquid_error_pct": 4,
+  "forecast_snow_in": {
+   "primary": 48.2,
+   "kuchera": 48.3,
+   "fixed_10": 40.5
+  },
+  "observed_depth_gain_in": 26.0,
+  "observed_slr_settled": 6.7,
+  "verified_at_utc": "2026-11-24T06:15:59.425574+00:00",
+  "resort_report": {
+   "as_of_utc": "2026-11-24T06:43:58.837823+00:00",
+   "storm_total_in": 45.0,
+   "mid": {
+    "elevation_ft": 8120,
+    "new_24h_in": 0.0,
+    "new_72h_in": 2.0,
+    "new_7d_in": 45.0,
+    "base_depth_in": 46.0
+   },
+   "base": {
+    "elevation_ft": 6950,
+    "new_24h_in": 0.0,
+    "new_72h_in": 0.0,
+    "new_7d_in": 46.0,
+    "base_depth_in": 35.0
+   }
+  }
+ }
+]

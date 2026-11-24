@@ -24,3 +24,9 @@ Thumbs.db
 *.swo
 *~
 .overture_cache/
+
+# Sierra Snow: rolling forecast archive and resort-report log (regenerated every run);
+# keep only the seeded Nov 18 2026 snapshot that backs the first verification entry
+ski_resort_snow/data/archive/*
+!ski_resort_snow/data/archive/forecast_20261118T0736Z.json
+ski_resort_snow/data/live_snow_data.json.tmp

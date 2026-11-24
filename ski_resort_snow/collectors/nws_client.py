@@ -8,7 +8,7 @@ import json
 import urllib.request
 import urllib.error
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
 
 
@@ -26,31 +26,73 @@ class NWSClient:
         lon: float,
         wfo: str = "REV",
         grid_x: int = 41,
-        grid_y: int = 82
+        grid_y: int = 82,
+        summit_lat: Optional[float] = None,
+        summit_lon: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Fetch NWS text forecast, snowfall amounts, and active winter weather alerts."""
+        """Alerts, text periods and the Area Forecast Discussion from the office covering
+        (lat, lon); gridded snowfall at (lat, lon) and, if given, at the summit point,
+        which can fall in a different office's grid (the Sierra crest is the REV/STO boundary)."""
         try:
+            # Resolve the real forecast grid cell for these coordinates
+            # (configured grid values can be stale or wrong).
+            try:
+                wfo, grid_x, grid_y = self._resolve_grid(lat, lon)
+            except Exception:
+                pass
             alerts = self._fetch_active_alerts(lat, lon)
             periods, synoptic = self._fetch_forecast_periods(wfo, grid_x, grid_y)
             grid_snow = self._fetch_grid_snowfall(wfo, grid_x, grid_y)
-
-            # Calculate snow totals from periods and grid
             parsed_totals = self._parse_snow_from_periods(periods)
+            discussion = self._fetch_discussion(wfo)
+
+            summit_grid = None
+            if summit_lat is not None:
+                try:
+                    s_wfo, s_x, s_y = self._resolve_grid(summit_lat, summit_lon)
+                    sg = self._fetch_grid_snowfall(s_wfo, s_x, s_y)
+                    summit_grid = {"wfo": s_wfo, "x": s_x, "y": s_y, "lat": summit_lat, "lon": summit_lon, **sg}
+                except Exception:
+                    summit_grid = None
+            primary = summit_grid if summit_grid and summit_grid.get("next_24h_inches") is not None else grid_snow
+            # Area Forecast Discussions: the resort's office first, then the summit-cell office if different
+            discussions = [{"office": wfo, "role": "resort office (base point)", "text": discussion}]
+            if summit_grid and summit_grid.get("wfo") and summit_grid["wfo"] != wfo:
+                discussions.append({"office": summit_grid["wfo"], "role": "summit grid office (west slope)",
+                                    "text": self._fetch_discussion(summit_grid["wfo"])})
+            snow_24 = primary.get("next_24h_inches")
+            snow_48 = primary.get("next_48h_inches")
+            if snow_24 is None and periods:
+                snow_24 = parsed_totals.get("snow_24h_expected")
+                snow_48 = parsed_totals.get("snow_48h_expected")
 
             return {
                 "status": "success",
-                "source": f"NOAA / NWS Reno ({wfo})",
+                "source": f"NWS {wfo}",
                 "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "grid": {"wfo": wfo, "x": grid_x, "y": grid_y, "elevation_ft": grid_snow.get("grid_elevation_ft"),
+                         "lat": lat, "lon": lon, "next_24h_inches": grid_snow.get("next_24h_inches"),
+                         "next_48h_inches": grid_snow.get("next_48h_inches"), "total_snow_inches": grid_snow.get("total_snow_inches")},
+                "summit_grid": summit_grid,
+                "snowfall_grid_used": "summit" if primary is summit_grid else "base",
+                "office": wfo,
+                "fetched_at_utc": datetime.now(timezone.utc).isoformat(),
                 "active_hazards": alerts,
                 "synoptic_headline": synoptic,
-                "forecast_periods": periods[:6],  # Next 3 days (day & night pairs)
+                "synoptic_discussion": discussion or synoptic,
+                "discussions": discussions,
+                "forecast_periods": periods[:6],
+                "forecast_24h_expected_inches": snow_24,
+                "forecast_48h_expected_inches": snow_48,
                 "snowfall_forecast": {
                     "snow_24h_min_inches": parsed_totals.get("snow_24h_min", 0.0),
                     "snow_24h_max_inches": parsed_totals.get("snow_24h_max", 0.0),
-                    "snow_24h_expected_inches": parsed_totals.get("snow_24h_expected", 0.0),
-                    "snow_48h_expected_inches": parsed_totals.get("snow_48h_expected", 0.0),
-                    "snow_72h_expected_inches": parsed_totals.get("snow_72h_expected", 0.0),
-                    "grid_total_snow_inches": grid_snow.get("total_snow_inches", 0.0)
+                    "text_24h_expected_inches": parsed_totals.get("snow_24h_expected", 0.0),
+                    "text_48h_expected_inches": parsed_totals.get("snow_48h_expected", 0.0),
+                    "grid_next_24h_inches": snow_24,
+                    "grid_next_48h_inches": snow_48,
+                    "grid_7d_inches": primary.get("total_snow_inches"),
                 }
             }
         except Exception as e:
@@ -61,6 +103,36 @@ class NWSClient:
                 "error_message": str(e),
                 "fallback_available": True
             }
+
+    def _get_json(self, url: str) -> Dict[str, Any]:
+        req = urllib.request.Request(url, headers={"User-Agent": self.USER_AGENT, "Accept": "application/geo+json"})
+        with urllib.request.urlopen(req, timeout=self.timeout_sec) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def _resolve_grid(self, lat: float, lon: float) -> tuple:
+        p = self._get_json(f"https://api.weather.gov/points/{lat:.4f},{lon:.4f}")["properties"]
+        return p["gridId"], int(p["gridX"]), int(p["gridY"])
+
+    def _fetch_discussion(self, wfo: str) -> Optional[str]:
+        """Latest Area Forecast Discussion: the .KEY MESSAGES / .SYNOPSIS section, trimmed."""
+        try:
+            listing = self._get_json(f"https://api.weather.gov/products/types/AFD/locations/{wfo}")
+            latest = listing.get("@graph", [])[0]
+            text = self._get_json(f"https://api.weather.gov/products/{latest['id']}").get("productText", "")
+        except Exception:
+            return None
+        sections = re.split(r"\n(?=\.[A-Z][A-Z /]+\.\.\.)", text)
+        pick = next((sec for key in (".KEY MESSAGES", ".SYNOPSIS", ".SHORT TERM", ".DISCUSSION")
+                     for sec in sections if sec.strip().startswith(key)), None)
+        if not pick:
+            return None
+        body = re.sub(r"^\.[A-Z][A-Z /]+\.\.\.\s*", "", pick.strip())
+        body = re.split(r"\n\s*&&", body)[0]
+        # unwrap the 66-column teletype lines but keep paragraph breaks
+        paras = [" ".join(line.strip() for line in para.splitlines()) for para in re.split(r"\n\s*\n", body)]
+        out = "\n\n".join(p for p in paras if p)
+        issued = latest.get("issuanceTime", "")
+        return (out[:1800] + ("…" if len(out) > 1800 else "")) + (f"\n\nIssued {issued[:16].replace('T', ' ')} UTC" if issued else "")
 
     def _fetch_active_alerts(self, lat: float, lon: float) -> List[Dict[str, Any]]:
         """Fetch active winter weather warnings, watches, and advisories for coordinates."""
@@ -103,26 +175,35 @@ class NWSClient:
             return periods, synoptic
 
     def _fetch_grid_snowfall(self, wfo: str, grid_x: int, grid_y: int) -> Dict[str, Any]:
-        """Fetch quantitative snowfall amounts from NWS grid dataset."""
-        url = f"https://api.weather.gov/gridpoints/{wfo}/{grid_x},{grid_y}"
-        req = urllib.request.Request(url, headers={"User-Agent": self.USER_AGENT, "Accept": "application/geo+json"})
-
+        """Official gridded snowfall (mm per interval) summed over the next 24h / 48h / all."""
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout_sec) as response:
-                data = json.loads(response.read().decode("utf-8"))
-                props = data.get("properties", {})
-                snowfall_grid = props.get("snowfallAmount", {}).get("values", [])
-
-                total_mm = 0.0
-                for item in snowfall_grid:
-                    val = item.get("value")
-                    if val is not None:
-                        total_mm += float(val)
-
-                total_inches = round(total_mm / 25.4, 1)
-                return {"total_snow_inches": total_inches, "grid_points_count": len(snowfall_grid)}
+            props = self._get_json(f"https://api.weather.gov/gridpoints/{wfo}/{grid_x},{grid_y}").get("properties", {})
         except Exception:
-            return {"total_snow_inches": 0.0, "grid_points_count": 0}
+            return {}
+        now = datetime.now(timezone.utc)
+        tot = {24: 0.0, 48: 0.0, None: 0.0}
+        values = props.get("snowfallAmount", {}).get("values", [])
+        for item in values:
+            val = item.get("value")
+            vt = item.get("validTime", "")
+            if val is None or "/" not in vt:
+                continue
+            start_s, dur_s = vt.split("/")
+            start = datetime.fromisoformat(start_s)
+            m = re.match(r"P(?:(\d+)D)?T?(?:(\d+)H)?", dur_s)
+            hours = (int(m.group(1) or 0) * 24 + int(m.group(2) or 0)) if m else 1
+            end = start + timedelta(hours=max(1, hours))
+            for win in (24, 48, None):
+                w_end = now + timedelta(hours=win) if win else end
+                overlap = (min(end, w_end) - max(start, now)).total_seconds() / 3600
+                if overlap > 0:
+                    tot[win] += float(val) * min(1.0, overlap / max(1, hours))
+        if not values:
+            return {}
+        elev = (props.get("elevation") or {}).get("value")
+        return {"grid_elevation_ft": round(elev * 3.28084) if elev is not None else None,
+                "next_24h_inches": round(tot[24] / 25.4, 1), "next_48h_inches": round(tot[48] / 25.4, 1),
+                "total_snow_inches": round(tot[None] / 25.4, 1), "grid_points_count": len(values)}
 
     def _parse_snow_from_periods(self, periods: List[Dict[str, Any]]) -> Dict[str, float]:
         """Extract numerical snowfall expectations from text forecasts like '3 to 6 inches'."""

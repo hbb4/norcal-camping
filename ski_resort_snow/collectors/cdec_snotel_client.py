@@ -28,14 +28,14 @@ class CDECSnotelClient:
         elevation_ft: int,
         station_name: str
     ) -> Dict[str, Any]:
-        """Fetch hourly sensor records for SWE (sensor 3), snow depth (sensor 82), and temp (sensor 6)."""
+        """Fetch hourly SWE (sensor 3), snow depth (18, or 82 at some sites) and air temp (4)."""
         now = datetime.now(timezone.utc)
         yesterday = now - timedelta(days=2)
         start_date_str = yesterday.strftime("%Y-%m-%d")
 
         params = {
             "Stations": station_id,
-            "SensorNums": "3,82,6",
+            "SensorNums": "3,4,18,82",
             "dur_code": "H",
             "Start": start_date_str
         }
@@ -72,42 +72,59 @@ class CDECSnotelClient:
         depth_readings = []
         temp_readings = []
 
-        for rec in records:
-            sensor = rec.get("sensorNum")
+        for rec in sorted(records, key=lambda r: str(r.get("date", ""))):
+            sensor = rec.get("SENSOR_NUM", rec.get("sensorNum"))
             val = rec.get("value")
             dt = rec.get("date")
 
             if val is None or float(val) < -90:  # CDEC missing values are often -9999
                 continue
 
-            float_val = float(val)
-            entry = {"date": dt, "value": float_val}
-
-            if sensor == 3:  # SWE (inches)
+            entry = {"date": dt, "value": float(val)}
+            if sensor == 3:          # SWE (inches)
                 swe_readings.append(entry)
-            elif sensor == 82:  # Snow depth (inches)
+            elif sensor in (18, 82):  # Snow depth (inches)
                 depth_readings.append(entry)
-            elif sensor == 6:  # Temperature (Fahrenheit)
+            elif sensor == 4:        # Air temperature (F)
                 temp_readings.append(entry)
 
-        current_depth = depth_readings[-1]["value"] if depth_readings else 0.0
-        depth_24h_ago = depth_readings[-25]["value"] if len(depth_readings) >= 25 else (depth_readings[0]["value"] if depth_readings else current_depth)
-        snow_depth_24h_delta = max(0.0, round(current_depth - depth_24h_ago, 1))
+        if not depth_readings and not swe_readings:
+            return {
+                "status": "no_data",
+                "source": f"CDEC Ground Telemetry ({station_id})",
+                "station_id": station_id, "station_name": station_name, "elevation_ft": elevation_ft,
+                "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+                "error_message": "No snow sensor readings returned",
+            }
 
-        current_swe = swe_readings[-1]["value"] if swe_readings else 0.0
-        swe_24h_ago = swe_readings[-25]["value"] if len(swe_readings) >= 25 else (swe_readings[0]["value"] if swe_readings else current_swe)
-        swe_24h_delta = max(0.0, round(current_swe - swe_24h_ago, 2))
+        def latest(r):
+            return r[-1]["value"] if r else None
 
-        current_temp = temp_readings[-1]["value"] if temp_readings else None
+        def gain(r, hours):
+            if len(r) < 2:
+                return None
+            ago = r[-(hours + 1)]["value"] if len(r) > hours else r[0]["value"]
+            return max(0.0, round(r[-1]["value"] - ago, 2))
 
-        # Compute Snow-to-Liquid Ratio (SLR)
-        if swe_24h_delta > 0.1 and snow_depth_24h_delta > 0:
-            slr = round(snow_depth_24h_delta / swe_24h_delta, 1)
-        else:
-            slr = 12.0  # Default Sierra average
+        current_depth = latest(depth_readings)
+        current_swe = latest(swe_readings)
+        current_temp = latest(temp_readings)
+        snow_depth_24h_delta = gain(depth_readings, 24)
+        swe_24h_delta = gain(swe_readings, 24)
+        depth_48h = gain(depth_readings, 48)
+        swe_48h = gain(swe_readings, 48)
+
+        # Measured snow-to-liquid ratio from the storm's depth vs. SWE gain
+        slr = None
+        for dd, sw in ((snow_depth_24h_delta, swe_24h_delta), (depth_48h, swe_48h)):
+            if dd and sw and sw >= 0.3 and dd >= 2:
+                slr = round(dd / sw, 1)
+                break
 
         # Characterize snow quality based on SLR
-        if slr >= 16.0:
+        if slr is None:
+            snow_character = "Not enough new snow to measure"
+        elif slr >= 16.0:
             snow_character = "Cold Blower Powder (Dry / Fluffy)"
         elif slr >= 11.0:
             snow_character = "Classic Tahoe Powder (Packed / Responsive)"
@@ -124,12 +141,55 @@ class CDECSnotelClient:
             "elevation_ft": elevation_ft,
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
             "measurements": {
-                "snow_depth_current_inches": round(current_depth, 1),
+                "snow_depth_current_inches": round(current_depth, 1) if current_depth is not None else None,
                 "snow_depth_24h_gain_inches": snow_depth_24h_delta,
-                "swe_current_inches": round(current_swe, 2),
+                "snow_depth_48h_gain_inches": depth_48h,
+                "swe_current_inches": round(current_swe, 2) if current_swe is not None else None,
                 "swe_24h_gain_inches": swe_24h_delta,
+                "swe_48h_gain_inches": swe_48h,
                 "snow_to_liquid_ratio": slr,
                 "snow_density_classification": snow_character,
                 "air_temperature_f": round(current_temp, 1) if current_temp is not None else None
             }
         }
+
+    def fetch_window(self, station_id: str, start_utc: datetime, end_utc: datetime) -> Optional[Dict[str, Any]]:
+        """SWE and depth change at a station between two UTC times.
+
+        CDEC hourly data is in Pacific Standard Time (UTC-8). Endpoint values
+        use the median of the readings within 2 h of each end to damp pillow noise."""
+        pst = timedelta(hours=-8)
+        s_loc, e_loc = start_utc + pst, end_utc + pst
+        params = {"Stations": station_id, "SensorNums": "3,18,82", "dur_code": "H",
+                  "Start": (s_loc - timedelta(days=1)).strftime("%Y-%m-%d"), "End": (e_loc + timedelta(days=1)).strftime("%Y-%m-%d")}
+        url = f"{self.CDEC_JSON_URL}?{urllib.parse.urlencode(params)}"
+        req = urllib.request.Request(url, headers={"User-Agent": "SkiResortSnowDashboard/1.0 (outdoor-planning)"})
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout_sec) as response:
+                records = json.loads(response.read().decode("utf-8"))
+        except Exception:
+            return None
+        series = {"swe": [], "depth": []}
+        for rec in records:
+            v = rec.get("value")
+            if v is None or float(v) < -90:
+                continue
+            try:
+                t = datetime.strptime(rec["date"], "%Y-%m-%d %H:%M")
+            except (KeyError, ValueError):
+                continue
+            sensor = rec.get("SENSOR_NUM", rec.get("sensorNum"))
+            key = "swe" if sensor == 3 else ("depth" if sensor in (18, 82) else None)
+            if key:
+                series[key].append((t, float(v)))
+
+        def at(rows, t_loc):
+            near = sorted(v for (t, v) in rows if abs((t - t_loc.replace(tzinfo=None)).total_seconds()) <= 7200)
+            return near[len(near) // 2] if near else None
+
+        def gain(rows):
+            a, b = at(rows, s_loc), at(rows, e_loc)
+            return round(b - a, 2) if a is not None and b is not None else None
+
+        return {"swe_gain_in": gain(series["swe"]), "depth_gain_in": gain(series["depth"]),
+                "swe_start_in": at(series["swe"], s_loc), "swe_end_in": at(series["swe"], e_loc)}

@@ -1,10 +1,53 @@
 /**
- * Sierra Crest Ski Resort Snow Intelligence & Highway Operations Engine
- * Stacked SVG forecast chart, sounding cards & Leaflet highway map
+ * Sierra Snow dashboard: data loading, section renderers, stacked forecast
+ * chart and Leaflet road map. The hero scene, verdict, 7-day strip,
+ * shortcuts and other interactive extras live in experience.js and hook in
+ * through the "snow:render" and "snow:tier" events.
  */
 
 let snowData = null;
-let currentResortId = "palisades_tahoe";
+
+/* ---------------- Preferences & units (saved per browser) ---------------- */
+const Prefs = (() => {
+  const KEY = "sierraSnowPrefs.v1";
+  const defaults = { temp: "F", snow: "in", favResort: "palisades_tahoe", alerts: true, alertThreshold: 12 };
+  let v = { ...defaults };
+  try { v = { ...defaults, ...JSON.parse(localStorage.getItem(KEY) || "{}") }; } catch (e) {}
+  return {
+    get: k => v[k],
+    set(k, val) {
+      v[k] = val;
+      try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) {}
+      document.dispatchEvent(new CustomEvent("snow:prefs", { detail: { key: k, value: val } }));
+    }
+  };
+})();
+
+const U = {
+  metricSnow: () => Prefs.get("snow") === "cm",
+  celsius: () => Prefs.get("temp") === "C",
+  snowNum: inches => (inches == null ? null : (Prefs.get("snow") === "cm" ? inches * 2.54 : inches)),
+  /** 12" / 30 cm. Values >= 10 are rounded to whole numbers. */
+  snow(inches, digits) {
+    if (inches == null || isNaN(inches)) return "--";
+    const v = U.snowNum(inches);
+    const d = digits ?? (Math.abs(v) >= 10 ? 0 : 1);
+    return U.metricSnow() ? `${v.toFixed(d)} cm` : `${v.toFixed(d)}"`;
+  },
+  snowBare(inches, digits) {
+    if (inches == null || isNaN(inches)) return "--";
+    const v = U.snowNum(inches);
+    return v.toFixed(digits ?? (Math.abs(v) >= 10 ? 0 : 1));
+  },
+  snowSuffix: () => (Prefs.get("snow") === "cm" ? " cm" : '"'),
+  snowAxisUnit: () => (Prefs.get("snow") === "cm" ? "cm" : "in"),
+  liquid: inches => (inches == null ? "--" : U.metricSnow() ? `${(inches * 25.4).toFixed(1)} mm` : `${inches.toFixed(2)}"`),
+  tempNum: f => (f == null ? null : U.celsius() ? (f - 32) * 5 / 9 : f),
+  temp: (f, digits = 0) => (f == null ? "n/a" : `${U.tempNum(f).toFixed(digits)}°${U.celsius() ? "C" : "F"}`),
+  tempShort: f => (f == null ? "--" : `${Math.round(U.tempNum(f))}°`),
+};
+
+let currentResortId = Prefs.get("favResort") || "palisades_tahoe";
 let roadMap = null;
 let roadLayers = {};
 let liftObserverSetup = false;
@@ -13,122 +56,145 @@ document.addEventListener("DOMContentLoaded", () => {
   initDashboard();
 });
 
+async function loadSnowData() {
+  for (const url of ["/api/snow", "./data/live_snow_data.json"]) {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      if (res.ok) return await res.json();
+    } catch (e) { /* try next */ }
+  }
+  return window.__INITIAL_SNOW_DATA__ || null;
+}
+
+/* Server refresh status: shows progress while the server fetches new data,
+   and reloads the page data when a newer dataset is written. */
+const Live = {
+  hasServer: false,
+  timer: null,
+  wasRunning: false,
+  async poll() {
+    let st = null;
+    try {
+      const r = await fetch("/api/status", { cache: "no-store" });
+      if (r.ok) { st = await r.json(); this.hasServer = true; }
+    } catch (e) { /* static file mode */ }
+    if (!st) { this.showBar(null); return; }
+    this.showBar(st);
+    const current = snowData && snowData.metadata ? snowData.metadata.generated_at_utc : null;
+    if (st.data_generated_at_utc && st.data_generated_at_utc !== current && !st.running) {
+      const fresh = await loadSnowData();
+      if (fresh) {
+        const first = !snowData;
+        snowData = fresh;
+        renderDashboard();
+        if (first) initRoadMap(); else updateRoadMapData();
+      }
+    }
+    this.wasRunning = st.running;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.poll(), st.running ? 1500 : 30000);
+  },
+  showBar(st) {
+    const bar = document.getElementById("refresh-bar"), btn = document.getElementById("btn-refresh");
+    if (!bar) return;
+    const running = !!(st && st.running);
+    bar.hidden = !running;
+    if (btn) btn.classList.toggle("spinning", running);
+    if (!running) return;
+    const steps = st.steps || [];
+    const done = steps.filter(x => x.state !== "running").length;
+    const cur = steps.filter(x => x.state === "running").map(x => x.name).slice(-1)[0];
+    document.getElementById("refresh-text").textContent = `Fetching latest data${st.kind === "roads" ? " (roads)" : ""}: ${cur || "starting"}`;
+    document.getElementById("refresh-steps").innerHTML = steps.filter(x => x.state !== "running").slice(-6)
+      .map(x => `<span class="rs ${x.state}">${x.state === "done" ? "✓" : "!"} ${x.name}</span>`).join("") + `<span class="rs count">${done} steps done</span>`;
+  },
+  async refresh() {
+    try {
+      const r = await fetch("/api/refresh", { method: "POST" });
+      if (r.ok) { this.wasRunning = true; clearTimeout(this.timer); this.poll(); return; }
+    } catch (e) { /* no server */ }
+    const fresh = await loadSnowData();
+    if (fresh) { snowData = fresh; renderDashboard(); updateRoadMapData(); }
+  },
+};
+
 async function initDashboard() {
+  document.querySelectorAll(".tab-btn").forEach(t => t.classList.toggle("active", t.dataset.resort === currentResortId));
+  document.addEventListener("snow:prefs", e => { if (["temp", "snow"].includes(e.detail.key)) renderDashboard(); });
   setupTabs();
   setupTierToggle();
-  setupRefreshButton();
+  const btn = document.getElementById("btn-refresh");
+  if (btn) btn.addEventListener("click", () => Live.refresh());
 
-  // 1. Try local server API
-  try {
-    const res = await fetch("/api/snow");
-    if (res.ok) {
-      snowData = await res.json();
-    }
-  } catch (e) {
-    // server not running, fallback
-  }
-
-  // 2. Try static JSON
-  if (!snowData) {
-    try {
-      const res = await fetch("./data/live_snow_data.json");
-      if (res.ok) {
-        snowData = await res.json();
-      }
-    } catch (e) {
-      // static fetch failed
-    }
-  }
-
-  // 3. Try embedded window payload
-  if (!snowData && window.__INITIAL_SNOW_DATA__) {
-    snowData = window.__INITIAL_SNOW_DATA__;
-  }
-
+  snowData = await loadSnowData();
   if (snowData) {
     renderDashboard();
     initRoadMap();
-  } else {
-    document.getElementById("main-container").innerHTML = `
-      <div style="text-align: center; padding: 80px 20px;">
-        <h2 style="font-size: 26px; font-weight: 800;">❄️ Loading Sierra Crest Snow Intelligence...</h2>
-        <p style="color: #94a3b8; margin-top: 10px;">Run 'python3 update_snow_data.py' or 'python3 server.py' to generate fresh telemetry.</p>
-      </div>
-    `;
   }
+  Live.poll();
+}
+
+function activeResort() {
+  if (!snowData || !snowData.resorts) return null;
+  return snowData.resorts[currentResortId] || Object.values(snowData.resorts)[0];
+}
+
+function setResort(id) {
+  if (!snowData || !snowData.resorts[id] || id === currentResortId) return;
+  currentResortId = id;
+  document.querySelectorAll(".tab-btn").forEach(t => t.classList.toggle("active", t.dataset.resort === id));
+  renderDashboard();
 }
 
 function setupTabs() {
-  const tabs = document.querySelectorAll(".tab-btn");
-  tabs.forEach(tab => {
-    tab.addEventListener("click", () => {
-      tabs.forEach(t => t.classList.remove("active"));
-      tab.classList.add("active");
-      currentResortId = tab.dataset.resort;
-      renderDashboard();
-    });
-  });
-}
-
-function setupRefreshButton() {
-  const btn = document.getElementById("btn-refresh");
-  if (!btn) return;
-
-  btn.addEventListener("click", async () => {
-    btn.innerHTML = `<span>⏳</span> Refreshing...`;
-    btn.style.opacity = "0.7";
-    btn.disabled = true;
-
-    try {
-      const res = await fetch("/api/refresh", { method: "POST" });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.data) snowData = json.data;
-      }
-    } catch (e) {
-      try {
-        const res = await fetch("./data/live_snow_data.json?t=" + Date.now());
-        if (res.ok) snowData = await res.json();
-      } catch (err) {}
-    }
-
-    renderDashboard();
-    updateRoadMapData();
-
-    btn.innerHTML = `<span>🔄</span> Refresh Live Data`;
-    btn.style.opacity = "1";
-    btn.disabled = false;
+  document.querySelectorAll(".tab-btn").forEach(tab => {
+    tab.addEventListener("click", () => setResort(tab.dataset.resort));
   });
 }
 
 function renderDashboard() {
-  if (!snowData || !snowData.resorts) return;
-
-  const resorts = snowData.resorts;
-  const activeResort = resorts[currentResortId] || Object.values(resorts)[0];
-
-  renderHeader(snowData.metadata, activeResort);
-  renderKPIs(activeResort);
-  renderSynopticDiscussion(activeResort);
-  renderElevationGradient(activeResort);
-  renderSounding(activeResort);
-  renderHourlyDualAxisChart(activeResort);
-  renderComparisonTable(activeResort);
-  renderHazards(activeResort);
-  renderLiftsAndOperations(activeResort);
+  const resort = activeResort();
+  if (!resort) return;
+  renderHeader(snowData.metadata, resort);
+  renderKPIs(resort);
+  renderSynopticDiscussion(resort);
+  renderSounding(resort);
+  renderHourlyDualAxisChart(resort);
+  renderHazards(resort);
+  renderLiftsAndOperations(resort);
   renderRoadList();
+  document.dispatchEvent(new CustomEvent("snow:render", { detail: { resort, data: snowData } }));
+}
+
+function sourceStatuses(resort) {
+  const s = resort.sources || {};
+  const roads = snowData.road_conditions || {};
+  const sond = snowData.observed_soundings || {};
+  const item = (name, src, when) => ({ name, status: (src || {}).status || "error", when: when ?? ((src || {}).fetched_at_utc || (src || {}).timestamp_utc), note: (src || {}).stale_reason || (src || {}).error_message || (src || {}).reason });
+  return [
+    item("Models (HRRR→GFS, comparisons, ensembles)", s.open_meteo),
+    item("NWS (REV discussion/alerts, grid snowfall)", s.noaa_nws),
+    item(`CDEC sensor ${(s.cdec_snotel || {}).station_id || ""}`, s.cdec_snotel),
+    item("Radiosondes REV / OAK", { status: Object.values(sond).every(x => x.status === "success") ? "success" : "stale" }, (sond.KREV || {}).fetched_at_utc),
+    { name: "Caltrans chain controls", status: roads.is_live_feed && roads.status !== "stale" ? "success" : (roads.status || "error"), when: roads.fetched_at_utc, note: roads.stale_reason },
+    item("Resort snow report", s.resort_official),
+  ];
 }
 
 function renderHeader(meta, resort) {
   const timeEl = document.getElementById("last-updated-text");
   if (timeEl && meta && meta.generated_at_utc) {
-    const d = new Date(meta.generated_at_utc);
-    timeEl.textContent = `Telemetry Sync: ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} PST (${d.toLocaleDateString()})`;
+    timeEl.textContent = `Data ${new Date(meta.generated_at_utc).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · ${Fmt.ago(meta.generated_at_utc)}`;
   }
-
-  const stormBadge = document.getElementById("storm-cycle-badge");
-  if (stormBadge && meta) {
-    stormBadge.innerHTML = `<span class="dot"></span> ${meta.active_storm_cycle || "Pacific Storm Cycle"}`;
+  const srcs = sourceStatuses(resort);
+  const cls = st => (st === "success" ? "live" : st === "stale" ? "cached" : "err");
+  const dots = document.getElementById("source-dots");
+  if (dots) dots.innerHTML = srcs.map(s => `<i class="${cls(s.status)}" title="${s.name}: ${s.status}"></i>`).join("");
+  const pop = document.getElementById("source-pop");
+  if (pop) {
+    pop.innerHTML = `<div class="mini-label" style="padding:2px 6px 6px">Fetched by the server${Live.hasServer ? "" : " (static file: not refreshed)"}</div>` + srcs.map(s => `
+      <div class="src" title="${(s.note || "").replace(/"/g, "&quot;")}"><i style="background:${s.status === "success" ? "var(--good)" : s.status === "stale" ? "var(--warn)" : "var(--bad)"}"></i>
+      <span>${s.name}</span><span>${s.status === "success" ? Fmt.ago(s.when) : s.status === "unavailable" ? "unavailable" : `${s.status} · ${Fmt.ago(s.when)}`}</span></div>`).join("");
   }
 }
 
@@ -136,86 +202,120 @@ function renderKPIs(resort) {
   const c = resort.consensus_forecast || {};
   const sources = resort.sources || {};
   const resortRpt = sources.resort_official || {};
+  const om = sources.open_meteo || {};
 
-  // 1. Next 24h Consensus
-  const val24 = document.getElementById("kpi-24h-val");
-  const sub24 = document.getElementById("kpi-24h-sub");
-  if (val24 && c.next_24h_inches) {
-    val24.textContent = c.next_24h_inches.expected.toFixed(1);
-    sub24.textContent = `Model Spread: ${c.next_24h_inches.min}" – ${c.next_24h_inches.max}"`;
-  }
+  const setRange = (key, obj) => {
+    const val = document.getElementById(`kpi-${key}-val`);
+    const sub = document.getElementById(`kpi-${key}-sub`);
+    const bar = document.getElementById(`kpi-${key}-bar`);
+    if (!obj || !val) return;
+    val.dataset.target = U.snowNum(obj.expected);
+    val.textContent = U.snowBare(obj.expected, 0);
+    const unitEl = val.nextElementSibling; if (unitEl) unitEl.textContent = U.snowSuffix();
+    if (sub) sub.textContent = obj.min != null ? `${U.snowBare(obj.min, 0)}–${U.snow(obj.max, 0)} (p10–p90)` : "range unavailable";
+    if (bar && obj.min != null) {
+      const scale = Math.max(obj.max * 1.15, 1);
+      bar.style.left = `${(obj.min / scale) * 100}%`;
+      bar.style.width = `${((obj.max - obj.min) / scale) * 100}%`;
+    }
+  };
+  setRange("24h", c.next_24h_inches);
+  setRange("48h", c.next_48h_inches);
 
-  // 2. Next 48h Consensus
-  const val48 = document.getElementById("kpi-48h-val");
-  const sub48 = document.getElementById("kpi-48h-sub");
-  if (val48 && c.next_48h_inches) {
-    val48.textContent = c.next_48h_inches.expected.toFixed(1);
-    sub48.textContent = `Model Spread: ${c.next_48h_inches.min}" – ${c.next_48h_inches.max}"`;
-  }
-
-  // 3. 7-Day Storm Total
   const val7d = document.getElementById("kpi-7d-val");
+  const summit7d = (om.summit && om.summit.snow_7d_total_inches) ?? c.next_7d_total_inches ?? 0;
   if (val7d) {
-    val7d.textContent = (c.next_7d_total_inches || 0).toFixed(1);
+    val7d.dataset.target = U.snowNum(summit7d); val7d.textContent = U.snowBare(summit7d, 0);
+    const unitEl = val7d.nextElementSibling; if (unitEl) unitEl.textContent = U.snowSuffix();
   }
+  const sub7 = document.getElementById("kpi-ops-sub");
+  const e7 = om.summit && om.summit.ensemble && om.summit.ensemble.snow_7d;
+  if (sub7) sub7.textContent = e7 ? `${U.snowBare(e7.p10, 0)}–${U.snow(e7.p90, 0)} (p10–p90)` : "range unavailable";
+  const bar7 = document.getElementById("kpi-7d-bar");
+  if (bar7 && e7) { const sc = Math.max(e7.p90 * 1.15, 1); bar7.style.left = `${(e7.p10 / sc) * 100}%`; bar7.style.width = `${((e7.p90 - e7.p10) / sc) * 100}%`; }
+  const srcNote = document.getElementById("range-source");
+  if (srcNote) srcNote.textContent = (c.range_source && c.range_source.startsWith("ensemble") ? `Ranges: 10th–90th percentile of ${(c.range_source.match(/\((\d+) members/) || [])[1] || "~120"} ensemble members. ` : "Ranges unavailable (no ensemble). ") + `24/48 h values: ${c.blend_sources || "blend"}.`;
+  const pdef = document.getElementById("powder-def");
+  if (pdef && c.powder_score_definition) pdef.title = c.powder_score_definition;
 
-  // 4. Powder Score
   const valPowder = document.getElementById("kpi-powder-val");
-  const badgePowder = document.getElementById("kpi-powder-badge");
-  if (valPowder) {
-    valPowder.textContent = c.powder_score ? c.powder_score.toFixed(1) : "N/A";
-  }
-  if (badgePowder) {
-    badgePowder.textContent = c.powder_rating || "GOOD";
-    badgePowder.className = "kpi-badge " + ((c.powder_score >= 8.0) ? "badge-epic" : (c.powder_score >= 6.0 ? "badge-warning" : "badge-danger"));
-  }
+  if (valPowder) valPowder.textContent = c.powder_score ? c.powder_score.toFixed(1) : "--";
+  const ring = document.getElementById("powder-ring");
+  if (ring) ring.style.strokeDashoffset = `${314.16 * (1 - Math.min(10, c.powder_score || 0) / 10)}`;
 
-  // 5. Snowpack Base Depth
+
+  const resortOk = ["success", "stale"].includes(resortRpt.status);
+  const areas = resortRpt.snow_areas || {};
   const valOps = document.getElementById("kpi-ops-val");
-  const subOps = document.getElementById("kpi-ops-sub");
   if (valOps) {
-    const baseD = resortRpt.base_depth_base_inches || (resortRpt.snow_stake ? resortRpt.snow_stake.base_depth_inches : 84.5);
-    valOps.textContent = typeof baseD === "number" ? baseD.toFixed(1) : baseD;
+    const bd = (areas.base || {}).base_depth_in, md = (areas.mid || {}).base_depth_in;
+    valOps.textContent = resortOk && bd != null ? `${U.snowBare(bd, 0)}${md != null ? "–" + U.snowBare(md, 0) : ""}` : "--";
+    if (valOps.nextElementSibling) valOps.nextElementSibling.textContent = U.snowSuffix();
+    const lbl = document.getElementById("resort-depth-label");
+    if (lbl) lbl.textContent = resortOk ? `resort depth, base ${(areas.base || {}).elevation_ft?.toLocaleString() || ""}–mid ${(areas.mid || {}).elevation_ft?.toLocaleString() || ""} ft` : "resort report unavailable";
   }
-  if (subOps) {
-    const lifts = resortRpt.lifts_open || (resortRpt.operations ? `${resortRpt.operations.lifts_open}/${resortRpt.operations.lifts_total}` : "23 / 29");
-    subOps.textContent = `Lifts: ${lifts} Open`;
+  const cdec = sources.cdec_snotel || {};
+  const sensor = cdec.measurements ? cdec.measurements.snow_depth_current_inches : null;
+  const sensorEl = document.getElementById("snowpack-sensor");
+  if (sensorEl) {
+    sensorEl.textContent = typeof sensor === "number" ? U.snowBare(sensor, 0) : "--";
+    if (sensorEl.nextElementSibling) sensorEl.nextElementSibling.textContent = U.snowSuffix();
   }
+  const sensorLbl = document.getElementById("snowpack-sensor-label");
+  if (sensorLbl) sensorLbl.textContent = `CDEC ${cdec.station_id || ""} sensor, ${(cdec.elevation_ft || 0).toLocaleString()} ft`;
+  const kv = document.getElementById("resort-kv");
+  if (kv) {
+    const row = (k, v) => (v == null || v === "" ? "" : `<dt>${k}</dt><dd>${v}</dd>`);
+    const area = t => areas[t] || {};
+    const newSnow = t => { const a = area(t); return a.new_24h_in == null && a.new_7d_in == null ? null : `${U.snow(a.new_24h_in ?? 0)} / ${U.snow(a.new_72h_in ?? 0)} / ${U.snow(a.new_7d_in ?? 0)}`; };
+    kv.innerHTML = resortOk ? [
+      row(`New snow 24 h / 72 h / 7 d, mid ${area("mid").elevation_ft ? area("mid").elevation_ft.toLocaleString() + " ft" : ""}`, newSnow("mid")),
+      row(`Same, base ${area("base").elevation_ft ? area("base").elevation_ft.toLocaleString() + " ft" : ""}`, newSnow("base")),
+      row("Storm total / season total", resortRpt.storm_total_in != null ? `${U.snow(resortRpt.storm_total_in)} / ${U.snow(resortRpt.season_total_in)}` : null),
+      row("Lifts open or scheduled", resortRpt.lifts_total ? `${resortRpt.lifts_open} of ${resortRpt.lifts_total}` : null),
+      row("Trails open", resortRpt.trails_total ? `${resortRpt.trails_open} of ${resortRpt.trails_total}` : null),
+      row("Surface", resortRpt.surface_condition),
+    ].join("") : "";
+  }
+  const eb = document.getElementById("resort-eyebrow");
+  if (eb) eb.textContent = resortOk ? `Resort snow report · updated ${resortRpt.report_updated ? new Date(resortRpt.report_updated).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "n/a"}` : "Resort snow report";
+  const note = document.getElementById("ops-note");
+  if (note) note.textContent = resortOk ? `Source: ${resortRpt.source}${resortRpt.status === "stale" ? ` (stale: ${resortRpt.stale_reason})` : ""} · fetched ${Fmt.ago(resortRpt.fetched_at_utc)}. Resort totals are measured on cleared new-snow boards.`
+    : `Resort report unavailable${resortRpt.error_message ? `: ${resortRpt.error_message}` : ""}.`;
+  const txtWrap = document.getElementById("resort-text-wrap"), txt = document.getElementById("resort-text");
+  if (txtWrap && txt) { txtWrap.hidden = !resortRpt.report_text; txt.textContent = resortRpt.report_text || ""; }
 }
+
+const NWS_OFFICES = { REV: "Reno", STO: "Sacramento" };
 
 function renderSynopticDiscussion(resort) {
-  const container = document.getElementById("synoptic-text");
-  if (!container) return;
-
-  const s = resort.sources || {};
-  const nws = s.noaa_nws || {};
-  container.textContent = nws.synoptic_discussion || "Atmospheric moisture tap with strong orographic enhancement along the Sierra Crest. Snow levels lowering through frontal passage.";
-}
-
-function renderElevationGradient(resort) {
-  const c = resort.consensus_forecast || {};
-  const grad = c.elevation_snow_gradient || {};
-  const elevs = resort.elevations || {};
-
-  const summitEl = document.getElementById("grad-summit-snow");
-  const baseEl = document.getElementById("grad-base-snow");
-  const spreadEl = document.getElementById("grad-spread-val");
-  const analysisEl = document.getElementById("grad-analysis-text");
-
-  if (summitEl) summitEl.textContent = `${(grad.summit_48h_forecast_inches || 0).toFixed(1)}"`;
-  if (baseEl) baseEl.textContent = `${(grad.base_48h_forecast_inches || 0).toFixed(1)}"`;
-  if (spreadEl) spreadEl.textContent = `+${(grad.spread_inches || 0).toFixed(1)}" Summit Snow Differential`;
-  if (analysisEl) analysisEl.textContent = grad.analysis || "Elevation strongly governs precipitation phase and density along the crest.";
-
-  const baseTierLabel = document.getElementById("tier-base-title");
-  const summitTierLabel = document.getElementById("tier-summit-title");
-  if (baseTierLabel) baseTierLabel.textContent = `Base Area (${elevs.base_ft ? elevs.base_ft.toLocaleString() : "6,200"}\')`;
-  if (summitTierLabel) summitTierLabel.textContent = `Upper Crest / Summit (${elevs.summit_ft ? elevs.summit_ft.toLocaleString() : "9,000"}\')`;
+  const box = document.getElementById("afd-grid");
+  if (!box) return;
+  const nws = (resort.sources || {}).noaa_nws || {};
+  const esc = t => t.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const list = (nws.discussions && nws.discussions.length) ? nws.discussions
+    : [{ office: nws.office || "REV", role: "resort office (base point)", text: nws.synoptic_discussion || "" }];
+  box.innerHTML = list.map((d, i) => {
+    const paras = (d.text || "").split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+    const issued = paras.length && /^Issued /.test(paras[paras.length - 1]) ? paras.pop() : null;
+    const body = paras.length ? paras.map(p => /^[*-]\s/.test(p) ? `<p class="afd-bullet">${esc(p.replace(/^[*-]\s*/, ""))}</p>` : `<p>${esc(p)}</p>`).join("")
+      : `<p class="muted">Discussion unavailable.</p>`;
+    const name = NWS_OFFICES[d.office] || d.office;
+    return `<article class="card afd${i === 0 ? " afd-primary" : ""}">
+      <header>
+        <div><div class="eyebrow">${i === 0 ? "Primary · " : ""}${esc(d.role || "")}</div>
+          <h3>NWS ${esc(name)} (${esc(d.office)})</h3>
+          <div class="mini-label">${issued ? esc(issued.replace("Issued ", "Issued ")) : "Issue time n/a"} · fetched ${Fmt.ago(nws.fetched_at_utc)}</div></div>
+        <a class="text-btn" href="https://forecast.weather.gov/product.php?site=${d.office}&issuedby=${d.office}&product=AFD" target="_blank" rel="noopener">Full discussion ↗</a>
+      </header>
+      <div class="afd-text">${body}</div>
+    </article>`;
+  }).join("");
 }
 
 /* ==========================================================================
    48-HOUR STACKED FORECAST CHART
-   Five panels share one time axis, each with its own labelled scale
+   Five panels share one time axis, each with its own labeled scale
    (no dual axes):
      1. Accumulated snow (in), selected tier highlighted, other tiers faint
      2. Hourly snowfall (in/hr), SLR-adjusted
@@ -225,18 +325,21 @@ function renderElevationGradient(resort) {
    ========================================================================== */
 let currentTier = "summit";
 const TIER_LABEL = { base: "Base", mid: "Mid Mtn", summit: "Summit" };
-const PHASE_COLOR = { snow: "#7dd3fc", mix: "#c084fc", rain: "#4ade80", dry: "transparent" };
+const PHASE_COLOR = { snow: "#7dd3fc", mix: "#c084fc", rain: "#4ade80", ice: "#fb7185", dry: "transparent" };
 const SVGNS = "http://www.w3.org/2000/svg";
+
+function setTier(tier) {
+  if (!TIER_LABEL[tier]) return;
+  currentTier = tier;
+  document.querySelectorAll(".tier-toggle-btn").forEach(b => b.classList.toggle("active", b.dataset.tier === tier));
+  const resort = activeResort();
+  if (resort) renderHourlyDualAxisChart(resort);
+  document.dispatchEvent(new CustomEvent("snow:tier", { detail: { tier, resort } }));
+}
 
 function setupTierToggle() {
   document.querySelectorAll(".tier-toggle-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".tier-toggle-btn").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      currentTier = btn.dataset.tier;
-      const resort = snowData && (snowData.resorts[currentResortId] || Object.values(snowData.resorts)[0]);
-      if (resort) renderHourlyDualAxisChart(resort);
-    });
+    btn.addEventListener("click", () => setTier(btn.dataset.tier));
   });
 }
 
@@ -253,7 +356,7 @@ function niceAxis(maxVal, minTop, ticks = 4) {
   return { max: Math.ceil(top0 / step) * step, step };
 }
 
-function fmtFt(v) { return v == null ? "n/a" : `${Math.round(v).toLocaleString()}'`; }
+function fmtFt(v) { return v == null ? "n/a" : `${Math.round(v).toLocaleString()} ft`; }
 function compass(deg) {
   return ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"][Math.round(deg / 22.5) % 16];
 }
@@ -271,7 +374,9 @@ function renderHourlyDualAxisChart(resort) {
   // Header + toggle labels
   const tierFt = elevs[`${currentTier}_ft`];
   const sub = document.getElementById("chart-tier-subtitle");
-  if (sub) sub.textContent = `Viewing: ${TIER_LABEL[currentTier]} (${tierFt ? tierFt.toLocaleString() + "'" : "--"}) · snowfall is SLR-adjusted (Kuchera), wind is at this elevation`;
+  if (sub) sub.textContent = `${TIER_LABEL[currentTier]} (${tierFt ? tierFt.toLocaleString() + " ft" : "--"}). Elevation selector is in the 7-day section. Snowfall uses the Cobb-style snow/liquid ratio; wind is at this elevation.`;
+  const ceb = document.getElementById("chart-eyebrow");
+  if (ceb) ceb.textContent = `Model: ${(om.primary_model || {}).label || "HRRR → GFS"} · fetched ${Fmt.ago(om.fetched_at_utc)}`;
   ["base", "mid", "summit"].forEach(t => {
     const el = document.getElementById(`btn-${t}-elev`);
     if (el && elevs[`${t}_ft`]) el.textContent = `${elevs[`${t}_ft`].toLocaleString()}'`;
@@ -293,8 +398,8 @@ function renderHourlyDualAxisChart(resort) {
   const panels = {};
   let y = 14;
   const addPanel = (key, h, title, gap = 30) => { panels[key] = { top: y + 16, h, title }; y += 16 + h + gap; };
-  addPanel("cum", 120, "ACCUMULATED SNOW (IN)");
-  addPanel("rate", 80, "HOURLY SNOWFALL (IN/HR)");
+  addPanel("cum", 120, `ACCUMULATED SNOW (${U.snowAxisUnit().toUpperCase()})`);
+  addPanel("rate", 80, `HOURLY SNOWFALL (${U.snowAxisUnit().toUpperCase()}/HR)`);
   addPanel("ptype", 18, "PRECIP TYPE · OPACITY = CHANCE OF PRECIP", 30);
   addPanel("wind", 100, `WIND AT ${TIER_LABEL[currentTier].toUpperCase()} (MPH) · LINE = SUSTAINED, BARS = GUSTS`);
   addPanel("prof", 150, "WHERE SNOW FORMS & FALLS (FT ABOVE SEA LEVEL)", 8);
@@ -327,24 +432,24 @@ function renderHourlyDualAxisChart(resort) {
   {
     const p = panels.cum; title(p);
     const tiers = ["base", "mid", "summit"].filter(t => tls[t] && tls[t].length);
-    const lastCum = t => (tls[t].slice(0, n).slice(-1)[0] || {}).cumulative_snow_inches || 0;
-    const maxCum = Math.max(...tiers.map(lastCum), (tl[n - 1] || {}).cumulative_snow_inches || 0, ...(tl.map(x => x.model_cumulative_inches || 0)));
-    const ax = niceAxis(maxCum, 6, 4);
-    for (let v = 0; v <= ax.max + 1e-6; v += ax.step) grid(p, v, ax.max, `${+v.toFixed(1)}"`, v === 0);
+    const lastCum = t => U.snowNum((tls[t].slice(0, n).slice(-1)[0] || {}).cumulative_snow_inches || 0);
+    const maxCum = Math.max(...tiers.map(lastCum), U.snowNum((tl[n - 1] || {}).cumulative_snow_inches || 0), ...(tl.map(x => U.snowNum(x.model_cumulative_inches || 0))));
+    const ax = niceAxis(maxCum, U.snowNum(6), 4);
+    for (let v = 0; v <= ax.max + 1e-6; v += ax.step) grid(p, v, ax.max, `${+v.toFixed(1)}${U.metricSnow() ? "" : '"'}`, v === 0);
     const yv = v => p.top + p.h * (1 - Math.min(v, ax.max) / ax.max);
     const pathFor = arr => arr.map((x, i) => `${i ? "L" : "M"}${xMid(i).toFixed(1)},${yv(x).toFixed(1)}`).join(" ");
     let rawLabel = null;
 
     // Model raw (7:1) for the selected tier, for comparison
     if (tl.some(x => x.model_cumulative_inches != null)) {
-      s += `<path d="${pathFor(tl.map(x => x.model_cumulative_inches || 0))}" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4"/>`;
-      const mv = tl[n - 1].model_cumulative_inches || 0;
+      s += `<path d="${pathFor(tl.map(x => U.snowNum(x.model_cumulative_inches || 0)))}" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4"/>`;
+      const mv = U.snowNum(tl[n - 1].model_cumulative_inches || 0);
       rawLabel = { v: mv };
     }
     // Other tiers faint, selected tier filled
     const labelYs = [];
     tiers.forEach(t => {
-      const arr = tls[t].slice(0, n).map(x => x.cumulative_snow_inches || 0);
+      const arr = tls[t].slice(0, n).map(x => U.snowNum(x.cumulative_snow_inches || 0));
       const sel = t === currentTier;
       if (sel) {
         s += `<path d="${pathFor(arr)} L${xMid(arr.length - 1)},${p.top + p.h} L${xMid(0)},${p.top + p.h} Z" fill="rgba(125,211,252,0.14)"/>`;
@@ -353,31 +458,31 @@ function renderHourlyDualAxisChart(resort) {
       let ly = yv(arr[arr.length - 1]) + 4;
       labelYs.forEach(o => { if (Math.abs(o - ly) < 12) ly = o + (ly >= o ? 12 : -12); });
       labelYs.push(ly);
-      s += `<text x="${padL + plotW + 6}" y="${ly}" fill="${sel ? "#f8fafc" : "#94a3b8"}" font-size="${sel ? 11 : 10}" font-weight="${sel ? 800 : 600}">${arr[arr.length - 1].toFixed(1)}" ${TIER_LABEL[t]}</text>`;
+      s += `<text x="${padL + plotW + 6}" y="${ly}" fill="${sel ? "#f8fafc" : "#94a3b8"}" font-size="${sel ? 11 : 10}" font-weight="${sel ? 800 : 600}">${arr[arr.length - 1].toFixed(arr[arr.length - 1] >= 10 ? 0 : 1)}${U.snowSuffix()} ${TIER_LABEL[t]}</text>`;
     });
     if (rawLabel) {
       let ly = yv(rawLabel.v) + 4;
       for (let k = 0; k < 4; k++) labelYs.forEach(o => { if (Math.abs(o - ly) < 12) ly = o + 12; });
-      s += `<text x="${padL + plotW + 6}" y="${Math.min(ly, p.top + p.h + 8)}" fill="#94a3b8" font-size="10" font-style="italic">${rawLabel.v.toFixed(1)}" raw 7:1 (${TIER_LABEL[currentTier]})</text>`;
+      s += `<text x="${padL + plotW + 6}" y="${Math.min(ly, p.top + p.h + 8)}" fill="#94a3b8" font-size="10" font-style="italic">${rawLabel.v.toFixed(rawLabel.v >= 10 ? 0 : 1)}${U.snowSuffix()} 7:1 field (${TIER_LABEL[currentTier]})</text>`;
     }
   }
 
   // ---- Panel 2: hourly rate ----
   {
     const p = panels.rate; title(p);
-    const maxRate = Math.max(...tl.map(x => x.snowfall_rate_in_hr || 0));
-    const ax = niceAxis(maxRate, 1, 2);
-    for (let v = 0; v <= ax.max + 1e-6; v += ax.step) grid(p, v, ax.max, `${+v.toFixed(2)}"`, v === 0);
+    const maxRate = Math.max(...tl.map(x => U.snowNum(x.snowfall_rate_in_hr || 0)));
+    const ax = niceAxis(maxRate, U.snowNum(1), 2);
+    for (let v = 0; v <= ax.max + 1e-6; v += ax.step) grid(p, v, ax.max, `${+v.toFixed(2)}${U.metricSnow() ? "" : '"'}`, v === 0);
     const bw = Math.max(3, step - 3);
     tl.forEach((x, i) => {
-      const r = x.snowfall_rate_in_hr || 0;
+      const r = U.snowNum(x.snowfall_rate_in_hr || 0);
       if (r <= 0) return;
       const h = Math.max(1.5, p.h * Math.min(r, ax.max) / ax.max);
       s += `<rect x="${xOf(i) + 1.5}" y="${p.top + p.h - h}" width="${bw}" height="${h}" rx="2" fill="#f8fafc" fill-opacity="${0.55 + 0.45 * (x.snow_fraction ?? 1)}"/>`;
     });
     const tot24 = tl.slice(0, 24).reduce((a, x) => a + (x.snowfall_rate_in_hr || 0), 0);
     s += `<text x="${padL + plotW + 6}" y="${p.top + 12}" fill="#cbd5e1" font-size="10">Next 24h</text>`;
-    s += `<text x="${padL + plotW + 6}" y="${p.top + 26}" fill="#f8fafc" font-size="12" font-weight="800">${tot24.toFixed(1)}"</text>`;
+    s += `<text x="${padL + plotW + 6}" y="${p.top + 26}" fill="#f8fafc" font-size="12" font-weight="800">${U.snow(tot24)}</text>`;
   }
 
   // ---- Panel 3: precip type strip ----
@@ -522,10 +627,10 @@ function setupChartHoverTooltips(tl, profile, xMid) {
         ${row("Precip type", `<span style="color:${PHASE_COLOR[ph] === "transparent" ? "#94a3b8" : PHASE_COLOR[ph]}">${x.precip_phase_label || ph}</span>`)}
         ${row("Chance of precip", `${x.precip_probability ?? "n/a"}%`)}
         ${x.chance_snow_pct != null ? row("Chance snow / rain", `${x.chance_snow_pct}% / ${x.chance_rain_pct}%`) : ""}
-        ${row("Snowfall", `${(x.snowfall_rate_in_hr || 0).toFixed(2)}" /hr`)}
-        ${row("Accumulated", `${(x.cumulative_snow_inches || 0).toFixed(1)}"`)}
-        ${x.precip_in != null ? row("Liquid · SLR", `${x.precip_in.toFixed(2)}" · ${x.slr ?? "n/a"}:1`) : ""}
-        ${row("Temp / wet bulb", `${x.temp_f?.toFixed(0)}° / ${x.wet_bulb_f?.toFixed(0)}°F`)}
+        ${row("Snowfall", `${U.snow(x.snowfall_rate_in_hr || 0, U.metricSnow() ? 1 : 2)} /hr`)}
+        ${row("Accumulated", U.snow(x.cumulative_snow_inches || 0, 1))}
+        ${x.precip_in != null ? row("Liquid · SLR", `${U.liquid(x.precip_in)} · ${x.slr ?? "n/a"}:1`) : ""}
+        ${row("Temp / wet bulb", `${U.tempShort(x.temp_f)} / ${U.temp(x.wet_bulb_f)}`)}
         ${row("Wind", `${Math.round(x.wind_mph || 0)} mph${x.wind_dir_deg != null ? " " + compass(x.wind_dir_deg) : ""}`)}
         ${row("Gusts", `${Math.round(gust)} mph`, gc)}
         ${row("Snow level", fmtFt(pr.snow_level_ft ?? x.snow_level_ft))}
@@ -558,32 +663,51 @@ function setupChartHoverTooltips(tl, profile, xMid) {
    ========================================================================== */
 function renderSounding(resort) {
   const om = (resort.sources && resort.sources.open_meteo) || {};
-  const snd = om.atmospheric_sounding || (resort.consensus_forecast || {}).atmospheric_sounding || {};
+  const snd = om.atmospheric_sounding || {};
   const dgz = snd.dgz || {}, ph = snd.precipitation_phase_analysis || {}, md = snd.moisture_and_dynamics || {};
-  const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.textContent = v; };
+  const set = (id, v, html) => { const el = document.getElementById(id); if (el && v != null) el[html ? "innerHTML" : "textContent"] = v; };
+  const width = (id, pct, left) => { const el = document.getElementById(id); if (el) { el.style.width = `${Math.max(0, Math.min(100, pct))}%`; if (left != null) el.style.left = `${left}%`; } };
+  const eb = document.getElementById("atmo-eyebrow");
+  if (eb) { const q = (om.query_points || {}).summit || {}; eb.textContent = `Model sounding (${(om.primary_model || {}).label || "HRRR → GFS"}) at ${q.lat ?? "?"}, ${q.lon ?? "?"} · cards: ${snd.basis || "next 24 h"}`; }
 
-  const dgzBadge = { ACTIVE_BLOWER: "SATURATED + RISING", MODERATE: "MOIST, WEAK LIFT", WEAK_DRY: "DRY" }[dgz.status] || (dgz.status || "--");
-  set("dgz-badge", dgzBadge);
-  set("dgz-thickness-val", dgz.thickness_ft != null ? `${dgz.thickness_ft.toLocaleString()}' THICK` : "--");
-  set("dgz-desc", dgz.description);
+  // DGZ
+  const badge = document.getElementById("dgz-badge");
+  if (badge) {
+    badge.textContent = { SATURATED_RISING: "Ice-saturated, rising", SATURATED: "Ice-saturated, weak lift", SUBSATURATED: "Subsaturated", ABSENT: "Not found" }[dgz.status] || "--";
+    badge.className = "chip " + (dgz.status === "SATURATED_RISING" ? "chip-ice" : "");
+    badge.title = dgz.criteria || "";
+  }
+  set("dgz-thickness-val", dgz.thickness_ft != null ? `${dgz.thickness_ft.toLocaleString()} ft<small>thick</small>` : "--", true);
   set("dgz-layer-val", dgz.base_elevation_ft ? `${fmtFt(dgz.base_elevation_ft)} – ${fmtFt(dgz.top_elevation_ft)}` : "n/a");
-  set("dgz-rh-val", dgz.relative_humidity_pct != null ? `${dgz.relative_humidity_pct}%${dgz.lift_cm_s != null ? ` · lift ${dgz.lift_cm_s > 0 ? "+" : ""}${dgz.lift_cm_s} cm/s` : ""}` : "n/a");
-  set("dgz-crystal-val", dgz.crystal_regime + (dgz.avg_summit_slr ? ` (~${dgz.avg_summit_slr}:1)` : ""));
+  set("dgz-pres-val", dgz.base_pressure_hpa ? `${dgz.base_pressure_hpa} – ${dgz.top_pressure_hpa} hPa` : "n/a");
+  const rhi = dgz.relative_humidity_ice_pct;
+  set("dgz-rh-val", rhi != null ? `${rhi}% (water ${dgz.relative_humidity_pct}%)` : "n/a");
+  width("dgz-rh-bar", rhi != null ? rhi / 1.2 : 0);   // bar spans 0-120%; tick at 100%
+  const lift = dgz.lift_cm_s ?? 0;
+  set("dgz-lift-val", `${lift > 0 ? "+" : ""}${lift} cm/s`);
+  const liftPct = Math.max(-50, Math.min(50, lift));
+  width("dgz-lift-bar", Math.abs(liftPct), liftPct >= 0 ? 50 : 50 + liftPct);
+  const lb = document.getElementById("dgz-lift-bar"); if (lb) lb.style.background = lift >= 10 ? "var(--ice)" : lift >= 0 ? "var(--indigo)" : "var(--bad)";
+  set("dgz-hours-val", dgz.saturated_and_rising_hours_24h != null ? `${dgz.saturated_and_rising_hours_24h} of 24` : "n/a");
+  set("dgz-crystal-val", dgz.avg_summit_slr ? `${dgz.avg_summit_slr}:1` : "n/a");
 
-  set("eff-snow-level-val", ph.effective_snow_level_ft ? `${fmtFt(ph.effective_snow_level_ft)} SNOW LEVEL` : "--");
-  set("phase-desc", ph.valley_mix_risk);
-  set("freezing-level-val", fmtFt(ph.current_freezing_level_ft));
-  set("base-wet-bulb-val", ph.base_wet_bulb_f != null ? `${ph.base_wet_bulb_f}°F${ph.wet_bulb_zero_ft ? ` · WBZ ${fmtFt(ph.wet_bulb_zero_ft)}` : ""}` : "n/a");
-  const pb = ph.phase_breakdown || {};
-  set("phase-breakdown-val", `Summit ${pb.summit || "?"} · Mid ${pb.mid || "?"} · Base ${pb.base || "?"}`);
-  const risk = (ph.valley_mix_risk || "").split(":")[0];
-  set("phase-risk-badge", risk ? `BASE RAIN RISK: ${risk}` : "--");
+  // Phase card header (the column and table follow the scrubber; see panels.js)
+  const risk = ph.base_rain_risk;
+  const pr = document.getElementById("phase-risk-badge");
+  if (pr) {
+    pr.textContent = risk ? `Base rain risk: ${risk.toLowerCase()}` : "--";
+    pr.className = "chip " + (risk === "LOW" ? "chip-good" : risk === "MODERATE" ? "chip-warn" : risk === "HIGH" ? "chip-bad" : "");
+    pr.title = ph.base_rain_risk_criteria || "";
+  }
 
-  set("mixing-ratio-val", md.surface_mixing_ratio_g_kg != null ? `${md.surface_mixing_ratio_g_kg} g/kg MIXING RATIO` : "--");
-  set("moisture-desc", `Water vapour in the low levels at the base. Higher means more liquid for the storm to squeeze out, and usually denser snow. ${md.moisture_category || ""}`);
-  set("moisture-cat-val", md.moisture_category);
-  set("crest-jet-val", md.crest_700hpa_jet_mph != null ? `${md.crest_700hpa_jet_mph} mph from ${md.crest_700hpa_wind_dir || "?"}` : "n/a");
-  set("oro-lift-val", md.orographic_lift_index);
+  // Moisture
+  const mr = md.surface_mixing_ratio_g_kg;
+  set("mixing-ratio-val", mr != null ? `${mr}<small>g/kg mixing ratio</small>` : "--", true);
+  set("moisture-cat-val", md.moisture_category || "--");
+  set("crest-jet-val", md.summit_wind_avg_mph != null ? `${md.summit_wind_avg_mph} mph from ${md.summit_wind_dir_deg}° (${md.summit_wind_dir})` : "n/a");
+  set("oro-lift-val", md.orographic_flow || "--");
+  set("oro-chip", md.orographic_flow ? md.orographic_flow.split(" (")[0] : "--");
+  const m = document.getElementById("mr-marker"); if (m && mr != null) m.style.left = `calc(${Math.min(100, (mr / 8) * 100)}% - 2px)`;
 }
 
 /* ==========================================================================
@@ -607,7 +731,7 @@ function initRoadMap() {
   roadMap = L.map("road-map", { center: [39.15, -120.2], zoom: 10, zoomControl: true, scrollWheelZoom: false });
 
   // Esri basemaps: free, no API key. Dark canvas + dark hillshade so the
-  // Sierra terrain reads under the coloured routes.
+  // Sierra terrain reads under the colored routes.
   const esri = "https://server.arcgisonline.com/ArcGIS/rest/services";
   L.tileLayer(`${esri}/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`, {
     attribution: 'Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors · routes via OSRM',
@@ -677,7 +801,7 @@ function updateRoadMapData() {
     const color = seg.status_color || (isClosed ? "#e11d48" : "#10b981");
     const minor = /road/.test(seg.id);
 
-    // dark casing under the coloured line so it reads on any tile
+    // dark casing under the colored line so it reads on any tile
     const casing = L.polyline(seg.polyline, { color: "#020617", weight: minor ? 6 : 8, opacity: 0.85, interactive: false });
     const line = L.polyline(seg.polyline, { color, weight: minor ? 3 : 4.5, opacity: 0.95, dashArray: isClosed ? "8,6" : null });
     const group = L.featureGroup([casing, line]).addTo(roadMap);
@@ -693,7 +817,7 @@ function updateRoadMapData() {
     roadLayers[seg.id] = group;
 
     // Route shield label near the middle of the line
-    const shieldNum = (seg.route || "").toUpperCase().replace(/^(\d+)$/, m => (m === "80" ? "I-" : m === "50" ? "US-" : "SR-") + m);
+    const shieldSvg = window.routeShield ? routeShield(seg.route, 24) : "";
     // Shield sits on the line, offset from the pass marker so labels don't stack
     const pl = seg.polyline;
     let anchorIdx = Math.floor(pl.length / 2);
@@ -706,7 +830,7 @@ function updateRoadMapData() {
     const mid = pl[anchorIdx];
     if (!minor) {
       L.marker(mid, {
-        icon: L.divIcon({ className: "", html: `<div class="map-shield" style="--c:${color}"><span class="num">${shieldNum}</span><span class="lvl">${seg.status}</span></div>`, iconSize: null }),
+        icon: L.divIcon({ className: "", html: `<div class="map-shield" style="--c:${color}">${shieldSvg}<span class="lvl">${seg.status}</span></div>`, iconSize: null }),
         pane: "labels"
       }).on("click", () => line.openPopup(mid)).addTo(roadLabelLayer);
     }
@@ -724,30 +848,21 @@ function updateRoadMapData() {
 function renderRoadList() {
   const container = document.getElementById("road-list-container");
   if (!container || !snowData || !snowData.road_conditions) return;
-
-  const segments = snowData.road_conditions.segments || [];
-
-  container.innerHTML = segments.map(seg => {
-    const isClosed = seg.status === "CLOSED";
-    const statusClass = isClosed ? "status-closed" : (
-      seg.status === "R-2" ? "status-r2" : (
-        seg.status === "R-1" ? "status-r1" : "status-r0"
-      )
-    );
-
-    return `
-      <div class="road-card ${statusClass}" onclick="focusRoadSegment('${seg.id}')">
-        <div class="road-card-top">
-          <span class="road-card-name">${seg.name}</span>
-          <span class="road-card-badge" style="background:${seg.status_color}25; color:${seg.status_color}; border:1px solid ${seg.status_color}55;">
-            ${seg.status}
-          </span>
-        </div>
-        <div class="road-card-chk">${seg.status_label}</div>
-        <div style="font-size:11px; color:#94a3b8; margin-top:2px;">📍 ${seg.checkpoint}</div>
-      </div>
-    `;
-  }).join("");
+  const rc = snowData.road_conditions;
+  const segments = rc.segments || [];
+  const sum = document.getElementById("roads-summary");
+  if (sum) {
+    const active = segments.filter(s => !["R-0", "UNKNOWN"].includes(s.status));
+    const fresh = rc.status !== "stale" && rc.is_live_feed;
+    sum.innerHTML = `${fresh ? `Fetched ${new Date(rc.fetched_at_utc).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} (${Fmt.ago(rc.fetched_at_utc)})` : `<span class="warn-text">Not current: last successful fetch ${Fmt.ago(rc.fetched_at_utc)}${rc.stale_reason ? ` (${rc.stale_reason})` : ""}</span>`}` +
+      ` · ${active.length ? `${active.length} of ${segments.length} corridors under controls` : `no chain controls on ${segments.length} corridors`} · server re-checks every 5 min`;
+  }
+  container.innerHTML = segments.map(seg => `
+    <div class="road-card" onclick="focusRoadSegment('${seg.id}')">
+      <span class="road-card-name">${window.routeShield ? routeShield(seg.route, 20) : ""}${seg.common_name || seg.name}</span>
+      <span class="road-card-badge" style="background:${seg.status_color}22;color:${seg.status_color};border:1px solid ${seg.status_color}55;">${seg.status}</span>
+      <span class="road-card-chk">${seg.status === "R-0" ? seg.checkpoint : `${seg.status_label} · ${seg.checkpoint}`}</span>
+    </div>`).join("");
 }
 
 window.focusRoadSegment = function(segId) {
@@ -771,81 +886,83 @@ function renderComparisonTable(resort) {
   const nws = s.noaa_nws || {};
   const cdec = s.cdec_snotel || {};
 
+  const na = `<span style="color:var(--ink-3)">n/a</span>`;
+  const num = v => typeof v === "number" && !isNaN(v);
+  const m = cdec.measurements || {};
+  const ens = (om.summit || {}).ensemble || {};
+  const rng = st => (st ? ` <span style="color:var(--ink-3)">(${U.snowBare(st.p10, 0)}–${U.snow(st.p90, 0)})</span>` : "");
+  const resortVal = (v, label) => (num(v) ? `${U.snow(v)} ${label}` : na);
   const rows = [
     {
-      metric: "Next 24h Snowfall",
-      resort: `${resortRpt.snow_24h_inches || (resortRpt.snow_stake ? resortRpt.snow_stake.snow_24h_inches : "12.5")}" (Reported Stake)`,
-      open_meteo: `${om.summit_48h_inches ? (om.summit_48h_inches * 0.55).toFixed(1) : "16.4"}" (High-Res Summit Model)`,
-      nws: `${nws.forecast_24h_expected_inches ? nws.forecast_24h_expected_inches.toFixed(1) : "16.5"}" (REV Grid Zone)`,
-      cdec: `${cdec.snow_depth_24h_delta_inches || (cdec.measurements ? cdec.measurements.snow_depth_24h_gain_inches : "13.8")}" (Ultrasonic Sensor Gain)`
+      metric: "Next 24h snowfall",
+      resort: na,
+      open_meteo: num((om.summit || {}).snow_24h_inches) ? `${U.snow(om.summit.snow_24h_inches)} summit${rng(ens.snow_24h)}` : na,
+      nws: num(nws.forecast_24h_expected_inches) ? U.snow(nws.forecast_24h_expected_inches) : na,
+      cdec: "forecast only"
     },
     {
-      metric: "Next 48h Storm Total",
-      resort: `${resortRpt.snow_48h_inches || (resortRpt.snow_stake ? resortRpt.snow_stake.snow_48h_inches : "24.8")}" (Cumulative Stake)`,
-      open_meteo: `${om.summit_48h_inches ? om.summit_48h_inches.toFixed(1) : "31.8"}" (Summit Ensemble)`,
-      nws: `${nws.forecast_48h_expected_inches ? nws.forecast_48h_expected_inches.toFixed(1) : "28.2"}" (REV Discussion Total)`,
-      cdec: `Rate: ${cdec.swe_24h_delta_inches || (cdec.measurements ? cdec.measurements.swe_24h_gain_inches : "1.12")}" SWE/day (${cdec.station_id || 'SQV'})`
+      metric: "Next 48h snowfall",
+      resort: na,
+      open_meteo: num(om.summit_48h_inches) ? `${U.snow(om.summit_48h_inches)} summit${rng(ens.snow_48h)}` : na,
+      nws: num(nws.forecast_48h_expected_inches) ? U.snow(nws.forecast_48h_expected_inches) : na,
+      cdec: "forecast only"
     },
     {
-      metric: "Snowpack / Base Depth",
-      resort: `${resortRpt.base_depth_base_inches || (resortRpt.snow_stake ? resortRpt.snow_stake.base_depth_inches : "84.5")}" Base / ${resortRpt.base_depth_summit_inches || (resortRpt.snow_stake ? resortRpt.snow_stake.summit_depth_inches : "132.8")}" Summit`,
-      open_meteo: "ECMWF Dynamic Depth Tracking",
-      nws: "Regional Tahoe Basin Snowpack Analysis",
-      cdec: `${cdec.current_snow_depth_inches || (cdec.measurements ? cdec.measurements.snow_depth_current_inches : "118.4")}" (Automated Snow Pillow)`
+      metric: "Last 24 / 48h (observed)",
+      resort: `${resortVal(resortRpt.snow_24h_inches, "24h")} · ${resortVal(resortRpt.snow_48h_inches, "48h")}`,
+      open_meteo: "forecast only",
+      nws: "forecast only",
+      cdec: num(m.snow_depth_24h_gain_inches) ? `+${U.snow(m.snow_depth_24h_gain_inches)} / +${U.snow(m.snow_depth_48h_gain_inches ?? 0)} depth · ${U.liquid(m.swe_48h_gain_inches ?? m.swe_24h_gain_inches)} water (48h)` : na
     },
     {
-      metric: "Snow Density / Quality (SLR)",
-      resort: resortRpt.surface_condition || (resortRpt.operations ? resortRpt.operations.surface_condition : "Deep Powder / Wind Packed"),
-      open_meteo: "12:1 to 14:1 Cold Sector SLR Forecast",
-      nws: "Dense Subtropical Tap Transitioning to Cold Orographic",
-      cdec: `${cdec.measured_slr || (cdec.measurements ? cdec.measurements.snow_to_liquid_ratio + ":1" : "12.3:1")} (${cdec.measurements ? cdec.measurements.snow_density_classification : "Classic Sierra Cream"})`
+      metric: "Snowpack depth",
+      resort: num(resortRpt.base_depth_base_inches) ? `${U.snow(resortRpt.base_depth_base_inches)} base · ${U.snow(resortRpt.base_depth_summit_inches)} summit` : na,
+      open_meteo: "n/a",
+      nws: "n/a",
+      cdec: num(m.snow_depth_current_inches) ? `${U.snow(m.snow_depth_current_inches)} at ${(cdec.elevation_ft || 0).toLocaleString()}' · ${U.liquid(m.swe_current_inches)} SWE` : na
     },
     {
-      metric: "Ridge Winds & Lift Vulnerability",
-      resort: resortRpt.operations_note || (resortRpt.operations ? resortRpt.operations.wind_hold_status : "Base to Base Gondola on standby"),
-      open_meteo: `Peak Crest Gusts: ${om.peak_gust_summit_mph ? om.peak_gust_summit_mph.toFixed(1) : "71.4"} mph`,
-      nws: "Sierra Crest Gale Warning (75+ mph gusts)",
-      cdec: `Sensor Temp: ${cdec.sensor_temp_f || (cdec.measurements ? cdec.measurements.air_temperature_f + "°F" : "26.4°F")}`
+      metric: "Snow quality (snow ratio)",
+      resort: resortRpt.surface_condition || na,
+      open_meteo: (om.atmospheric_sounding || {}).dgz && om.atmospheric_sounding.dgz.avg_summit_slr ? `~${om.atmospheric_sounding.dgz.avg_summit_slr}:1 forecast (Kuchera)` : na,
+      nws: "n/a",
+      cdec: num(m.snow_to_liquid_ratio) ? `${m.snow_to_liquid_ratio}:1 measured · ${m.snow_density_classification}` : (m.snow_density_classification || na)
+    },
+    {
+      metric: "Summit wind / temperature",
+      resort: resortRpt.operations_note || na,
+      open_meteo: num(om.peak_gust_summit_mph) ? `Peak gust ${Math.round(om.peak_gust_summit_mph)} mph (48h)` : na,
+      nws: ((nws.active_hazards || [])[0] || {}).event || "No active hazards",
+      cdec: num(m.air_temperature_f) ? `${U.temp(m.air_temperature_f)} now` : na
     }
   ];
 
+  if (resortRpt.status !== "success") rows.forEach(r => { r.resort = `<span style="color:var(--ink-3)">Report unavailable</span>`; });
   tableBody.innerHTML = rows.map(r => `
     <tr>
-      <td style="font-weight: 800; color: #fff;">${r.metric}</td>
-      <td><span class="table-source-tag"><span class="tag-dot dot-resort"></span> ${r.resort}</span></td>
-      <td><span class="table-source-tag"><span class="tag-dot dot-meteo"></span> ${r.open_meteo}</span></td>
-      <td><span class="table-source-tag"><span class="tag-dot dot-nws"></span> ${r.nws}</span></td>
-      <td><span class="table-source-tag"><span class="tag-dot dot-cdec"></span> ${r.cdec}</span></td>
+      <td>${r.metric}</td>
+      <td>${r.resort}</td>
+      <td>${r.open_meteo}</td>
+      <td>${r.nws}</td>
+      <td>${r.cdec}</td>
     </tr>
   `).join("");
 }
 
 function renderHazards(resort) {
-  const hazardContainer = document.getElementById("active-hazards-container");
-  const s = resort.sources || {};
-  const nws = s.noaa_nws || {};
-
-  if (!hazardContainer) return;
-  const hazards = nws.active_hazards || [];
-
-  if (hazards.length > 0) {
-    hazardContainer.innerHTML = hazards.map(h => `
-      <div class="alert-banner">
-        <div class="alert-icon">⚠️</div>
-        <div class="alert-content">
-          <h3>${h.headline || h.event}</h3>
-          <p>${h.description}</p>
-          ${h.instruction ? `<p class="instruction">🚗 Winter Travel Advisory: ${h.instruction}</p>` : ""}
-        </div>
+  const el = document.getElementById("active-hazards-container");
+  if (!el) return;
+  const hazards = (((resort.sources || {}).noaa_nws || {}).active_hazards) || [];
+  const esc = t => String(t || "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  el.innerHTML = hazards.map(h => `
+    <div class="hazard">
+      <svg><use href="#i-alert"/></svg>
+      <div>
+        <b>${esc(h.event || h.headline)}</b>
+        <p>${esc(h.headline && h.event ? h.headline : "")}</p>
+        ${h.description ? `<details><summary>Details${h.instruction ? " & travel advice" : ""}</summary><p>${esc(h.description)}</p>${h.instruction ? `<p>${esc(h.instruction)}</p>` : ""}</details>` : ""}
       </div>
-    `).join("");
-  } else {
-    hazardContainer.innerHTML = `
-      <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 14px 20px; color: #6ee7b7; font-size: 13px; margin-bottom: 24px;">
-        ✓ No active National Weather Service hazard warnings currently in effect for the Sierra Crest.
-      </div>
-    `;
-  }
+    </div>`).join("");
 }
 
 /* ==========================================================================
@@ -855,49 +972,35 @@ function renderHazards(resort) {
 function renderLiftsAndOperations(resort) {
   const grid = document.getElementById("lift-status-grid");
   if (!grid) return;
+  const om = (resort.sources || {}).open_meteo || {};
+  const rep = (resort.sources || {}).resort_official || {};
+  const summitTl = ((om.elevation_timelines || {}).summit || []).slice(0, 24);
+  const day = summitTl.filter(x => { const h = new Date(x.time).getHours(); return h >= 8 && h <= 16; });
+  const peakRow = (day.length ? day : summitTl).reduce((m, x) => ((x.gust_mph || 0) > (m.gust_mph || 0) ? x : m), {});
+  const peak = peakRow.gust_mph || 0;
+  const exposedNames = ((resort.consensus_forecast || {}).wind_hold_risk || {}).affected_lifts || [];
+  const isExposed = name => exposedNames.some(n => (name || "").toLowerCase().startsWith(n.toLowerCase()));
+  const gustLevel = peak >= 65 ? "hold" : peak >= 45 ? "mod" : "open";
+  const gustLabel = `forecast gust ${Math.round(peak)} mph`;
+  const statusCls = st => { const s = (st || "").toLowerCase(); return s === "open" ? "open" : s === "scheduled" ? "sched" : s.includes("hold") ? "mod" : "closed"; };
 
-  const c = resort.consensus_forecast || {};
-  const windRisk = c.wind_hold_risk || {};
-  const affected = windRisk.affected_lifts || [];
-
-  const defaultLifts = resort.id === "palisades_tahoe"
-    ? [
-        { name: "KT-22 Express", type: "High-Speed Quad", elev: "8,070'" },
-        { name: "Aerial Tram", type: "Tramway", elev: "8,200'" },
-        { name: "Funitel", type: "28-Passenger", elev: "8,200'" },
-        { name: "Gold Coast 6", type: "Six-Pack", elev: "8,010'" },
-        { name: "Shirley Lake Express", type: "High-Speed Six", elev: "7,800'" },
-        { name: "Granite Chief", type: "Triple Chair", elev: "9,050'" },
-        { name: "Headwall Express", type: "Six-Pack", elev: "8,500'" },
-        { name: "Base to Base Gondola", type: "Inter-Resort", elev: "8,000'" }
-      ]
-    : [
-        { name: "Summit 6", type: "High-Speed Six", elev: "8,637'" },
-        { name: "Roundhouse 4", type: "High-Speed Quad", elev: "7,800'" },
-        { name: "Treeline Cirque", type: "High-Speed Quad", elev: "7,600'" },
-        { name: "Scott Chair", type: "Triple Chair", elev: "8,289'" },
-        { name: "Sherwood Express", type: "High-Speed Quad", elev: "7,750'" },
-        { name: "Alpine Bowl Chair", type: "Double Chair", elev: "8,300'" },
-        { name: "Lakeview Chair", type: "Triple Chair", elev: "7,400'" },
-        { name: "Base to Base Gondola", type: "Inter-Resort", elev: "8,000'" }
-      ];
-
-  grid.innerHTML = defaultLifts.map(l => {
-    const isHoldRisk = affected.includes(l.name) && (windRisk.status === "HIGH" || windRisk.status === "MODERATE_HIGH");
-    return `
-      <div class="lift-item ${isHoldRisk ? 'wind-hold' : ''}">
-        <div>
-          <div style="font-weight: 700; color: #fff;">${l.name}</div>
-          <div style="font-size: 11px; color: #94a3b8;">${l.type} • Top: ${l.elev}</div>
-        </div>
-        <span class="lift-status-tag ${isHoldRisk ? 'tag-hold' : 'tag-open'}">
-          ${isHoldRisk ? 'WIND HOLD STANDBY' : 'OPEN / SCHEDULED'}
-        </span>
-      </div>
-    `;
-  }).join("");
-
-  // Setup one-time scroll observer for the wind-hold highlight
+  const lifts = (rep.lifts || []).slice();
+  const sub = document.getElementById("lift-sub");
+  if (lifts.length) {
+    const order = { open: 0, sched: 1, mod: 2, closed: 3 };
+    lifts.sort((a, b) => (isExposed(b.name) - isExposed(a.name)) || (order[statusCls(a.status)] - order[statusCls(b.status)]) || a.name.localeCompare(b.name));
+    if (sub) sub.textContent = `Resort lift status${rep.status === "stale" ? " (stale)" : ""}: ${rep.lifts_open} of ${rep.lifts_total} open or scheduled; operations ${(rep.operating_status || "n/a").toLowerCase()}. ` +
+      `Wind-exposed lifts also show the peak daytime (8 AM–4 PM) summit gust forecast for the next 24 h${peakRow.time ? ` (${new Date(peakRow.time).toLocaleString([], { weekday: "short", hour: "numeric" })})` : ""}: 45–64 mph intermittent holds possible, ≥ 65 mph holds likely.`;
+    grid.innerHTML = lifts.map(l => {
+      const exp = isExposed(l.name);
+      return `<div class="lift-item"><div><b>${l.name}</b><small>${l.type || ""} · ${l.area || ""}</small></div>
+        <div class="lift-tags"><span class="lift-status-tag st-${statusCls(l.status)}">${(l.status || "unknown").toLowerCase()}</span>
+        ${exp ? `<span class="lift-status-tag tag-${gustLevel}" title="Wind-exposed lift">${gustLabel}</span>` : ""}</div></div>`;
+    }).join("");
+  } else {
+    if (sub) sub.textContent = `Resort lift status unavailable. Peak daytime summit gust forecast, next 24 h: ${Math.round(peak)} mph (45–64 intermittent holds possible, ≥ 65 holds likely).`;
+    grid.innerHTML = exposedNames.map(n => `<div class="lift-item"><div><b>${n}</b><small>wind-exposed</small></div><span class="lift-status-tag tag-${gustLevel}">${gustLabel}</span></div>`).join("");
+  }
   setupOneTimeLiftScrollObserver();
 }
 

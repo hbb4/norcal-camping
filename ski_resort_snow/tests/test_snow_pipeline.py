@@ -169,3 +169,76 @@ class TestSoundingDiagnostics(unittest.TestCase):
         self.assertEqual(recs[0]["route"], "80")
         self.assertEqual(recs[0]["ccStatus"]["status"], "R-2")
         self.assertEqual(CaltransClient()._get_highest_severity(recs), "R-2")
+
+
+class TestSlrAndVerification(unittest.TestCase):
+    def test_psychrometric_wet_bulb_between_dewpoint_and_temp(self):
+        from collectors.open_meteo_client import wet_bulb_psychro_c, dewpoint_c
+        for t, rh, p in [(-44, 20, 300), (-10, 60, 600), (0, 80, 750), (15, 50, 1000)]:
+            td = dewpoint_c(t, rh)
+            tw = wet_bulb_psychro_c(t, td, p)
+            self.assertLessEqual(td - 0.01, tw)
+            self.assertLessEqual(tw, t + 0.01)
+
+    def test_habit_slr_peaks_in_dgz(self):
+        from collectors.open_meteo_client import habit_slr
+        self.assertGreater(habit_slr(-15), habit_slr(-5))
+        self.assertGreater(habit_slr(-15), habit_slr(-25))
+        self.assertEqual(habit_slr(2), habit_slr(0))
+
+    def test_wind_factor_bounds(self):
+        from collectors.open_meteo_client import wind_factor
+        self.assertEqual(wind_factor(5), 1.0)
+        self.assertAlmostEqual(wind_factor(35), 0.9)
+        self.assertEqual(wind_factor(90), 0.75)
+
+    def test_verification_compares_forecast_with_sensor(self):
+        import tempfile
+        from collectors.verification import ForecastVerifier
+
+        class FakeCdec:
+            def fetch_window(self, station, start, end):
+                return {"swe_gain_in": 2.0, "depth_gain_in": 14.0}
+
+        with tempfile.TemporaryDirectory() as d:
+            v = ForecastVerifier(Path(d), FakeCdec())
+            hourly = [{"time": f"2026-11-01T{h % 24:02d}:00Z".replace("T", f"T") , "precip_in": 0.05, "snowfall_rate_in_hr": 0.5,
+                       "slr": 10, "slr_kuchera": 14, "snow_fraction": 1.0} for h in range(48)]
+            for i, h in enumerate(hourly):
+                h["time"] = f"2026-11-{1 + i // 24:02d}T{i % 24:02d}:00Z"
+            r = v._verify_one("2026-11-01T00:00:00+00:00", "palisades_tahoe", {"station": "SQV", "hourly": hourly})
+            self.assertAlmostEqual(r["forecast_liquid_in"], 2.4)
+            self.assertEqual(r["liquid_error_pct"], 20)
+            self.assertAlmostEqual(r["forecast_snow_in"]["kuchera"], 33.6)
+            self.assertEqual(r["observed_slr_settled"], 7.0)
+
+
+class TestResortFeed(unittest.TestCase):
+    def test_parse_splits_mountains_and_handles_missing(self):
+        from collectors.resort_scraper import ResortScraper
+        feed = {
+            "LastUpdate": "2026-11-23T22:33:40-0800", "OperatingStatus": "Open",
+            "SnowReport": {
+                "LastUpdate": "2026-11-23T06:48:56-0800", "BaseConditions": "Packed Powder", "Report": "<div>Line one<br>Line two</div>",
+                "StormTotalIn": "45", "SeasonTotalIn": "71",
+                "BaseArea": {"Name": "Palisades Base, el. 6200'", "BaseIn": "32", "Last24HoursIn": "0", "Last72HoursIn": "0", "Last7DaysIn": "44"},
+                "MidMountainArea": {"Name": "Palisades Mid-Mountain, el. 8000'", "BaseIn": "46", "Last24HoursIn": "1", "Last72HoursIn": "2", "Last7DaysIn": "42"},
+                "SummitArea": {"Name": "Palisades Siberia Crest, el. 8700'", "BaseIn": "--"},
+                "Station4": {"Name": "Alpine Base, el. 6950'", "BaseIn": "35", "Last7DaysIn": "46"},
+            },
+            "CurrentConditions": {"Summit": {"Name": "Palisades Siberia Crest, el. 8700'", "TemperatureF": "31", "WindStrengthMph": 26, "WindGustsMph": 32}},
+            "MountainAreas": [
+                {"Name": "KT Peak", "OpenTrailsCount": 1, "TotalTrailsCount": 10, "Lifts": [{"Name": "KT-22 Express", "Status": "Open"}, {"Name": "Exhibition", "Status": "Closed"}]},
+                {"Name": "Summit Peak", "OpenTrailsCount": 2, "TotalTrailsCount": 5, "Lifts": [{"Name": "Summit Express", "Status": "Scheduled"}]},
+            ],
+        }
+        p = ResortScraper.parse(feed, "palisades_tahoe", "now")
+        self.assertEqual(p["status"], "success")
+        self.assertEqual(p["snow_areas"]["mid"]["elevation_ft"], 8000)
+        self.assertEqual(p["snow_24h_inches"], 1.0)
+        self.assertIsNone(p["snow_areas"]["summit"]["base_depth_in"])
+        self.assertEqual((p["lifts_open"], p["lifts_total"]), (1, 2))
+        self.assertEqual(p["report_text"], "Line one\nLine two")
+        a = ResortScraper.parse(feed, "alpine_meadows", "now")
+        self.assertEqual(a["snow_areas"]["base"]["new_7d_in"], 46.0)
+        self.assertEqual((a["lifts_open"], a["lifts_total"]), (1, 1))

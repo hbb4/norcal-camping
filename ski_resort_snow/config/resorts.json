@@ -1,5 +1,8 @@
 {
-  "active_resorts": ["palisades_tahoe", "alpine_meadows"],
+  "active_resorts": [
+    "palisades_tahoe",
+    "alpine_meadows"
+  ],
   "resorts": [
     {
       "id": "palisades_tahoe",
@@ -9,24 +12,33 @@
       "region": "Lake Tahoe - Sierra Crest",
       "description": "Legendary big mountain terrain in Olympic Valley, featuring 2,850' vertical drop, KT-22, the Funitel, and massive alpine bowls.",
       "coordinates": {
-        "latitude": 39.1970,
+        "latitude": 39.197,
         "longitude": -120.2356
       },
       "elevations": {
         "base": {
           "feet": 6200,
           "meters": 1890,
-          "name": "The Village at Palisades (Base)"
+          "name": "The Village at Palisades (Base)",
+          "latitude": 39.197,
+          "longitude": -120.2356,
+          "location_note": "Village, DEM 6,214 ft"
         },
         "mid": {
           "feet": 8010,
           "meters": 2441,
-          "name": "Gold Coast / High Camp (Mid-Mtn)"
+          "name": "Gold Coast / High Camp (Mid-Mtn)",
+          "latitude": 39.198,
+          "longitude": -120.2791,
+          "location_note": "Upper mountain slope west of Gold Coast, DEM 8,107 ft"
         },
         "summit": {
           "feet": 9050,
           "meters": 2758,
-          "name": "Granite Chief / KT-22 / Sibir (Summit)"
+          "name": "Granite Chief / KT-22 / Sibir (Summit)",
+          "latitude": 39.1982,
+          "longitude": -120.2873,
+          "location_note": "Granite Chief, DEM 8,953 ft (published 9,006 ft)"
         }
       },
       "stats": {
@@ -39,32 +51,25 @@
       "cdec_station": {
         "station_id": "SQV",
         "station_name": "Squaw Valley Gold Coast",
-        "elevation_ft": 8010,
+        "elevation_ft": 8200,
         "county": "Placer",
         "basin": "Truckee",
         "sensors": {
           "swe_sensor": 3,
-          "snow_depth_sensor": 82,
-          "air_temp_sensor": 6
-        }
+          "snow_depth_sensor": 18,
+          "air_temp_sensor": 4
+        },
+        "latitude": 39.194,
+        "longitude": -120.276
       },
       "snotel_site": {
         "site_id": 784,
         "name": "Palisades Tahoe",
         "elevation_ft": 8010
       },
-      "nws_forecast": {
-        "wfo": "REV",
-        "grid_x": 41,
-        "grid_y": 82,
-        "forecast_url": "https://api.weather.gov/gridpoints/REV/41,82/forecast",
-        "hourly_url": "https://api.weather.gov/gridpoints/REV/41,82/forecast/hourly",
-        "grid_data_url": "https://api.weather.gov/gridpoints/REV/41,82"
-      },
       "urls": {
         "resort_home": "https://www.palisadestahoe.com",
-        "mountain_report": "https://www.palisadestahoe.com/mountain-information/snow-and-weather-report",
-        "snowfall_tracker": "https://www.palisadestahoe.com/mountain-information/snowfall-tracker",
+        "mountain_report": "https://www.palisadestahoe.com/mountain-information/mountain-report",
         "webcams": "https://www.palisadestahoe.com/mountain-information/webcams"
       },
       "key_lifts": [
@@ -84,8 +89,11 @@
         "KT-22 Express",
         "Headwall Express",
         "Granite Chief",
+        "Siberia Express",
         "Silverado",
+        "Emigrant",
         "Aerial Tram",
+        "Funitel",
         "Base to Base Gondola"
       ],
       "webcams": [
@@ -124,17 +132,26 @@
         "base": {
           "feet": 6835,
           "meters": 2083,
-          "name": "Alpine Base Lodge (Base)"
+          "name": "Alpine Base Lodge (Base)",
+          "latitude": 39.1644,
+          "longitude": -120.2386,
+          "location_note": "Base lodge, DEM 6,906 ft"
         },
         "mid": {
           "feet": 7800,
           "meters": 2377,
-          "name": "Roundhouse / Mid Chalet (Mid-Mtn)"
+          "name": "Roundhouse / Mid Chalet (Mid-Mtn)",
+          "latitude": 39.1542,
+          "longitude": -120.2423,
+          "location_note": "Mid-mountain slope toward Ward Peak, DEM 7,795 ft"
         },
         "summit": {
           "feet": 8637,
           "meters": 2633,
-          "name": "Ward Peak / Summit 6 (Summit)"
+          "name": "Ward Peak / Summit 6 (Summit)",
+          "latitude": 39.1467,
+          "longitude": -120.245,
+          "location_note": "Ward Peak, DEM 8,504 ft (published 8,637 ft)"
         }
       },
       "stats": {
@@ -152,27 +169,20 @@
         "basin": "Truckee",
         "sensors": {
           "swe_sensor": 3,
-          "snow_depth_sensor": 82,
-          "air_temp_sensor": 6
-        }
+          "snow_depth_sensor": 18,
+          "air_temp_sensor": 4
+        },
+        "latitude": 39.135574,
+        "longitude": -120.218678
       },
       "snotel_site": {
         "site_id": 848,
         "name": "Ward Creek #3",
         "elevation_ft": 6750
       },
-      "nws_forecast": {
-        "wfo": "REV",
-        "grid_x": 41,
-        "grid_y": 80,
-        "forecast_url": "https://api.weather.gov/gridpoints/REV/41,80/forecast",
-        "hourly_url": "https://api.weather.gov/gridpoints/REV/41,80/forecast/hourly",
-        "grid_data_url": "https://api.weather.gov/gridpoints/REV/41,80"
-      },
       "urls": {
         "resort_home": "https://www.palisadestahoe.com",
-        "mountain_report": "https://www.palisadestahoe.com/mountain-information/snow-and-weather-report",
-        "snowfall_tracker": "https://www.palisadestahoe.com/mountain-information/snowfall-tracker",
+        "mountain_report": "https://www.palisadestahoe.com/mountain-information/mountain-report",
         "webcams": "https://www.palisadestahoe.com/mountain-information/webcams"
       },
       "key_lifts": [
@@ -186,9 +196,10 @@
         "Base to Base Gondola"
       ],
       "wind_hold_vulnerable_lifts": [
-        "Summit 6",
-        "Scott Chair",
+        "Summit Express",
+        "Scott",
         "Sherwood Express",
+        "Alpine Bowl Chair",
         "Base to Base Gondola"
       ],
       "webcams": [
@@ -211,7 +222,10 @@
     {
       "id": "sugar_bowl",
       "name": "Sugar Bowl Resort",
-      "coordinates": {"latitude": 39.3056, "longitude": -120.3344},
+      "coordinates": {
+        "latitude": 39.3056,
+        "longitude": -120.3344
+      },
       "base_elevation_ft": 6883,
       "summit_elevation_ft": 8383,
       "cdec_station": "DAN"
@@ -219,7 +233,10 @@
     {
       "id": "kirkwood",
       "name": "Kirkwood Mountain Resort",
-      "coordinates": {"latitude": 38.6847, "longitude": -120.0658},
+      "coordinates": {
+        "latitude": 38.6847,
+        "longitude": -120.0658
+      },
       "base_elevation_ft": 7800,
       "summit_elevation_ft": 9800,
       "cdec_station": "KIR"
@@ -227,7 +244,10 @@
     {
       "id": "mammoth",
       "name": "Mammoth Mountain",
-      "coordinates": {"latitude": 37.6308, "longitude": -119.0326},
+      "coordinates": {
+        "latitude": 37.6308,
+        "longitude": -119.0326
+      },
       "base_elevation_ft": 7953,
       "summit_elevation_ft": 11053,
       "cdec_station": "MMS"

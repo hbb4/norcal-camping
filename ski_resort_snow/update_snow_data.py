@@ -42,8 +42,8 @@ def main():
     try:
         data = aggregator.run_aggregation(force_mock=args.mock)
     except Exception as e:
-        print(f"⚠️  Live network fetch encountered issues ({e}). Falling back to cached realistic storm profile...")
-        data = generate_mock_live_snow_dataset()
+        print(f"Pipeline failed ({type(e).__name__}: {e}). Existing data was left unchanged.")
+        sys.exit(1)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
@@ -79,43 +79,28 @@ def main():
     print("=" * 78)
 
     for r_id, r_info in data.get("resorts", {}).items():
-        name = r_info.get("name")
         c = r_info.get("consensus_forecast", {})
         elev = r_info.get("elevations", {})
-        sources = r_info.get("sources", {})
+        src = r_info.get("sources", {})
+        om = src.get("open_meteo", {})
+        summit = om.get("summit", {})
+        cd = src.get("cdec_snotel", {})
+        m = cd.get("measurements", {})
+        rng = lambda d: f"{d.get('expected')} in (p10-p90 {d.get('min')}-{d.get('max')})" if d.get("min") is not None else f"{d.get('expected')} in"
+        print(f"\n{r_info.get('name')}  (base {elev.get('base_ft'):,} / mid {elev.get('mid_ft'):,} / summit {elev.get('summit_ft'):,} ft)")
+        print(f"   Sources: " + ", ".join(f"{k} {v.get('status')}" for k, v in src.items()))
+        print(f"   Summit snow 24 h: {rng(c.get('next_24h_inches', {}))}   48 h: {rng(c.get('next_48h_inches', {}))}   7 d: {c.get('next_7d_total_inches')} in")
+        print(f"   Blend: {c.get('blend_sources')}")
+        print(f"   Summit liquid 48 h: {summit.get('liquid_48h_inches')} in, SLR (Cobb-style) {(summit.get('slr_methods') or {}).get('cobb_adjusted', {}).get('slr_48h')}")
+        print(f"   Peak summit gust 48 h: {om.get('peak_gust_summit_mph')} mph ({c.get('wind_hold_risk', {}).get('status')})")
+        print(f"   CDEC {cd.get('station_id')}: depth {m.get('snow_depth_current_inches')} in, 24 h {m.get('snow_depth_24h_gain_inches')} in, SWE {m.get('swe_current_inches')} in")
 
-        exp_24h = c.get("next_24h_inches", {}).get("expected", 0)
-        min_24h = c.get("next_24h_inches", {}).get("min", 0)
-        max_24h = c.get("next_24h_inches", {}).get("max", 0)
-
-        exp_48h = c.get("next_48h_inches", {}).get("expected", 0)
-        tot_7d = c.get("next_7d_total_inches", 0)
-
-        resort_rpt = sources.get("resort_official", {})
-        cdec_rpt = sources.get("cdec_snotel", {})
-
-        print(f"\n📍 {name.upper()}")
-        print(f"   Elevation: Base {elev.get('base_ft'):,}' | Mid {elev.get('mid_ft'):,}' | Summit {elev.get('summit_ft'):,}' (Drop: {elev.get('vertical_drop_ft'):,}')")
-        print(f"   🎯 Consensus Next 24h: {exp_24h}\" [Range: {min_24h}\" – {max_24h}\"]")
-        print(f"   🎯 Consensus Next 48h: {exp_48h}\" | 7-Day Storm Total: {tot_7d}\"")
-        print(f"   ⛷️  Powder Score: {c.get('powder_score')}/10 – {c.get('powder_rating')}")
-        print(f"   💨 Wind Hold Risk: {c.get('wind_hold_risk', {}).get('status')} ({c.get('wind_hold_risk', {}).get('note')})")
-
-        snow_24h_resort = resort_rpt.get("snow_24h_inches") or resort_rpt.get("snow_stake", {}).get("snow_24h_inches", "N/A")
-        cdec_gain_24h = cdec_rpt.get("snow_depth_24h_delta_inches") or cdec_rpt.get("measurements", {}).get("snow_depth_24h_gain_inches", "N/A")
-        cdec_depth = cdec_rpt.get("current_snow_depth_inches") or cdec_rpt.get("measurements", {}).get("snow_depth_current_inches", "N/A")
-
-        print(f"   📊 Source Telemetry Comparison:")
-        print(f"      • Resort Operations Reported 24h: {snow_24h_resort}\" (Base Depth: {resort_rpt.get('base_depth_base_inches', resort_rpt.get('snow_stake', {}).get('base_depth_inches', 'N/A'))}\")")
-        print(f"      • CDEC Sensor ({cdec_rpt.get('station_id')}) 24h Gain: {cdec_gain_24h}\" (Total Depth: {cdec_depth}\")")
-        print(f"      • Elevation Gradient Spread: {c.get('elevation_snow_gradient', {}).get('spread_inches')}\" difference (Base vs Summit)")
-
-    # Print Road Conditions Summary
-    road_conds = data.get("road_conditions", {})
-    segments = road_conds.get("segments", [])
     print("\n" + "=" * 78)
     print("🚗 CALTRANS SIERRA HIGHWAY CHAIN CONTROLS & ROAD CLOSURES")
     print("=" * 78)
+    rc = data.get("road_conditions") or {}
+    segments = rc.get("segments", [])
+    print(f"   Caltrans feed: {'live' if rc.get('is_live_feed') else rc.get('status', 'unavailable')}, fetched {rc.get('fetched_at_utc')}")
     for seg in segments:
         code = seg.get("status", "R-0")
         label = seg.get("status_label", "")
@@ -125,8 +110,8 @@ def main():
         print(f"     Checkpoint: {chk}")
 
     print("\n" + "=" * 78)
-    print("To open the interactive dashboard, open dashboard.html or run:")
-    print("    python3 server.py")
+    print("To open the dashboard with live refresh:")
+    print("    python3 server.py --open")
     print("=" * 78 + "\n")
 
 
