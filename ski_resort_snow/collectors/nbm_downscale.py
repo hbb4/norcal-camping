@@ -4,14 +4,22 @@ The NBM is a 2.5 km grid, so a mountain tier rarely sits at its grid cell's terr
 height (Palisades mid 8,010 ft and summit 9,050 ft share one cell at 7,726 ft).
 Instead of assuming a lapse rate or a snowfall-elevation rule, this module measures
 NBM's own relationship with terrain around the target, separately at every forecast
-hour, and moves the nearest grid point's value along it:
+hour, and evaluates it at the target's own height:
 
-  value(target) = value(nearest cell) + b * (z_target - z_cell) [+ c * (x_target - x_cell)]
+  value(target) = a + b * (z_target - z_ref) [+ c * (x_target - x_ref)]
 
-b (and c) come from a distance-weighted least-squares fit over the NBM cells within
-RADIUS_KM of the target (Gaussian weights, SIGMA_KM). x is distance across the Sierra
-crest (positive toward ENE), included for precipitation and snowfall because the
-west slope gets more precipitation than the east side at the same height.
+a, b (and c) come from a distance-weighted least-squares fit over the NBM cells within
+RADIUS_KM of the target (Gaussian weights, SIGMA_KM); z_ref/x_ref is the nearest cell,
+used only to center the fit. x is distance across the Sierra crest (positive toward
+ENE), included for precipitation and snowfall because the west slope gets more
+precipitation than the east side at the same height. No single cell is an anchor:
+until Nov 24, 2026 the value was the nearest cell's own value moved along the slope,
+which carried that cell's local deviation to every tier it served (Palisades mid and
+summit shared one cell at 7,726 ft). The fitted line did better on both checks:
+leave-one-out on the live box (each cell predicted from its neighbors, 12Z Nov 24)
+temperature MAE 1.10 -> 0.92 F, 7-day snowfall 0.49 -> 0.41 in (06Z: 0.44 -> 0.37 in);
+SNOTEL air temperature at seven sites in five archived storm cycles, MAE 1.77 -> 1.47 F.
+Weighting cells by elevation as well as distance did not help further.
 
   temperature, dew point   elevation only; lapse clamped to [-5.5, +8] F per 1,000 ft
                            (dry adiabatic to a strong inversion)
@@ -20,10 +28,12 @@ west slope gets more precipitation than the east side at the same height.
                            hour (smoother than hourly amounts), kept non-decreasing
   wind, gusts, cloud, visibility, chance of precipitation, snow level   not adjusted
 
-Leave-one-out check on the 2026-11-24 06Z cycle (each cell predicted from its
-neighbors): 7-day snowfall MAE 1.64 in (nearest cell) -> 0.45 in (adjusted);
-temperature ~1.8 F -> ~1.0 F; dew point 1.4 F -> 0.5 F. That checks consistency with
-NBM's own field, not accuracy against observations (see TUNING_PLAN.md).
+Leave-one-out against no adjustment at all (2026-11-24 06Z): 7-day snowfall MAE
+1.64 in -> 0.45 in; temperature ~1.8 F -> ~1.0 F; dew point 1.4 F -> 0.5 F. These check
+consistency with NBM's own field; the SNOTEL comparison above is the first check
+against observations (see TUNING_PLAN.md). NBM's 2 m field itself misses calm-night
+inversions (Nov 24: 8-14 F too cold at stations above the valley floor), which no
+re-fit of that field can fix; see the free-air comparison in the stations table.
 """
 
 import math
@@ -135,13 +145,13 @@ class Downscaler:
                 if cf:
                     b = max(LAPSE_BOUNDS_F_PER_KFT[0], min(LAPSE_BOUNDS_F_PER_KFT[1], cf[1]))
                     lapses.append(b)
-                    x0["temp_f"] = round(x0["temp_f"] + b * dz, 1)
+                    x0["temp_f"] = round(cf[0] + b * dz, 1)
             d_ok = [i for i in nb if series[i][k].get("dew_point_f") is not None]
             if len(d_ok) >= 6 and x0.get("dew_point_f") is not None:
                 cf = wls([Xz[nb.index(i)] for i in d_ok], [series[i][k]["dew_point_f"] for i in d_ok], [w[nb.index(i)] for i in d_ok])
                 if cf:
                     b = max(-10.0, min(10.0, cf[1]))
-                    x0["dew_point_f"] = round(min(x0.get("temp_f", 999), x0["dew_point_f"] + b * dz), 1)
+                    x0["dew_point_f"] = round(min(x0.get("temp_f", 999), cf[0] + b * dz), 1)
             if x0.get("temp_f") is not None and x0.get("dew_point_f") is not None:
                 x0["dew_point_depression_f"] = round(x0["temp_f"] - x0["dew_point_f"], 1)
                 x0["relative_humidity_pct"] = round(_rh(x0["temp_f"], x0["dew_point_f"]))
@@ -151,14 +161,14 @@ class Downscaler:
             if len(s_ok) >= 6 and slr_t:
                 cf = wls([Xz[nb.index(i)] for i in s_ok], [series[i][k]["slr"] for i in s_ok], [w[nb.index(i)] for i in s_ok])
                 if cf:
-                    slr_t = max(1.0, slr_t + cf[1] * dz)
+                    slr_t = max(1.0, cf[0] + cf[1] * dz)
                     x0["slr"] = round(slr_t, 1)
             # cumulative precipitation and snowfall (elevation + cross-crest), non-decreasing
             vals = []
             for key in ("liq", "snow"):
                 ys = [cum[key][i] for i in nb]
                 cf = wls(Xzx, ys, w) if max(ys) > 0 else None
-                v = cum[key][g] + ((cf[1] * dz + cf[2] * dx) if cf else 0.0)
+                v = (cf[0] + cf[1] * dz + cf[2] * dx) if cf else cum[key][g]
                 vals.append(max(0.0, v))
             c_p = max(prev_p, vals[0])
             c_s = max(prev_c, vals[1])
@@ -182,7 +192,7 @@ class Downscaler:
         g_liq = sum(s.get("precip_in") or 0 for s in base[:n])
         lap_sorted = sorted(lapses)
         diag = {
-            "method": "NBM local regression on terrain height (per hour), nearest cell moved to the tier elevation",
+            "method": "NBM local regression on terrain height (per hour), evaluated at the tier elevation",
             "grid_lat": self.ll[g][0], "grid_lon": self.ll[g][1], "grid_elevation_ft": round(zg),
             "target_elevation_ft": round(elev_ft), "dz_ft": round(elev_ft - zg),
             "dz_used_ft": round(z_eff - zg), "neighbors": len(nb),
@@ -212,6 +222,6 @@ class Downscaler:
         cf = wls(X, [values[i] for i in pts], [math.exp(-(dist[i] / SIGMA_KM) ** 2) for i in pts])
         if not cf:
             return None
-        v = values[g] + cf[1] * (z_eff - zg) / 1000.0 + cf[2] * (_cross(tx, ty) - self.xc[g])
+        v = cf[0] + cf[1] * (z_eff - zg) / 1000.0 + cf[2] * (_cross(tx, ty) - self.xc[g])
         return {"value": round(max(0.0, v), 1), "cell_value": round(values[g], 1), "cell_elevation_ft": round(zg),
                 "slope_per_kft": round(cf[1], 2), "cells": len(pts), "extrapolation_ft": round(max(0.0, elev_ft - zmax, zmin - elev_ft))}

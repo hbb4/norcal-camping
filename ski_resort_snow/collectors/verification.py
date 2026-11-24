@@ -33,6 +33,7 @@ class ForecastVerifier:
         self.history_path = Path(data_dir) / "verification_history.json"
         self.resort_log_path = Path(data_dir) / "archive" / "resort_reports.json"
         self.station_log_path = Path(data_dir) / "archive" / "station_pairs.jsonl"
+        self.models_dir = Path(data_dir) / "models"
         self.cdec = cdec_client
         self.archive_dir.mkdir(parents=True, exist_ok=True)
 
@@ -115,10 +116,31 @@ class ForecastVerifier:
                     "fc": {k: [x.get(k) for x in tl24] for k in ("temp_f", "free_air_temp_f", "dew_point_f", "wind_mph", "gust_mph")},
                 }
             rec["resorts"][rid] = {"model": (om.get("model") or {}).get("id"), "run_init_utc": runs[0].get("run_init_utc"),
-                                   "column": (om.get("profile_model") or {}).get("label"), "tiers": tiers}
+                                   "column": (om.get("profile_model") or {}).get("label"), "tiers": tiers,
+                                   "models": self._model_series(rid)}
         self.station_log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.station_log_path.open("a") as f:
             f.write(json.dumps(rec, separators=(",", ":")) + "\n")
+
+    def _model_series(self, rid: str) -> Dict[str, Any]:
+        """Every model's next 24 h of 2 m and free-air temperature at each tier (from this run's model files)."""
+        out: Dict[str, Any] = {}
+        for f in sorted((self.models_dir / rid).glob("*.json")):
+            try:
+                mo = json.loads(f.read_text())
+            except Exception:
+                continue
+            if mo.get("status") != "success":
+                continue
+            tiers = {}
+            for t, tl in (mo.get("elevation_timelines") or {}).items():
+                tl24 = tl[:24]
+                if tl24:
+                    tiers[t] = {"fc_start": tl24[0].get("time"),
+                                "temp_f": [x.get("temp_f") for x in tl24],
+                                "free_air_temp_f": [x.get("free_air_temp_f") for x in tl24]}
+            out[f.stem] = tiers
+        return out
 
     def _load_resort_log(self) -> List[Dict[str, Any]]:
         try:

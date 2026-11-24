@@ -17,11 +17,19 @@ multi-model request for the six sounding sources), and 168 hours of derived
 fields. Ensembles (GEFS, ECMWF ENS, ICON-EPS) are fetched once per tier and
 summarized with each model's snow fraction and SLR.
 
-Elevation handling: Open-Meteo picks the grid cell nearest the coordinates and
-adjusts 2 m temperature/humidity from the cell's terrain height to the given
-elevation with a fixed lapse rate. That adjustment cannot represent
-inversions; the model column can, so the free-air temperature at each tier
-height is reported alongside the 2 m value. Precipitation and 10 m wind are
+Elevation handling: surface fields are requested with elevation=nan, i.e. the
+model's own grid-cell values, not Open-Meteo's statistical downscaling. That
+downscaling moves 2 m temperature and dew point from the cell height to the
+requested elevation with a fixed lapse of about 6.5 C/km (measured Nov 24,
+2026: HRRR/GFS, ECMWF and GEM all shift by 6.5-6.7 C/km), which runs the wrong
+way in an inversion. Instead, the cell's height is found on the model's own
+column from its surface pressure, and temperature and dew point are moved by
+the column's change between that height and the tier height
+(T_tier = T_2m,cell + T_col(z_tier) - T_col(z_cell)). This keeps any inversion
+the model has between the two heights. It still carries the model's own
+near-surface layer (calm-night cooling at the cell), so the free-air
+temperature at each tier height is reported alongside. Without a column for an
+hour, the fixed 6.5 C/km is used and flagged. Precipitation and 10 m wind are
 not elevation-adjusted.
 
 Snow/liquid ratio (SLR):
@@ -68,7 +76,8 @@ MODELS = [
 SOUNDING_SOURCES = sorted({m["sounding"] for m in MODELS if m["sounding"]})
 SURFACE_VARS = ["snowfall", "precipitation", "precipitation_probability", "temperature_2m", "dew_point_2m",
                 "relative_humidity_2m", "wet_bulb_temperature_2m", "freezing_level_height", "cloud_cover",
-                "visibility", "wind_speed_10m", "wind_gusts_10m", "wind_direction_10m"]
+                "visibility", "wind_speed_10m", "wind_gusts_10m", "wind_direction_10m", "surface_pressure"]
+STD_LAPSE_C_PER_M = 0.0065   # Open-Meteo's own downscaling lapse; used only when a model column is missing
 ENSEMBLE_MODELS = "gfs_seamless,ecmwf_ifs025,icon_seamless"
 
 # Approximate snow/liquid ratio of crystals grown at a given temperature (C),
@@ -202,6 +211,21 @@ def _pressure_at_height(levels: List[Dict[str, Any]], h: float) -> Optional[floa
     pts = [(lv["z"], math.log(lv["p"])) for lv in levels if lv.get("p")]
     v = _interp_at_height([p[0] for p in pts], [p[1] for p in pts], h)
     return math.exp(v) if v is not None else None
+
+
+def _height_at_pressure(levels: List[Dict[str, Any]], p_hpa: float) -> Optional[float]:
+    """Height (m) of a pressure on the model column (linear in ln p, extrapolated at the ends)."""
+    pts = sorted((math.log(lv["p"]), lv["z"]) for lv in levels if lv.get("p") and lv.get("z") is not None)
+    if len(pts) < 2 or not p_hpa or p_hpa <= 0:
+        return None
+    lp = math.log(p_hpa)
+    k = next((j for j in range(1, len(pts)) if pts[j][0] >= lp), len(pts) - 1)
+    (l0, z0), (l1, z1) = pts[k - 1], pts[k]
+    return z0 + (z1 - z0) * (lp - l0) / (l1 - l0) if l1 != l0 else z0
+
+
+def _std_height_m(p_hpa: float) -> float:
+    return 44330.8 * (1.0 - (p_hpa / 1013.25) ** 0.190263)
 
 
 def _val(arr, i, default=None):
@@ -440,7 +464,8 @@ class OpenMeteoClient:
                                "liquid_7d": summit["liquid_7d_inches"], "snow_48h": summit["snow_48h_inches"],
                                "snow_7d": summit["snow_7d_total_inches"], "covers_48h": summit["hours_available"] >= 47,
                                "covers_7d": summit["hours_available"] >= 160, "hours_available": summit["hours_available"],
-                               "peak_gust_48h": round(max([x["gust_mph"] or 0 for x in s_tl[:48]] or [0.0]), 1)},
+                               "peak_gust_48h": round(max([x["gust_mph"] or 0 for x in s_tl[:48]] or [0.0]), 1),
+                               "cell_elevation_ft": (adjust.get("summit") or {}).get("grid_elevation_ft")},
             "base": {k: v for k, v in parsed["base"].items() if k not in ("hourly_timeline_48h", "_steps")},
             "mid": {k: v for k, v in parsed["mid"].items() if k not in ("hourly_timeline_48h", "_steps")},
             "summit": {k: v for k, v in summit.items() if k not in ("hourly_timeline_48h", "_steps")},
@@ -501,7 +526,9 @@ class OpenMeteoClient:
                                "liquid_7d": summit["liquid_7d_inches"], "snow_48h": summit["snow_48h_inches"],
                                "snow_7d": summit["snow_7d_total_inches"], "covers_48h": summit["hours_available"] >= 47,
                                "covers_7d": summit["hours_available"] >= 160, "hours_available": summit["hours_available"],
-                               "peak_gust_48h": round(max([x["gust_mph"] for x in s_tl[:48]] or [0.0]), 1)},
+                               "peak_gust_48h": round(max([x["gust_mph"] for x in s_tl[:48]] or [0.0]), 1),
+                               "cell_elevation_ft": (summit.get("elevation_adjustment") or {}).get("cell_elevation_ft")},
+            "elevation_adjustment": {k: parsed[k].get("elevation_adjustment") for k in parsed},
             "base": {k: v for k, v in parsed["base"].items() if k not in ("hourly_timeline_48h", "_steps")},
             "mid": {k: v for k, v in parsed["mid"].items() if k not in ("hourly_timeline_48h", "_steps")},
             "summit": {k: v for k, v in summit.items() if k not in ("hourly_timeline_48h", "_steps")},
@@ -552,7 +579,8 @@ class OpenMeteoClient:
 
     def _query_surface(self, lat: float, lon: float, elevation_m: int, om_ids: List[str]) -> Dict[str, Any]:
         return self._get(self.BASE_URL, {
-            "latitude": f"{lat:.4f}", "longitude": f"{lon:.4f}", "elevation": str(elevation_m),
+            # elevation=nan: the model's own grid-cell values; _build_tier moves them to elevation_m
+            "latitude": f"{lat:.4f}", "longitude": f"{lon:.4f}", "elevation": "nan",
             "hourly": ",".join(SURFACE_VARS), "models": ",".join(om_ids),
             "forecast_hours": str(FORECAST_HOURS), "past_hours": "0", "timezone": "GMT",
             "precipitation_unit": "inch", "wind_speed_unit": "mph", "temperature_unit": "fahrenheit",
@@ -692,11 +720,37 @@ class OpenMeteoClient:
             rh = _val(h.get("relative_humidity_2m"), i)
             if dew_f is None and rh is not None:
                 dew_f = c_to_f(dewpoint_c(f_to_c(temp_f), rh))
-            if rh is None and dew_f is not None:
+            # grid cell -> tier height along the model's own column (see module docstring)
+            cell_t, cell_td = temp_f, dew_f
+            p_sfc = _val(h.get("surface_pressure"), i)
+            z_cell = _height_at_pressure(levels, p_sfc) if (levels and p_sfc) else None
+            shift_src = "column"
+            if z_cell is not None:
+                zl = [lv["z"] for lv in levels]
+                tl_ = [lv["t"] for lv in levels]
+                dl_ = [lv["td"] for lv in levels]
+                d_t = _interp_at_height(zl, tl_, elevation_m) - _interp_at_height(zl, tl_, z_cell)
+                d_td = _interp_at_height(zl, dl_, elevation_m) - _interp_at_height(zl, dl_, z_cell)
+            elif p_sfc:
+                z_cell = _std_height_m(p_sfc)
+                d_t = d_td = -STD_LAPSE_C_PER_M * (elevation_m - z_cell)
+                shift_src = "fixed 6.5 C/km (no column)"
+            else:
+                d_t = d_td = None
+                shift_src = "none (no surface pressure)"
+            if d_t is not None and temp_f is not None:
+                temp_f = temp_f + d_t * 1.8
+                if dew_f is not None:
+                    dew_f = min(temp_f, dew_f + d_td * 1.8)
+                rh = None   # recomputed below from the moved temperature and dew point
+            if dew_f is not None and (rh is None or d_t is not None):
                 rh = min(100.0, 100 * es_water(f_to_c(dew_f)) / es_water(f_to_c(temp_f)))
-            wb_f = _val(h.get("wet_bulb_temperature_2m"), i)
-            if wb_f is None and dew_f is not None:
-                wb_f = c_to_f(wet_bulb_psychro_c(f_to_c(temp_f), f_to_c(dew_f), p_hpa))
+            if d_t is not None:   # Open-Meteo's wet bulb belongs to the cell; recompute at the tier
+                wb_f = c_to_f(wet_bulb_psychro_c(f_to_c(temp_f), f_to_c(dew_f), p_hpa)) if dew_f is not None else None
+            else:
+                wb_f = _val(h.get("wet_bulb_temperature_2m"), i)
+                if wb_f is None and dew_f is not None:
+                    wb_f = c_to_f(wet_bulb_psychro_c(f_to_c(temp_f), f_to_c(dew_f), p_hpa))
             if wb_f is None:
                 wb_f = temp_f
             t_c, wb_c = f_to_c(temp_f), f_to_c(wb_f)
@@ -801,6 +855,11 @@ class OpenMeteoClient:
                 "chance_rain_pct": round(pop * (1 - frac)),
                 "temp_f": round(temp_f, 1),
                 "free_air_temp_f": round(c_to_f(fa_t), 1) if fa_t is not None else None,
+                "cell_temp_f": round(cell_t, 1) if cell_t is not None else None,
+                "cell_elevation_ft": round(z_cell * M_TO_FT) if z_cell is not None else None,
+                "temp_shift_f": round(d_t * 1.8, 1) if d_t is not None else None,
+                "fixed_lapse_shift_f": round(-STD_LAPSE_C_PER_M * (elevation_m - z_cell) * 1.8, 1) if z_cell is not None else None,
+                "temp_shift_source": shift_src,
                 "wet_bulb_f": round(wb_f, 1),
                 "dew_point_f": round(dew_f, 1) if dew_f is not None else None,
                 "dew_point_depression_f": round(temp_f - dew_f, 1) if dew_f is not None else None,
@@ -836,6 +895,17 @@ class OpenMeteoClient:
 
         daily = self._daily_rollup(steps)
         ens = self._ensemble_summary(ensemble, steps, daily) if ensemble else None
+        adj = None
+        first = [s for s in steps[:24] if s.get("cell_elevation_ft") is not None]
+        if first:
+            med = lambda vals: sorted(vals)[len(vals) // 2] if vals else None
+            sh = [s["temp_shift_f"] for s in first if s.get("temp_shift_f") is not None]
+            fx = [s["fixed_lapse_shift_f"] for s in first if s.get("fixed_lapse_shift_f") is not None]
+            adj = {"method": "model grid cell moved to the tier height along the model's own column",
+                   "cell_elevation_ft": med([s["cell_elevation_ft"] for s in first]), "target_elevation_ft": elev_ft,
+                   "temp_shift_f": {"median": med(sh), "min": min(sh), "max": max(sh)} if sh else None,
+                   "fixed_lapse_shift_f": med(fx),
+                   "hours_without_column": sum(1 for s in steps if s.get("temp_shift_source") != "column")}
         if ens:
             by_date = {d["date"]: d for d in ens["daily"]}
             for d in daily:
@@ -851,6 +921,7 @@ class OpenMeteoClient:
             "elevation_ft": elev_ft,
             "hours_available": len(steps),
             "_steps": steps,
+            "elevation_adjustment": adj,
             "ensemble": ens,
             "snow_24h_inches": total("snowfall_rate_in_hr", 24),
             "snow_48h_inches": total("snowfall_rate_in_hr", 48),

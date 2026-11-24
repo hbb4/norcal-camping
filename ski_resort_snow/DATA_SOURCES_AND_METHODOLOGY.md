@@ -81,14 +81,16 @@ Each tier is queried at its own coordinates (`config/resorts.json`), checked aga
 | Alpine | Mid | 39.1542, −120.2423 | 7,800 ft | 7,795 ft |
 | Alpine | Summit | 39.1467, −120.2450 | 8,637 ft | 8,504 ft (Ward Peak) |
 
-Open-Meteo selects the model grid cell nearest the coordinates and adjusts **temperature and humidity** from the cell's terrain height to the `elevation` parameter with a lapse rate. **Precipitation is not elevation-adjusted**, and neither is 10 m wind. Wind per tier therefore comes from the sounding: summit = pressure-level wind interpolated to summit height; base = 10 m model wind (sheltered); mid = 60% of the way from 10 m toward free-air. Gusts = wind × the model's 10 m gust factor (clamped 1.15–1.4).
+Open-Meteo selects a model grid cell near the coordinates. Its own downscaling would move **temperature and dew point** from the cell's terrain height to the `elevation` parameter with a fixed 6.5 °C/km (measured Nov 24, 2026: HRRR/GFS 6.7, ECMWF 6.5, GEM 6.6 °C/km), which runs the wrong way in an inversion. The pipeline therefore asks for the raw cell (`elevation=nan`) and does the move itself along the model's own column (section 4.1b). **Precipitation is not elevation-adjusted**, and neither is 10 m wind. Wind per tier therefore comes from the sounding: summit = pressure-level wind interpolated to summit height; base = 10 m model wind (sheltered); mid = 60% of the way from 10 m toward free-air. Gusts = wind × the model's 10 m gust factor (clamped 1.15–1.4).
 
 Earlier versions queried all tiers at the village coordinates.
 
 ### 3.1 NBM elevation adjustment (`nbm_downscale.py`)
-A 2.5 km cell rarely sits at a tier's height. Palisades mid (8,010 ft) and summit (9,050 ft) share one cell at 7,726 ft; Alpine's base (6,835 ft) falls in a 7,772 ft cell. No lapse rate or snowfall-elevation rule is assumed. Instead, at every forecast hour, NBM's own relationship with terrain is measured over the cells within 7 km of the tier (Gaussian distance weights, σ = 3 km, typically 22–26 cells), and the nearest cell's value is moved along it:
+A 2.5 km cell rarely sits at a tier's height. Palisades mid (8,010 ft) and summit (9,050 ft) are nearest to one cell at 7,726 ft; Alpine's base (6,835 ft) is nearest to a 7,772 ft cell. No lapse rate or snowfall-elevation rule is assumed. Instead, at every forecast hour, NBM's own relationship with terrain is fit over the cells within 7 km of the tier (Gaussian distance weights, σ = 3 km, typically 22–26 cells), and the fitted line is evaluated at the tier's own height:
 
-value(tier) = value(cell) + b · (z_tier − z_cell) [+ c · (x_tier − x_cell)]
+value(tier) = a + b · (z_tier − z_ref) [+ c · (x_tier − x_ref)]
+
+The nearest cell (z_ref, x_ref) only centers the fit. Until Nov 24, 2026 the nearest cell's own value was moved along the line instead, which carried that cell's local deviation to every tier it served; the fitted line did better on both checks below.
 
 | Field | Predictors | Notes |
 |---|---|---|
@@ -101,7 +103,7 @@ Elevation beyond the neighbors' range is capped at 1,000 ft of extrapolation; Pa
 
 **Why this form:** in the Nov 24 06Z cycle, 7-day precipitation around Palisades barely depends on elevation (R² 0.01–0.09), while 7-day snowfall rises ~3 in per 1,000 ft (R² ≈ 0.9) through phase and snow/liquid ratio. NBM's implied snow fraction goes from ~0 at 1,500 ft below its snow level to ~1 at 1,000 ft above, and its SLR rises ~1.1 per 1,000 ft. The temperature lapse varied hour to hour (median −2.0 °F per 1,000 ft, range −4 to −1).
 
-**Leave-one-out check** (each cell predicted from its neighbors, Nov 24 06Z): 7-day snowfall MAE 1.64 in using the nearest cell vs 0.45 in adjusted (2.57 vs 0.46 in where the cells differ by ≥ 500 ft); temperature ~1.8 °F vs ~1.0 °F; dew point 1.4 vs 0.5 °F. This tests consistency with NBM's own field across one cycle, not accuracy against observations; the calibration plan covers that.
+**Leave-one-out check** (each cell predicted from its neighbors, Nov 24 06Z): 7-day snowfall MAE 1.64 in using the nearest cell unadjusted vs 0.45 in adjusted (2.57 vs 0.46 in where the cells differ by ≥ 500 ft); temperature ~1.8 °F vs ~1.0 °F; dew point 1.4 vs 0.5 °F. Fitted line vs the earlier nearest-cell anchor: temperature 1.10 → 0.92 °F (12Z), 7-day snowfall 0.49 → 0.41 in (12Z) and 0.44 → 0.37 in (06Z). These test consistency with NBM's own field. Against observations: SNOTEL air temperature at seven sites in five archived storm cycles, MAE 1.77 °F (anchor) → 1.47 °F (fitted line).
 
 ## 4. Derived quantities
 
@@ -114,7 +116,7 @@ Elevation beyond the neighbors' range is capped at 1,000 ft of extrapolation; Pa
 - Levels below the terrain are model extrapolations; the skew-T shades everything below the base.
 
 ### 4.1b Tier temperature: 2 m vs. free air
-Open-Meteo adjusts each model's 2 m temperature from the grid cell's terrain height to the requested elevation with a fixed lapse rate. That step cannot represent inversions. The model column can: on Nov 23–24, 2026 (06Z, HRRR column) the free-air temperature at 8,000 ft was 36 °F against 35 °F at the Palisades mid-mountain station, while the 2 m value was 28 °F. But free air was badly wrong in the valley cold pool (40.5 °F vs 24 °F at the base station) and at Alpine's summit station (35 °F vs 26 °F). The page therefore shows both (solid 2 m, dashed free air) in the elevation time series and compares them with the resort stations; choosing or blending them is a calibration item (TUNING_PLAN.md).
+For the Open-Meteo models the pipeline takes the model's own grid-cell 2 m temperature and dew point (`elevation=nan`), finds the cell's height on the model column from the cell's surface pressure (log-pressure interpolation of the column's geopotential heights, every hour, so the HRRR-to-GFS handover is followed), and moves both by the column's own change between the cell height and the tier height: T_tier = T_2m,cell + T_col(z_tier) − T_col(z_cell). Wet bulb and RH are recomputed at the tier. This keeps any inversion the model has between the two heights; if an hour has no column, the fixed 6.5 °C/km is used and flagged. For the Palisades summit (9,049 ft) the cells are at 8,038 ft (HRRR), 7,127 (GEM), 7,002 (UKMO), 6,984 (ECMWF), 6,829 (AIFS) and 6,739 ft (ICON); the page lists each model's summit cell. Both forms still carry the model's own near-surface layer at the cell. The free-air temperature at the tier height doesn't: on Nov 23–24, 2026 (06Z, HRRR column) the free-air temperature at 8,000 ft was 36 °F against 35 °F at the Palisades mid-mountain station, while the 2 m value was 28 °F. But free air was badly wrong in the valley cold pool (40.5 °F vs 24 °F at the base station) and at Alpine's summit station (35 °F vs 26 °F). The page therefore shows both (solid 2 m, dashed free air) in the elevation time series, and the stations table lists the free-air temperature at each station's own height beside the 2 m value. Blending them with a coupling weight per tier, T = T_free_air + c · (T_2m − T_free_air), is a calibration item (TUNING_PLAN.md section 9; `station_bias.py` fits c from the logged station pairs).
 
 ### 4.2 Snow level and precipitation type
 - **Wet-bulb zero (WBZ)**: lowest height where the wet bulb crosses 0 °C.

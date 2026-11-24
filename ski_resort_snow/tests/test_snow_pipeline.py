@@ -694,3 +694,52 @@ class TestStormDays(unittest.TestCase):
         self.assertEqual(anchor(rows, date(2026, 11, 18), "wteq_in"), 5.1)   # 5.2 if the suspect values were kept
         rows["2026-11-18 04:00"]["wteq_qc"] = "S"
         self.assertIsNone(anchor(rows, date(2026, 11, 18), "wteq_in"))        # fewer than 3 usable hours
+
+
+class TestElevationMethods(unittest.TestCase):
+    """Nov 24, 2026 changes: NBM uses the fitted line at the tier height (no anchor cell);
+    Open-Meteo models move the raw grid cell along the model's own column."""
+
+    def test_nbm_anchor_cell_anomaly_not_carried(self):
+        from datetime import datetime, timezone
+        from collectors.nbm_client import NBMClient
+        from collectors.nbm_downscale import Downscaler
+        nbm, terrain = TestNBMDownscale()._box()
+        ds = Downscaler(nbm, terrain, NBMClient.to_steps)
+        start = datetime(2026, 11, 24, 0, tzinfo=timezone.utc)
+        _, diag = ds.adjust(39.19, -120.25, 9000, start)
+        g = next(i for i, (a, b) in enumerate(ds.ll) if a == diag["grid_lat"] and b == diag["grid_lon"])
+        for r in nbm["box"]["rows"].values():           # make the nearest cell 6 F colder than its neighbors
+            r["tmp_k"][g] -= 6 * 5 / 9
+        ds2 = Downscaler(nbm, terrain, NBMClient.to_steps)
+        steps, _ = ds2.adjust(39.19, -120.25, 9000, start)
+        # the old anchor method carried the full 6 F; the fitted line shares it with the neighbors
+        line = 40 - 3.0 * 3.0
+        self.assertLess(line - steps[0]["temp_f"], 6.0 - 1.0)
+        self.assertGreater(line - steps[0]["temp_f"], 0.0)
+
+    def _profile(self, inversion):
+        # column at 2,000-3,500 m; with an inversion, 2,000 -> 2,600 m warms by 4 C
+        levels = []
+        for p, z in ((800, 2000), (775, 2300), (750, 2600), (700, 3100), (650, 3600)):
+            t = (-2.0 + 4.0 * (z - 2000) / 600 if z <= 2600 else 2.0 - 6.5 * (z - 2600) / 1000) if inversion else -2.0 - 6.5 * (z - 2000) / 1000
+            levels.append({"p": p, "z": z, "t": t, "rh": 60.0, "rhi": 65.0, "tw": t - 3, "td": t - 6, "w": 0.0, "ws": 10.0, "wd": 250.0})
+        return [{"_levels": levels, "wet_bulb_zero_ft": 9000, "freezing_level_ft": 9000, "snow_level_ft": 8500}]
+
+    def test_open_meteo_column_shift(self):
+        from collectors.open_meteo_client import OpenMeteoClient, _height_at_pressure
+        prof = self._profile(True)
+        self.assertAlmostEqual(_height_at_pressure(prof[0]["_levels"], 787.5), 2150, delta=15)
+        cell_f = 25.0
+        hourly = {"time": ["2026-11-24T09:00"], "temperature_2m": [cell_f], "dew_point_2m": [15.0], "relative_humidity_2m": [65],
+                  "precipitation": [0.0], "snowfall": [0.0], "precipitation_probability": [0], "surface_pressure": [800.0],
+                  "wind_speed_10m": [5.0], "wind_gusts_10m": [9.0], "wind_direction_10m": [250.0], "cloud_cover": [0], "visibility": [20000]}
+        c = OpenMeteoClient()
+        inv = c._build_tier({"hourly": hourly}, prof, "Summit", 2600)["_steps"][0]
+        self.assertEqual(inv["cell_elevation_ft"], round(2000 * 3.28084))
+        self.assertAlmostEqual(inv["temp_shift_f"], 4.0 * 1.8, delta=0.05)       # column warms 4 C from cell to tier
+        self.assertAlmostEqual(inv["temp_f"], cell_f + 7.2, delta=0.1)
+        self.assertAlmostEqual(inv["fixed_lapse_shift_f"], -6.5 * 0.6 * 1.8, delta=0.05)   # what Open-Meteo would do
+        std = c._build_tier({"hourly": hourly}, self._profile(False), "Summit", 2600)["_steps"][0]
+        self.assertAlmostEqual(std["temp_f"], cell_f - 6.5 * 0.6 * 1.8, delta=0.1)
+        self.assertLessEqual(inv["dew_point_f"], inv["temp_f"])

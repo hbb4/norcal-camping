@@ -352,9 +352,10 @@ function renderKPIs(resort) {
     const adj = om.nbm_elevation_adjustment;
     const parts = [];
     if (adj) {
-      const cells = ["base", "mid", "summit"].filter(t => adj[t]).map(t => `${t} ${adj[t].grid_elevation_ft.toLocaleString()} ft`).join(", ");
-      const ex = ["summit", "mid", "base"].filter(t => adj[t] && adj[t].extrapolation_ft > 50).map(t => `${t} ${adj[t].extrapolation_ft.toLocaleString()} ft beyond the nearest-cell height range`);
-      parts.push(`NBM cells (${cells}) are moved to each tier height using NBM's own relationship with terrain height across the ~25 surrounding cells, refit every hour${ex.length ? `; ${ex.join(", ")}` : ""}.`);
+      const rng = ["base", "mid", "summit"].filter(t => adj[t]).map(t => adj[t].neighbor_elevation_ft);
+      const lo = Math.min(...rng.map(r => r[0])), hi = Math.max(...rng.map(r => r[1]));
+      const ex = ["summit", "mid", "base"].filter(t => adj[t] && adj[t].extrapolation_ft > 50).map(t => `${t} ${adj[t].extrapolation_ft.toLocaleString()} ft beyond the highest or lowest cell`);
+      parts.push(`NBM values at each tier come from a line fit every hour through the ~25 surrounding 2.5 km cells (terrain ${lo.toLocaleString()}–${hi.toLocaleString()} ft), evaluated at the tier's own height${ex.length ? `; ${ex.join(", ")}` : ""}.`);
     }
     if (nt.summit && nt.summit.total) parts.push(`NWS values: the same regression on the NWS forecast's own neighboring cells (${nt.summit.total.cells} cells; NWS cell at the summit point ${(nt.summit.total.cell_elevation_ft || 0).toLocaleString()} ft, ${sn(nt.summit.total.cell_value)} unadjusted). NWS is shown beside the model and is not blended into it.`);
     else {

@@ -15,6 +15,8 @@
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   let state = { resort: null, hour: 0, playing: null, tl: {}, profile: [] };
+  const SPEEDS = [1, 2, 4], STEP_MS = 260;   // one forecast hour every 260 ms at 1x
+  state.speed = (() => { try { const v = +localStorage.getItem("snow.playSpeed"); return SPEEDS.includes(v) ? v : 1; } catch (e) { return 1; } })();
 
   // ---------------------------------------------------------------- helpers
   const $ = id => document.getElementById(id);
@@ -195,7 +197,7 @@
       const st = (tl[t] || [])[h] || {};
       const v = $(`pill-${t}-val`); if (v) v.textContent = U.metricSnow() ? `${U.snowBare(st.cumulative_snow_inches ?? 0)} cm` : `${U.snowBare(st.cumulative_snow_inches ?? 0)} in`;
       const ob = h === 0 && window.Obs ? Obs.forTier(r, t) : null;
-      const tt = $(`pill-${t}-temp`); if (tt) tt.textContent = ob ? `${U.temp(ob.temp_f)} obs` : U.temp(st.temp_f);
+      const tt = $(`pill-${t}-temp`); if (tt) tt.textContent = ob ? `${U.temp(ob.temp_f)}*` : U.temp(st.temp_f);
       const d = $(`dot-${t}`); if (d) d.setAttribute("fill", { snow: "#7dd3fc", mix: "#c084fc", rain: "#4ade80", ice: "#fb7185" }[st.precip_phase] || "#475569");
       const pillEl = $(`pill-${t}`); if (pillEl) pillEl.style.opacity = t === window.__snowTier ? 1 : 0.88;
     });
@@ -218,8 +220,22 @@
       <span class="chip"><svg><use href="#i-wind"/></svg>${obT
         ? `${tierName} wind (station, ${obT.observed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}) ${obT.wind_dir || ""} ${Math.round(obT.wind_mph ?? 0)} mph, gusts ${Math.round(obT.gust_mph ?? 0)}`
         : `${tierName} wind ${Conditions.wind(ts)}`}</span>
-      ${fz ? `<span class="chip">Freezing level ${fmtFt(fz)}${pm ? ` (${pm.label})` : ""}</span>` : ""}
-      ${h === 0 && window.Obs && ["base", "mid", "summit"].some(t => Obs.forTier(r, t)) ? `<span class="chip">Temperatures at this hour: resort stations</span>` : ""}`;
+      ${fz ? `<span class="chip">Freezing level ${fmtFt(fz)}${pm ? ` (${pm.label})` : ""}</span>` : ""}`;
+
+    // footnote for the station readings shown at hour 0
+    const foot = $("scene-foot");
+    if (foot) {
+      const obs = h === 0 && window.Obs ? ["base", "mid", "summit"].map(t => [t, Obs.forTier(r, t)]).filter(x => x[1]) : [];
+      foot.hidden = !obs.length;
+      if (obs.length) {
+        const nm = ob => String(ob.name || "").replace(/,?\s*el\.\s*[\d,]+'?\s*$/i, "");
+        const at = obs[0][1].observed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        const model = ((r.sources || {}).open_meteo || {}).model;
+        const names = obs.map(([, ob]) => `${nm(ob)}${ob.elevation_ft ? ` (${ob.elevation_ft.toLocaleString()} ft)` : ""}`);
+        foot.textContent = `* Measured at the resort's weather stations at ${at}: ${names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0]}. `
+          + `Hour 0 shows these readings; from hour 1 on, every value is the ${model ? model.label : "selected model's"} forecast.`;
+      }
+    }
 
     // scrubber UI
     document.querySelectorAll(".hour-scrubber").forEach(rng => { rng.value = h; rng.style.setProperty("--p", `${(h / Math.max(1, rng.max)) * 100}%`); });
@@ -575,16 +591,31 @@
 
   function togglePlay(force) {
     const play = force ?? !state.playing;
-    if (state.playing) { clearInterval(state.playing); state.playing = null; }
+    if (state.playing) { clearTimeout(state.playing); state.playing = null; }
     if (play) {
       if (state.hour >= (state.tl.summit || []).length - 1) setHour(0);
-      state.playing = setInterval(() => {
+      // chained timeouts: a slow frame delays the next step instead of queueing steps
+      const tick = () => {
         if (state.hour >= (state.tl.summit || []).length - 1) return togglePlay(false);
         setHour(state.hour + 1);
-      }, 260);
+        state.playing = setTimeout(tick, STEP_MS / state.speed);
+      };
+      state.playing = setTimeout(tick, STEP_MS / state.speed);
     }
     document.querySelectorAll("[data-play]").forEach(btn => { btn.innerHTML = `<svg><use href="#i-${state.playing ? "pause" : "play"}"/></svg>`; });
   }
+
+  function setSpeed(s) {
+    state.speed = SPEEDS.includes(s) ? s : 1;
+    try { localStorage.setItem("snow.playSpeed", String(state.speed)); } catch (e) { /* private mode */ }
+    document.querySelectorAll("[data-speed]").forEach(b => {
+      b.textContent = `${state.speed}×`;
+      b.setAttribute("aria-label", `Playback speed ${state.speed}×`);
+      b.classList.toggle("is-fast", state.speed > 1);
+    });
+    if (state.playing) togglePlay(true);   // restart at the new pace from the current hour
+  }
+  const nextSpeed = () => setSpeed(SPEEDS[(SPEEDS.indexOf(state.speed) + 1) % SPEEDS.length]);
 
   function onRender(e) {
     const resort = e.detail.resort;
@@ -608,6 +639,8 @@
     // scrubber
     document.querySelectorAll(".hour-scrubber").forEach(rng => rng.addEventListener("input", () => { togglePlay(false); setHour(+rng.value); }));
     document.querySelectorAll("[data-play]").forEach(b => b.addEventListener("click", () => togglePlay()));
+    document.querySelectorAll("[data-speed]").forEach(b => b.addEventListener("click", nextSpeed));
+    setSpeed(state.speed);
     $("best-when") && $("best-when").addEventListener("click", e => { const h = e.currentTarget.dataset.hour; if (h != null) setHour(+h); });
 
     // snow toggle (persisted per viewer)
@@ -659,6 +692,7 @@
       else if (k === "2") setResort("alpine_meadows");
       else if (k === "b" || k === "m" || k === "s") setTier({ b: "base", m: "mid", s: "summit" }[k]);
       else if (k === " ") { e.preventDefault(); togglePlay(); }
+      else if (k === "x") nextSpeed();
       else if ((k === "arrowright" || k === "arrowleft") && e.target.type !== "range") { e.preventDefault(); togglePlay(false); setHour(state.hour + (k === "arrowright" ? 1 : -1)); }
       else if (k === "f" && tog) { tog.checked = !tog.checked; tog.dispatchEvent(new Event("change")); }
       else if (k === "r") $("btn-refresh") && $("btn-refresh").click();

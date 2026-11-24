@@ -9,7 +9,7 @@ Goal: replace every hand-set choice in the pipeline with values fit on several w
 | # | Quantity | Current method | Question to answer |
 |---|---|---|---|
 | 1 | NBM snowfall at each tier | NBM cell value + local regression on terrain (elevation + cross-crest), refit hourly | Does the adjustment beat the raw cell against boards/pillows? Is there a residual bias by tier, lead time or storm type (snow level near the tier)? |
-| 2 | NBM temperature at each tier | same, lapse clamped −5.5 … +8 °F/1,000 ft | How large are the inversion errors (Nov 24: stations 30–35 °F at 8,000–8,700 ft, NBM 18–20 °F)? Would the HRRR/GFS free-air temperature, or a stability-dependent blend, do better? |
+| 2 | Temperature at each tier (all models) | NBM: line fit through nearby cells at the tier height; Open-Meteo models: grid cell moved along the model's own column (section 9) | Calm-night errors of 8–14 °F above the valley floor (Nov 24). Fit the coupling weight c between 2 m and free-air temperature per tier (section 9). |
 | 3 | Observed-minus-forecast at hour 0 | shown only, not carried forward | How long does an hour-0 error persist with lead time (by variable and tier)? If it decays predictably, apply a decaying correction; if not, leave forecasts alone. |
 | 4 | NWS gridded snowfall at each tier | same regression on the NWS cells | Same verification as #1, to compare NWS and NBM skill at the tiers. |
 | 5 | Open-Meteo models: snow/liquid ratio | Cobb-style habit × lift, unadjusted | wind effect, near-0 °C effect, habit curve scale, riming term (original plan, sections 5–6) |
@@ -171,7 +171,36 @@ Non-SNOTEL CDEC stations with hourly snow sensors nearby: HYS Huysink (6,600 ft)
 - The NBM leave-one-out check (7-day snowfall MAE 1.64 → 0.45 in) shows the adjustment reproduces NBM's own field. Only observations can show whether NBM's field is right.
 - Historical-forecast archives are short-lead. Lead-time effects need the Previous Runs API or the NBM archive at fixed leads.
 
-## 9. Observed vs. forecast at hour 0
+## 9. Temperature at the tiers (Nov 24, 2026)
+
+**How each tier's temperature is computed now.**
+- NBM: every hour, a distance-weighted line of temperature against terrain height is fit through the ~25 NBM cells within 7 km, and the line is evaluated at the tier's own height. Until Nov 24 the nearest cell's own value was moved along that line instead, so Palisades mid and summit inherited one cell (7,726 ft) and its local deviation. The fitted line did better on both checks: leave-one-out on the live box, MAE 1.10 → 0.92 °F (7-day snowfall 0.49 → 0.41 in); SNOTEL air temperature at seven sites in five archived storm cycles, MAE 1.77 → 1.47 °F, bias +0.91 → +0.54 °F. Weighting cells by elevation as well as distance did not help further.
+- Open-Meteo models: until Nov 24, Open-Meteo's own downscaling moved 2 m temperature from the model cell to the tier with a fixed 6.5 °C/km (measured: HRRR/GFS 6.7, ECMWF 6.5, GEM 6.6 °C/km). The pipeline now requests the raw cell (`elevation=nan`), finds the cell's height on the model's own column from its surface pressure, and moves temperature and dew point by the column's change between the two heights. The cells are far from the tiers: for the Palisades summit (9,049 ft) HRRR's cell is at 8,038 ft, GEM 7,127, UKMO 7,002, ECMWF 6,984, AIFS 6,829 and ICON 6,739 ft. Wet bulb and humidity are recomputed at the tier.
+- Free air: the model column's temperature at the station's height (HRRR/GFS for NBM). Shown beside the 2 m value in the stations table.
+
+**What the stations show (night of Nov 23–24, calm and clear).** The 2 m values (NBM, and any model's 2 m field) were 8–14 °F too cold at stations above the valley floor; the free-air temperature at the same height was within 1–4 °F:
+
+| Station | Measured | NBM 2 m | Free air |
+|---|---|---|---|
+| Palisades base, valley floor 6,200 ft, calm | 22 °F | 24 °F | 40 °F |
+| Palisades mid 8,000 ft, 18 mph | 34 °F | 20 °F | 35 °F |
+| Palisades Siberia 8,700 ft | 30 °F | 18 °F | 33 °F |
+| Alpine base 6,950 ft | 37 °F | 24.5 °F | 38 °F |
+| Alpine mid 8,120 ft | 33 °F | 24 °F | 36 °F |
+| Alpine summit 8,543 ft | 25 °F | 22.6 °F | 34 °F |
+
+By late morning (mixed boundary layer) every method was within about 4 °F. The cause is not the elevation adjustment: each model cell has its own calm-night surface layer, while real slopes and ridges above the valley cold pool are ventilated by wind. No re-fit of the 2 m field can create an inversion it doesn't have. The SQV SNOTEL sensor (8,010 ft, near Palisades mid) read 34 °F at 01:00 PST, the same as the mid station, while WC3 in its valley read 21 °F, so SNOTEL can stand in for the mid tier when hindcasting past winters.
+
+**Correction to fit.** A coupling weight per tier:
+
+  T_tier = T_free_air + c · (T_2m − T_free_air)
+
+c ≈ 0 behaves like free air (ventilated slope), c ≈ 1 like the model's 2 m value (sheltered valley floor). From the three logged runs: Palisades base 1.1, mid 0.05, summit 0.26; Alpine base 0.10, mid 0.28, summit 0.73. Three runs are far too few. c may also depend on wind speed (coupling) and on the model's own stability (T_free_air − T_2m). `python3 station_bias.py` reports the station-minus-model error of both temperatures per tier, night and day, the best-fit c, and the 2 m error by lead time; it grows with every pipeline run (`data/archive/station_pairs.jsonl`, hourly while `server.py` runs).
+- Static part: c per tier (and per wind class), fit on station pairs going forward and on past winters with SNOTEL temperatures (SQV ≈ mid, WC3/TK2 valley floors, IDP/RP2/CSL) against the NBM archive's 2 m field and the HRRR archive's free-air temperature (pressure-level TMP from AWS, read with the same byte-range decoder, so no Open-Meteo quota). This needs fair-weather days in the NBM sample, not only storm-days.
+- Dynamic part: the hour-0 error decaying with lead time (below). In the first night the 2 m error fell from +7.7 °F at hour 0 to +4.0 at 1–3 h and +1.8 at 4–17 h, mostly because the night ended.
+- Adoption: only after at least ~30 nights per tier and only if leave-one-week-out MAE improves at most tiers, as for every other term.
+
+## 10. Observed vs. forecast at hour 0
 
 The page now shows station readings at hour 0 beside the model at each tier. When they differ a lot, three options:
 
