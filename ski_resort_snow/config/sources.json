@@ -126,6 +126,35 @@
       "min_weight_share": 0.5
     },
     {
+      "id": "blend_skill",
+      "label": "Skill blend",
+      "description": "The six single models weighted by skill: weight = 1/MAE of each model's 12Z-12Z liquid against the SQV and WC3 pillows' snow-water gain on cold, wet days, scaled to average 1 (Open-Meteo Historical Forecast hindcast, 2025-03-01 to 2026-11-24, 62 site-days; blend_weights.py --hindcast). The five-model fit over WY2023 on ranks the members the same way. The hindcast uses short-lead runs, so the weights reflect day-1 skill.",
+      "members": {
+        "ecmwf_hres": 0.98,
+        "aifs": 1.12,
+        "hrrr_gfs": 1.09,
+        "icon": 1.17,
+        "ukmo": 0.81,
+        "gem": 0.82
+      },
+      "weights_note": "weighted by hindcast skill (62 site-days)",
+      "profile_from": "ecmwf_hres",
+      "min_weight_share": 0.5,
+      "fitted": {
+        "created": "2026-11-24",
+        "period_from": "2025-03-01",
+        "site_days": 62,
+        "mae_in": {
+          "ecmwf_hres": 0.537,
+          "aifs": 0.468,
+          "hrrr_gfs": 0.484,
+          "icon": 0.45,
+          "ukmo": 0.647,
+          "gem": 0.639
+        }
+      }
+    },
+    {
       "id": "blend_hrrr",
       "label": "HRRR-early blend",
       "description": "Same six models, but HRRR/GFS carries half the weight through 18 h (weight 5 against 1 for each other model), fading linearly to equal weights by 48 h, where HRRR hands over to GFS.",

@@ -32,7 +32,8 @@ ski_resort_snow/
 ├── nrcs_sync.py                   # SNOTEL hourly snow water, depth, precipitation, temperature (7 sites, WY2021 on)
 ├── nbm_archive_sync.py            # Past NBM forecasts (AWS archive) for SNOTEL storm-days
 ├── station_bias.py                # Resort stations vs model 2 m and free-air temperature, per tier
-├── blend_weights.py               # Skill weights for the blends: archived model liquid vs SQV snow-water gain
+├── blend_weights.py               # Skill weights for the blends (live archive, or --hindcast from Open-Meteo's archive)
+├── calibration_baseline.py        # NBM raw vs elevation-adjusted scores at the SNOTEL sites on storm-days
 ├── server.py                      # Server: refreshes data on launch, every 30 min (roads 5 min), /api/status
 ├── config/
 │   ├── resorts.json               # GPS coordinates, elevation bands, CDEC station IDs, NWS grid coords
@@ -152,9 +153,14 @@ Station-vs-model temperature errors and the 2 m/free-air coupling weight per tie
 ```bash
 python3 station_bias.py
 ```
-Skill weights for the blends (needs ~15 cold, wet days in the per-model archive, which every run adds to):
+Skill weights for the blends (needs ~15 cold, wet days in the per-model archive, which every run adds to; `--hindcast` fits now from Open-Meteo's archived forecasts):
 ```bash
 python3 nrcs_sync.py && python3 blend_weights.py
+python3 blend_weights.py --hindcast --write
+```
+Baseline scores for NBM at the SNOTEL sites (after `nbm_archive_sync.py fetch`):
+```bash
+python3 calibration_baseline.py --md
 ```
 
 ---

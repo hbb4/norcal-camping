@@ -15,7 +15,7 @@ Goal: replace every hand-set choice in the pipeline with values fit on several w
 | 5 | Open-Meteo models: snow/liquid ratio | Cobb-style habit × lift, unadjusted | wind effect, near-0 °C effect, habit curve scale, riming term (original plan, sections 5–6) |
 | 6 | Open-Meteo models: rain/snow transition | snow level = WBZ − 500 ft; linear over 1,000 ft | WBZ offset, transition depth, surface wet-bulb thresholds |
 | 7 | Wind per tier | 10 m (base), free-air (summit), 60% blend (mid) | blend weights per tier against the resort stations |
-| 8 | Blend weights | Blend: equal; HRRR-early blend: HRRR/GFS half the weight to 18 h, equal by 48 h; ECMWF pair: equal (`config/sources.json` → `blends`) | Skill weights per lead day from the per-model archive (`data/archive/models/`, from Nov 24, 2026) against SQV snow-water gains (`blend_weights.py`, weight ∝ 1/MAE, ≥ 15 cold wet days per model and lead). Adopt only if leave-one-month-out MAE of the blend improves. |
+| 8 | Blend weights | Blend: equal; Skill blend: 1/MAE from an Open-Meteo hindcast at SQV and WC3 (ICON 1.17, AIFS 1.12, HRRR/GFS 1.09, HRES 0.98, GEM 0.82, UKMO 0.81; 62 cold wet site-days from Mar 2025); HRRR-early blend: HRRR/GFS half the weight to 18 h, equal by 48 h; ECMWF pair: equal (`config/sources.json` → `blends`) | Skill weights per lead day from the per-model archive (`data/archive/models/`, from Nov 24, 2026) against SQV snow-water gains (`blend_weights.py`, weight ∝ 1/MAE, ≥ 15 cold wet days per model and lead). Adopt only if leave-one-month-out MAE of the blend improves. |
 
 ## 2. Ground truth (confirmed Nov 24, 2026, by test requests)
 
@@ -160,7 +160,7 @@ Non-SNOTEL CDEC stations with hourly snow sensors nearby: HYS Huysink (6,600 ft)
 | 2. Observation download scripts (NRCS AWDB hourly, CSSL, resort log) | `data/tuning/cssl/`, `data/tuning/nrcs/` | CSSL done (`cssl_sync.py`, cron); NRCS AWDB hourly done Nov 24, 2026 (`nrcs_sync.py`, seven sites, WY2021 on); resort log runs with the pipeline |
 | 3. NBM archive reader (byte-range `.idx` + GRIB2 template 5.3 decoder) and storm-day extraction over the same box | `data/tuning/storm_days.json`, `data/tuning/nbm/cycles/nbm_*.json`, `data/tuning/nbm/terrain.json` | reader done Nov 24, 2026 (`nbm_archive_sync.py`); pilot of one storm per NBM version done; full day-1 download (397 storm-days, about 6.7 GB, 100 min) not yet run |
 | 4. Open-Meteo Historical Forecast pulls (overnight, cached) | `data/tuning/model_*.json` | after 3 |
-| 5. Baseline scoring report (raw vs adjusted NBM, NWS, SLR methods) | tables and plots | |
+| 5. Baseline scoring report (raw vs adjusted NBM, NWS, SLR methods) | `calibration_baseline.py` → `data/tuning/reports/nbm_baseline.md` | NBM raw vs adjusted at the seven SNOTEL sites: started Nov 24, 2026 (first 16 storm-days: temperature MAE 2.79 → 2.35 °F with the adjustment, liquid unchanged); full day-1 sample when the download completes. NWS gridded has no archive; SLR methods need the Open-Meteo pulls (step 4). |
 | 6. Fit, cross-validate, write `calibration.json` | parameters and report | |
 | 7. Wire into the dashboard | calibrated labels | |
 

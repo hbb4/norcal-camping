@@ -867,3 +867,33 @@ class TestBlendWeights(unittest.TestCase):
         self.assertNotIn("blend", res)                                   # blends are not scored as members
         self.assertGreater(res["good"]["weight"], res["wet"]["weight"])  # lower MAE -> higher weight
         self.assertAlmostEqual((res["good"]["weight"] + res["wet"]["weight"]) / 2, 1.0, places=2)
+
+    def test_hindcast_pairs(self):
+        import blend_weights as bw
+        from datetime import date, datetime, timedelta, timezone
+        start = datetime(2025, 2, 13, 12, tzinfo=timezone.utc)
+        rows = {}
+        for h in range(-3, 28):
+            t = (start + timedelta(hours=h)).astimezone(bw.PST)
+            rows[t.strftime("%Y-%m-%d %H:%M")] = {"wteq_in": f"{10 + min(1.5, max(0.0, h / 16)):.2f}", "wteq_qc": "V", "tobs_f": "24", "tobs_qc": "C"}
+        series = {"m": {(start + timedelta(hours=k)).strftime("%Y-%m-%dT%H:%M"): 0.05 for k in range(0, 26)}}
+        pr = bw.hindcast_pairs(series, rows, [date(2025, 2, 13)])
+        day, f, o = pr["m"][0]
+        self.assertAlmostEqual(f, 1.2, places=2)        # 13Z..12Z: 24 hourly values
+        self.assertAlmostEqual(o, 1.5, places=1)
+        s = bw.score({"m": pr["m"], "n": [(day, 1.5, 1.5)]}, min_n=1)
+        self.assertGreater(s["n"]["weight"] if s["n"]["mae"] > 0 else 9, 0)
+        self.assertIsNotNone(s["m"]["weight"])
+
+
+class TestCalibrationBaseline(unittest.TestCase):
+    """The scoring script's estimate: raw = nearest cell, adjusted = the fitted line at the point."""
+
+    def test_estimate(self):
+        import calibration_baseline as cb
+        nbm, terrain = TestNBMDownscale()._box()
+        box = cb.Box(nbm["box"], terrain)
+        vals = [40 - 3.0 * (z - 6000) / 1000 for z in box.z]        # temperature falling 3 F per 1,000 ft
+        raw, adj = box.estimate(vals, 39.19, -120.25, 9000, cross=False, lapse_clamp=True)
+        self.assertAlmostEqual(adj, 40 - 9.0, delta=0.05)
+        self.assertNotAlmostEqual(raw, adj, delta=0.5)                 # the nearest cell sits lower than 9,000 ft
