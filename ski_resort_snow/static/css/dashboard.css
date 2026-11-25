@@ -877,3 +877,39 @@ kbd { font-family: var(--font-mono); font-size: 11px; padding: 2px 6px; border-r
 .brand-mark .brand-logo { width: 34px; height: 34px; display: block; }
 .brand-text { font-weight: 600; color: #7dd3fc; letter-spacing: -0.015em; }
 .brand-text b { font-weight: 800; color: var(--ink); }
+
+/* v13: supercooled liquid water (HRRR). One line per value like the cards above on wide screens; on narrow ones
+   the four boxes go two across and their text wraps into reserved space, so playback does not move the layout. */
+.slw-card { margin-top: 14px; }
+.atmo-icon.slw { background: rgba(240, 143, 71, 0.14); color: #f08f47; }
+.chip-slw { background: rgba(240, 143, 71, 0.12); color: #fcb17e; border-color: rgba(240, 143, 71, 0.32); }
+.slw-card .block-sub { margin-top: -4px; }
+.slw-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.slw-wrap { position: relative; }
+.slw-chart svg { display: block; width: 100%; height: auto; }
+.slw-key { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px 24px; align-items: start; margin: 10px 0 2px;
+  padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); font-size: 11.5px; color: var(--ink-2); }
+.slw-key:empty { display: none; }
+.slw-key-head { display: block; margin-bottom: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
+.slw-key-scale svg { display: block; max-width: 100%; height: auto; overflow: visible; }
+.slw-key-scale text { fill: var(--ink-2); font: 10px var(--font-mono); }
+.slw-key-scale text.unit { fill: var(--ink-3); }
+.slw-key-scale small { display: block; max-width: 330px; margin-top: 4px; font-size: 10.5px; line-height: 1.35; color: var(--ink-3); }
+.slw-key-items { display: grid; gap: 6px; }
+.slw-key-item { display: flex; align-items: flex-start; gap: 8px; line-height: 1.35; }
+.slw-key-item svg { flex: none; }
+.slw-key-item b { color: var(--ink); font-weight: 600; }
+.slw-key-lines { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 16px; padding-top: 8px; border-top: 1px solid var(--line); }
+.slw-key-lines span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.slw-key-lines svg { flex: none; }
+@media (max-width: 760px) { .slw-key { grid-template-columns: minmax(0, 1fr); } }
+.slw-card .kv { margin-top: 2px; }
+.slw-table { margin-top: 2px; }
+.slw-table .data-table td { white-space: nowrap; }
+.slw-card header h3 { white-space: normal; }
+@media (max-width: 900px) {
+  .slw-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .slw-stats .mini-label, .slw-stats small { white-space: normal; overflow: visible; }
+  .slw-stats .mini-label { min-height: 2.6em; }
+  .slw-stats small { min-height: 2.7em; }
+}

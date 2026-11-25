@@ -265,6 +265,7 @@ function sourceStatuses(resort) {
     item("Models (HRRR→GFS, comparisons, ensembles)", s.open_meteo),
     item("NWS (REV discussion/alerts, grid snowfall)", s.noaa_nws),
     item(`CDEC sensor ${(s.cdec_snotel || {}).station_id || ""}`, s.cdec_snotel),
+    item("HRRR supercooled liquid (AWS)", s.hrrr_slw),
     item("Radiosondes REV / OAK", { status: Object.values(sond).every(x => x.status === "success") ? "success" : "stale" }, (sond.KREV || {}).fetched_at_utc),
     { name: "Caltrans chain controls", status: roads.is_live_feed && roads.status !== "stale" ? "success" : (roads.status || "error"), when: roads.fetched_at_utc, note: roads.stale_reason },
     item("Resort snow report", s.resort_official),

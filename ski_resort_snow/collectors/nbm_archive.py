@@ -87,14 +87,18 @@ def _request(url: str, rng: Optional[Tuple[int, Optional[int]]] = None, tries: i
     raise RuntimeError("unreachable")
 
 
-def parse_idx(text: str, fh: int) -> Dict[str, Tuple[int, Optional[int]]]:
-    """{field: (first byte, last byte or None)} for the wanted messages of one file."""
+def parse_idx(text: str, fh: int, fields=None) -> Dict[str, Tuple[int, Optional[int]]]:
+    """{field: (first byte, last byte or None)} for the wanted messages of one file.
+
+    `fields`: (regex on the text after the date, name) pairs, NBM's IDX_FIELDS by default.
+    A regex with one group matches the forecast hour (a group left empty, as by an "anl"
+    alternative, is hour 0); with two groups, an accumulation a-b ending at this hour."""
     lines = [ln.split(":", 3) for ln in text.strip().splitlines() if ln.count(":") >= 3]
     offs = [int(p[1]) for p in lines]
     out: Dict[str, Tuple[int, Optional[int]]] = {}
     for k, p in enumerate(lines):
         rest = p[3]
-        for rx, name in IDX_FIELDS:
+        for rx, name in (IDX_FIELDS if fields is None else fields):
             m = rx.match(rest)
             if not m:
                 continue
@@ -105,7 +109,7 @@ def parse_idx(text: str, fh: int) -> Dict[str, Tuple[int, Optional[int]]]:
                     continue
                 key = name.format(n=b - a)
             else:
-                if int(g[0]) != fh:
+                if int(g[0] or 0) != fh:
                     continue
                 key = name
             end = offs[k + 1] - 1 if k + 1 < len(offs) else None
@@ -192,6 +196,8 @@ def grid_key(grid: Dict[str, Any]) -> str:
 
 # ---------------------------------------------------------------- one cycle
 class ArchiveReader:
+    head_frac = 0.25    # share of a message asked for in the first request (subclasses whose points need more raise it)
+
     def __init__(self, live_latlons: Optional[List[Tuple[float, float]]] = None, pause_s: float = 0.0):
         self.live_latlons = live_latlons
         self.layouts: Dict[str, Dict[str, Any]] = {}
@@ -203,19 +209,24 @@ class ArchiveReader:
             self.layouts[k] = box_layout(grid, EXT_BOX, self.live_latlons)
         return self.layouts[k]
 
+    def request(self, url: str, rng: Optional[Tuple[int, Optional[int]]]) -> bytes:
+        """One HTTP (range) request; subclasses may reuse connections."""
+        return _request(url, rng)
+
     def fetch_message(self, url: str, rng: Tuple[int, Optional[int]]) -> Tuple[bytes, Dict[str, Any], int]:
         """Download one message only as far as the box needs (about two thirds of it).
 
-        First request: the leading quarter of the message, which holds sections 1-6 and the
-        group tables of section 7 (reference, width and length of every group). From those
-        the byte where the box's last point ends is known; the second request fetches up to it.
+        First request: the leading quarter of the message (head_frac), which holds sections 1-6
+        and the group tables of section 7 (reference, width and length of every group). From
+        those the byte where the box's last point ends is known; the second request fetches up
+        to it (none if the first already reached it).
         Returns (truncated message, layout, bytes downloaded).
         """
         a, b = rng
         if b is None:
-            return (msg := _request(url, rng)), self.layout(parse_grid(sections(msg)[3])), len(msg)
+            return (msg := self.request(url, rng)), self.layout(parse_grid(sections(msg)[3])), len(msg)
         size = b - a + 1
-        head = _request(url, (a, min(b, a + max(HEAD_MIN, size // 4) - 1)))
+        head = self.request(url, (a, min(b, a + max(HEAD_MIN, int(size * self.head_frac)) - 1)))
         while True:
             k, secs = 16, {}
             while k + 5 <= len(head) and head[k:k + 4] != b"7777":
@@ -226,7 +237,7 @@ class ArchiveReader:
                 k += ln
             if 7 in secs or len(head) >= size:
                 break
-            head += _request(url, (a + len(head), min(b, a + 2 * len(head) - 1)))
+            head += self.request(url, (a + len(head), min(b, a + 2 * len(head) - 1)))
         s7_at, _ = secs[7]
         grid = parse_grid(head[secs[3][0]:secs[3][0] + secs[3][1]])
         layout = self.layout(grid)
@@ -238,7 +249,7 @@ class ArchiveReader:
             meta_bits = ((meta_bits + w * n) + 7) & ~7
         meta_end = s7_at + 5 + meta_bits // 8
         if len(head) < meta_end:
-            head += _request(url, (a + len(head), a + meta_end - 1))
+            head += self.request(url, (a + len(head), a + meta_end - 1))
         data = head[s7_at + 5:]
         pos = nb
         tables = []
@@ -257,7 +268,7 @@ class ArchiveReader:
             done += ln
         need = min(size, s7_at + 5 + (bits + 7) // 8 + 8)
         if len(head) < need:
-            head += _request(url, (a + len(head), a + need - 1))
+            head += self.request(url, (a + len(head), a + need - 1))
         return head, layout, len(head)
 
     def _field_values(self, url: str, name: str, rng: Tuple[int, Optional[int]]):
