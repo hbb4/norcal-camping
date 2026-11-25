@@ -78,6 +78,7 @@
   const fmtIn = v => U.snow(v ?? 0);
   const fmtFt = v => (v == null ? "n/a" : `${Math.round(v).toLocaleString()} ft`);
   const dayName = d => d.toLocaleDateString([], { weekday: "short" });
+  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const hourName = d => d.toLocaleTimeString([], { hour: "numeric" });
   const compass = deg => ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"][Math.round(deg / 22.5) % 16];
 
@@ -396,7 +397,9 @@
     const rng = st => (st ? ` (ensemble p10–p90 ${U.snowBare(st.p10, 0)}–${U.snow(st.p90, 0)})` : "");
     $("verdict-headline").textContent = s48 >= 0.5 || s7 < 1
       ? `${U.snow(s48, 0)} next 48 h${rng(e && e.snow_48h)}`
-      : `${U.snow(s48, 0)} next 48 h · ${U.snow(s7, 0)} next 7 days${rng(e && e.snow_7d)}`;
+      : (summit.hours_available ?? 168) < 160
+        ? `${U.snow(s48, 0)} next 48 h · ${U.snow(s7, 0)} extended forecast (to +${summit.hours_available} h)`
+        : `${U.snow(s48, 0)} next 48 h · ${U.snow(s7, 0)} next 7 days${rng(e && e.snow_7d)}`;
     const se = $("summary-eyebrow");
     if (se) se.textContent = `Summit ${((resort.elevations || {}).summit_ft || 0).toLocaleString()} ft · ${(om.model || {}).label || "model"}`;
 
@@ -460,98 +463,140 @@
   }
 
   function renderOutlook(resort) {
-    const { tier, days, all, ens } = outlookDays(resort);
+    const { tier, days, ens } = outlookDays(resort);
+    const om = (resort.sources || {}).open_meteo || {};
+    const tl = (om.elevation_timelines || {})[tier] || [];
+    const model = (om.model || {}).label || "Selected model";
     const sub = $("outlook-sub");
     const elev = (resort.elevations || {})[`${tier}_ft`];
-    if (sub) sub.textContent = `${TIER_LABEL[tier]}${elev ? ` (${elev.toLocaleString()}')` : ""} · ` +
-      (ens ? `ranges from ${ens.members} runs of the GEFS, ECMWF and ICON ensembles` : "ensemble spread unavailable, showing the single high-res forecast");
-    renderFan(days, all, ens);
+    const short = tl.length && tl.length < 160;
+    if (sub) sub.textContent = `${TIER_LABEL[tier]}${elev ? ` (${elev.toLocaleString()}')` : ""}` +
+      (short ? ` · ${model} ends at +${tl.length - 1} h; the ensemble range continues to 7 days` : "");
+    const dl = $("fan-det-label");
+    if (dl) dl.textContent = short ? `${model} (to +${tl.length - 1} h)` : model;
+    const foot = $("outlook-foot");
+    if (foot) {
+      const ex = ens && ens.extended;
+      foot.textContent = (ens ? `Range: ${ens.members} ensemble runs (GEFS, ECMWF, ICON), converted to snow with ${model}'s snow fraction and SLR` +
+        (ex ? ` (${ex.snow_factor_from}'s after +${ex.from_hour - 1} h)` : "") + ". " : "Ensemble range unavailable. ") +
+        "Hourly lines; 3- and 6-hourly model output later in a run is spread evenly by Open-Meteo.";
+      foot.hidden = false;
+    }
+    renderFan(tl, ens, model);
     renderDayTiles(days, ens);
   }
 
-  function renderFan(days, all, ens) {
+  // Accumulated snow at every hour: ensemble 10th-90th / 25th-75th percentile bands and median, and the
+  // selected model's running total (it stops where the model's run ends; the ensemble range continues).
+  function renderFan(tl, ens, model) {
     const box = $("fan-chart");
     if (!box) return;
-    if (!days.length) { box.innerHTML = `<div class="mini-label">No outlook available.</div>`; return; }
-    const W = 1000, H = 190, padL = 46, padR = 150, padT = 10, padB = 26;
+    const eh = (ens && ens.cumulative_hourly) || [];
+    const t0 = new Date((tl[0] || eh[0] || {}).time || Date.now()).getTime();
+    if (!tl.length && !eh.length) { box.innerHTML = `<div class="mini-label">No outlook available.</div>`; return; }
+    const H_SPAN = 168;
+    const W = 1000, H = 200, padL = 46, padR = 150, padT = 10, padB = 26;
     const pw = W - padL - padR, ph = H - padT - padB;
-    const cumByDate = {};
-    (ens ? ens.cumulative_daily : []).forEach(c => { cumByDate[c.date] = c; });
-    let det = 0; const detByDate = {};
-    all.forEach(d => { det += d.snowfall_inches || 0; detByDate[d.date] = det; });
-    const pts = [{ x: 0, p10: 0, p25: 0, p50: 0, p75: 0, p90: 0, det: 0, label: "Now" }];
-    days.forEach((d, i) => {
-      const c = cumByDate[d.date] || {};
-      pts.push({ x: i + 1, date: d.date, det: detByDate[d.date] ?? 0, ...c });
-    });
+    const hr = time => (new Date(time).getTime() - t0) / 3600e3;
+    const det = tl.map(s => ({ h: hr(s.time), v: s.cumulative_snow_inches ?? 0, time: s.time }));
+    const band = eh.map(e => ({ h: hr(e.time), ...e })).filter(e => e.h <= H_SPAN);
     const cv = v => U.snowNum(v ?? 0);
     const fixed = (((state.resort || {}).sources || {}).open_meteo || {}).scales;
-    const maxV = Math.max(U.snowNum(6), fixed && fixed.cumulative_in ? U.snowNum(fixed.cumulative_in) / 1.1 : 0, ...pts.map(p => Math.max(cv(p.p90), cv(p.det))));
+    const maxV = Math.max(U.snowNum(6), fixed && fixed.cumulative_in ? U.snowNum(fixed.cumulative_in) / 1.1 : 0,
+      ...band.map(b => cv(b.p90)), ...det.map(d => cv(d.v)));
     const step = niceStep(maxV * 1.1, 4), top = Math.ceil((maxV * 1.1) / step) * step;
-    const X = i => padL + (i / days.length) * pw;
+    const X = h => padL + Math.max(0, Math.min(1, h / H_SPAN)) * pw;
     const Y = v => padT + ph * (1 - Math.min(v, top) / top);
     let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="var(--font-sans)">`;
     for (let v = 0; v <= top + 1e-6; v += step) {
       svg += `<line x1="${padL}" x2="${padL + pw}" y1="${Y(v)}" y2="${Y(v)}" stroke="rgba(255,255,255,${v === 0 ? 0.16 : 0.05})"/>
         <text x="${padL - 8}" y="${Y(v) + 3.5}" fill="#6b7a90" font-size="10.5" text-anchor="end" font-family="var(--font-mono)">${+v.toFixed(1)}${v + step > top + 1e-6 ? " " + U.snowAxisUnit() : ""}</text>`;
     }
-    pts.forEach((p, i) => {
-      if (i === 0) return;
-      const d = new Date(p.date + "T12:00");
-      svg += `<line x1="${X(i)}" x2="${X(i)}" y1="${padT}" y2="${padT + ph}" stroke="rgba(255,255,255,0.04)"/>
-        <text x="${X(i - 0.5)}" y="${H - 8}" fill="#a3afc2" font-size="11" text-anchor="middle" font-weight="600">${dayName(d)}</text>`;
+    // days: midnight lines, names centered on each day's span
+    const mid0 = new Date(t0); mid0.setHours(24, 0, 0, 0);
+    const mids = [];
+    for (let m = mid0.getTime(); (m - t0) / 3600e3 < H_SPAN; m += 86400e3) mids.push((m - t0) / 3600e3);
+    [0, ...mids].forEach((a, i) => {
+      const b = i < mids.length ? mids[i] : H_SPAN;
+      if (i > 0) svg += `<line x1="${X(a)}" x2="${X(a)}" y1="${padT}" y2="${padT + ph}" stroke="rgba(255,255,255,0.06)"/>`;
+      if (b - a >= 8) svg += `<text x="${X((a + b) / 2)}" y="${H - 8}" fill="#a3afc2" font-size="11" text-anchor="middle" font-weight="600">${dayName(new Date(t0 + ((a + b) / 2) * 3600e3))}</text>`;
     });
-    const line = (key, f = cv) => pts.map((p, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(f(p[key])).toFixed(1)}`).join(" ");
-    const band = (lo, hi) => line(hi) + " " + pts.slice().reverse().map((p, k) => `L${X(pts.length - 1 - k).toFixed(1)},${Y(cv(p[lo])).toFixed(1)}`).join(" ") + " Z";
-    if (ens) {
-      svg += `<path d="${band("p10", "p90")}" fill="rgba(125,211,252,0.16)"/>`;
-      svg += `<path d="${band("p25", "p75")}" fill="rgba(125,211,252,0.32)"/>`;
-      svg += `<path d="${line("p50")}" fill="none" stroke="#f8fafc" stroke-width="2.5" stroke-linejoin="round"/>`;
+    const path = (pts, key) => pts.map((p, i) => `${i ? "L" : "M"}${X(p.h).toFixed(1)},${Y(cv(p[key])).toFixed(1)}`).join(" ");
+    const area = (lo, hi) => path(band, hi) + " " + band.slice().reverse().map(p => `L${X(p.h).toFixed(1)},${Y(cv(p[lo])).toFixed(1)}`).join(" ") + " Z";
+    if (band.length) {
+      svg += `<path d="${area("p10", "p90")}" fill="rgba(125,211,252,0.16)"/>`;
+      svg += `<path d="${area("p25", "p75")}" fill="rgba(125,211,252,0.32)"/>`;
+      svg += `<path d="${path(band, "p50")}" fill="none" stroke="#f8fafc" stroke-width="2.2" stroke-linejoin="round"/>`;
     }
-    svg += `<path d="${line("det")}" fill="none" stroke="#f9a8d4" stroke-width="1.5" stroke-dasharray="4 4"/>`;
-    pts.forEach((p, i) => { if (i) svg += `<circle cx="${X(i)}" cy="${Y(cv(p.det))}" r="3.5" fill="#0b1220" stroke="#f9a8d4" stroke-width="2"/>`; });
-    const last = pts[pts.length - 1];
+    if (det.length) {
+      svg += `<path d="${path(det, "v")}" fill="none" stroke="#f9a8d4" stroke-width="1.6" stroke-dasharray="4 4" stroke-linejoin="round"/>`;
+      const e = det[det.length - 1];
+      if (e.h < 159) svg += `<line x1="${X(e.h)}" x2="${X(e.h)}" y1="${padT}" y2="${padT + ph}" stroke="#f9a8d4" stroke-opacity="0.45" stroke-dasharray="2 3"/>
+        <circle cx="${X(e.h)}" cy="${Y(cv(e.v))}" r="3.2" fill="#0b1220" stroke="#f9a8d4" stroke-width="2"/>
+        <text x="${X(e.h) + 4}" y="${padT + 11}" fill="#f9a8d4" font-size="10.5">${esc(model)} ends +${Math.round(e.h)} h</text>`;
+    }
     const lx = padL + pw + 12;
-    if (ens) {
-      svg += `<text x="${lx}" y="${Y(cv(last.p50)) - 4}" fill="#f8fafc" font-size="18" font-weight="700">${U.snow(last.p50)}</text>
-        <text x="${lx}" y="${Y(cv(last.p50)) + 12}" fill="#a3afc2" font-size="11">likely by ${dayName(new Date(last.date + "T12:00"))}</text>
-        <text x="${lx}" y="${Y(cv(last.p50)) + 27}" fill="#7dd3fc" font-size="11" font-family="var(--font-mono)">${U.snowBare(last.p10, 0)}–${U.snow(last.p90, 0)}</text>`;
-    } else {
-      svg += `<text x="${lx}" y="${Y(cv(last.det)) + 4}" fill="#f9a8d4" font-size="16" font-weight="700">${U.snow(last.det)}</text>`;
+    const lastB = band[band.length - 1], lastD = det[det.length - 1];
+    if (lastB) {
+      svg += `<text x="${lx}" y="${Y(cv(lastB.p50)) - 4}" fill="#f8fafc" font-size="18" font-weight="700">${U.snow(lastB.p50)}</text>
+        <text x="${lx}" y="${Y(cv(lastB.p50)) + 12}" fill="#a3afc2" font-size="11">median by ${dayName(new Date(lastB.time))}</text>
+        <text x="${lx}" y="${Y(cv(lastB.p50)) + 27}" fill="#7dd3fc" font-size="11" font-family="var(--font-mono)">${U.snowBare(lastB.p10, 0)}–${U.snow(lastB.p90, 0)}</text>`;
+    } else if (lastD) {
+      svg += `<text x="${lx}" y="${Y(cv(lastD.v)) + 4}" fill="#f9a8d4" font-size="16" font-weight="700">${U.snow(lastD.v)}</text>`;
     }
-    pts.forEach((p, i) => { if (i) svg += `<rect class="fan-hit" data-i="${i}" x="${X(i - 1)}" y="${padT}" width="${X(i) - X(i - 1)}" height="${ph}" fill="transparent"/>`; });
-    svg += `</svg>`;
+    svg += `<line id="fan-cross" x1="0" x2="0" y1="${padT}" y2="${padT + ph}" stroke="#f8fafc" stroke-opacity="0.55" visibility="hidden"/>
+      <rect id="fan-hit" class="fan-hit" x="${padL}" y="${padT}" width="${pw}" height="${ph}" fill="transparent"/></svg>`;
     box.innerHTML = svg;
 
-    const tip = $("floating-tip");
-    box.querySelectorAll(".fan-hit").forEach(r => {
-      r.addEventListener("mouseenter", () => {
-        const p = pts[+r.dataset.i], d = days[+r.dataset.i - 1];
-        tip.innerHTML = `<div class="tt-time">By end of ${new Date(p.date + "T12:00").toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })}</div>` +
-          (ens ? `<div class="tt-row"><span class="tt-label">Most likely total</span><span class="tt-val">${U.snow(p.p50)}</span></div>
-           <div class="tt-row"><span class="tt-label">80% of runs</span><span class="tt-val">${U.snowBare(p.p10)}–${U.snow(p.p90)}</span></div>
-           <div class="tt-row"><span class="tt-label">That day alone</span><span class="tt-val">${U.snow(d.snow_p50 ?? 0)} (${U.snowBare(d.snow_p10 ?? 0)}–${U.snow(d.snow_p90 ?? 0)})</span></div>` : "") +
-          `<div class="tt-row"><span class="tt-label">High-res forecast</span><span class="tt-val" style="color:#f9a8d4">${U.snow(p.det)}</span></div>`;
-        tip.style.display = "block";
-      });
-      r.addEventListener("mousemove", ev => {
-        const w = tip.offsetWidth || 220;
-        tip.style.left = `${Math.min(window.innerWidth - w - 12, ev.clientX + 14)}px`;
-        tip.style.top = `${ev.clientY - 20}px`;
-      });
-      r.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+    const tip = $("floating-tip"), svgEl = box.querySelector("svg"), cross = $("fan-cross"), hit = $("fan-hit");
+    const at = (pts, h) => { let best = null; for (const p of pts) { if (p.h <= h + 0.5) best = p; else break; } return best; };
+    const hourAt = ev => { const pt = svgEl.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY; const loc = pt.matrixTransform(svgEl.getScreenCTM().inverse()); return Math.max(0, Math.min(H_SPAN, (loc.x - padL) / pw * H_SPAN)); };
+    hit.addEventListener("mousemove", ev => {
+      const h = hourAt(ev), b = at(band, h), d = at(det, h), inRun = det.length && h <= det[det.length - 1].h + 0.5;
+      cross.setAttribute("x1", X(h)); cross.setAttribute("x2", X(h)); cross.setAttribute("visibility", "visible");
+      const when = new Date(t0 + Math.round(h) * 3600e3);
+      tip.innerHTML = `<div class="tt-time">By ${when.toLocaleString([], { weekday: "short", hour: "numeric" })} · +${Math.round(h)} h</div>` +
+        (b ? `<div class="tt-row"><span class="tt-label">Ensemble median</span><span class="tt-val">${U.snow(b.p50)}</span></div>
+             <div class="tt-row"><span class="tt-label">80% of runs</span><span class="tt-val">${U.snowBare(b.p10)}–${U.snow(b.p90)}</span></div>` : "") +
+        `<div class="tt-row"><span class="tt-label">${esc(model)}</span><span class="tt-val" style="color:#f9a8d4">${inRun && d ? U.snow(d.v) : "run ended"}</span></div>`;
+      tip.style.display = "block";
+      const w = tip.offsetWidth || 220;
+      tip.style.left = `${Math.min(window.innerWidth - w - 12, ev.clientX + 14)}px`;
+      tip.style.top = `${ev.clientY - 20}px`;
     });
+    hit.addEventListener("mouseleave", () => { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); });
+    hit.addEventListener("click", ev => {      // show that hour on the mountain, without moving the page
+      const h = hourAt(ev), idx = (state.tl.summit || []).findIndex(x => hr(x.time) >= h - 0.5);
+      if (idx >= 0) setHour(idx);
+    });
+  }
+
+  // One scale for every day tile: shared by all days, tiers and models in this refresh (scales.daily_in),
+  // falling back to the selected model's three tiers; rounded up to a nice number, never under 6 in.
+  function dayScale() {
+    const om = (state.resort || {}).sources ? state.resort.sources.open_meteo || {} : {};
+    let m = ((om.scales || {}).daily_in) || 0;
+    ["base", "mid", "summit"].forEach(k => ((om[k] || {}).daily_forecast || []).forEach(d => { m = Math.max(m, d.snow_p90 ?? 0, d.snowfall_inches ?? 0); }));
+    const top = Math.max(6, m);
+    const step = [3, 6, 12, 24, 48].find(s => top / s <= 4) || 48;
+    return { top: Math.ceil(top / step) * step, step };
   }
 
   function renderDayTiles(days, ens) {
     const box = $("day-strip");
     if (!box) return;
-    const scale = Math.max(6, ...days.map(d => d.snow_p90 ?? d.snowfall_inches ?? 0));
+    const { top: scale, step } = dayScale();
     const pct = v => `${Math.min(100, ((v ?? 0) / scale) * 100)}%`;
+    const ticks = [];
+    for (let v = 0; v <= scale + 1e-6; v += step) ticks.push(v);
+    // 0 and the top labeled; ticks between every `step`
+    const axis = `<div class="whisker-axis" aria-hidden="true"><span style="left:0">0</span><span style="left:100%">${U.snowBare(scale, 0)} ${U.snowSuffix().trim()}</span></div>`;
+    const grid = ticks.slice(1, -1).map(v => `<i class="wtick" style="left:${pct(v)}"></i>`).join("");
     const todayKey = new Date().toLocaleDateString("en-CA");
     const thr = U.metricSnow() ? "15 cm" : '6"';
     box.innerHTML = days.map(d => {
       const dt = new Date(d.date + "T12:00");
+      const ensOnly = !!d.ensemble_only, partial = !ensOnly && d.model_hours != null && d.model_hours < (d.hours ?? 24);
       const likely = d.snow_p50 ?? d.snowfall_inches ?? 0;
       const hasRange = d.snow_p10 != null;
       const g = d.max_gust_mph || 0;
@@ -559,25 +604,29 @@
       const share = d.snow_share;
       const phase = share == null ? "" : (d.ice_hours || 0) >= 2 ? `<span class="phase-tag ice">ice risk</span>` : share >= 0.9 ? `<span class="phase-tag snow">snow</span>` : share >= 0.4 ? `<span class="phase-tag mix">mix</span>` : `<span class="phase-tag rain">rain</span>`;
       const name = d.date === todayKey ? ((d.hours ?? 24) < 24 ? "Rest of today" : "Today") : dayName(dt);
-      return `<div class="day${d.date === todayKey ? " today" : ""}${likely >= 12 ? " big" : ""}" data-date="${d.date}" title="Click to show this day on the mountain">
+      return `<div class="day${d.date === todayKey ? " today" : ""}${likely >= 12 ? " big" : ""}${ensOnly ? " ens-only" : ""}" data-date="${d.date}"
+          title="${ensOnly ? "Ensemble range only: the selected model's run has ended" : "Click to show this day on the mountain"}">
         <div class="day-name">${name} <span>${dt.getDate()}</span></div>
         <div class="day-likely">${U.snowBare(likely)}<small>${U.snowSuffix().trim()}</small></div>
         <div class="day-range">${hasRange ? `${U.snowBare(d.snow_p10)}–${U.snow(d.snow_p90)}` : "single forecast"}</div>
-        <div class="whisker" aria-hidden="true">
+        <div class="whisker" aria-hidden="true">${grid}
           ${hasRange ? `<span class="w90" style="left:${pct(d.snow_p10)};width:calc(${pct(d.snow_p90)} - ${pct(d.snow_p10)})"></span>
           <span class="w50" style="left:${pct(d.snow_p25)};width:calc(${pct(d.snow_p75)} - ${pct(d.snow_p25)})"></span>
           <span class="wmed" style="left:${pct(d.snow_p50)}"></span>` : ""}
-          <span class="wdet" style="left:${pct(d.snowfall_inches)}" title="High-res forecast: ${U.snow(d.snowfall_inches)}"></span>
-        </div>
+          ${ensOnly ? "" : `<span class="wdet" style="left:${pct(d.snowfall_inches)}" title="Selected model: ${U.snow(d.snowfall_inches)}${partial ? ` (first ${d.model_hours} h only)` : ""}"></span>`}
+        </div>${axis}
         <div class="day-prob">${d.prob_6in != null ? `P(≥ ${thr}) <b>${d.prob_6in}%</b>` : "&nbsp;"}</div>
-        <div class="day-meta"><span>${U.tempShort(d.temp_high_f)}/${U.tempShort(d.temp_low_f)}</span>${phase}<span class="day-gust"><i style="background:${gc}"></i>${Math.round(g)}</span></div>
+        <div class="day-meta">${ensOnly ? `<span class="muted">ensemble only</span>` : `<span>${U.tempShort(d.temp_high_f)}/${U.tempShort(d.temp_low_f)}</span>${phase}<span class="day-gust"><i style="background:${gc}"></i>${Math.round(g)}</span>`}</div>
       </div>`;
     }).join("");
-    box.querySelectorAll(".day").forEach(el => el.addEventListener("click", () => {
+    box.querySelectorAll(".day:not(.ens-only)").forEach(el => el.addEventListener("click", () => {
+      // show this day at 9 AM on the mountain scene; the page stays where it is
       const tl = state.tl.summit || [];
       const idx = tl.findIndex(x => { const t = new Date(x.time); return t.toLocaleDateString("en-CA") === el.dataset.date && t.getHours() >= 9; });
-      if (idx >= 0) { setHour(idx); $("overview").scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth" }); }
-      else { const tip = $("floating-tip"); if (tip) tip.style.display = "none"; }
+      if (idx >= 0) {
+        setHour(idx);
+        box.querySelectorAll(".day").forEach(x => x.classList.toggle("picked", x === el));
+      }
     }));
   }
 

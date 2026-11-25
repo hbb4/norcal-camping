@@ -407,7 +407,7 @@ class SnowAggregator:
         """Axis limits shared by every model and elevation, so switching never rescales a chart."""
         cum = rate = gust = 0.0
         tmin, tmax = 200.0, -200.0
-        dist = 0.0
+        dist = daily = 0.0
         lv_lo, lv_hi = 1e9, -1e9
         for mo in models.values():
             if mo.get("status") != "success":
@@ -438,6 +438,9 @@ class SnowAggregator:
                 if ms:
                     dist = max(dist, ms[int(0.95 * (len(ms) - 1))])
                 dist = max(dist, (mo.get(t) or {}).get("snow_7d_total_inches") or 0)
+                for d in (mo.get(t) or {}).get("daily_forecast") or []:     # day tiles: one scale for all
+                    daily = max(daily, d.get("snow_p90") or 0, d.get("snowfall_inches") or 0)
         return {"cumulative_in": round(cum, 1), "rate_in_hr": round(rate, 2), "gust_mph": round(gust),
                 "temp_f": [round(tmin), round(tmax)] if tmax > tmin else None, "distribution_in": round(dist, 1),
+                "daily_in": round(daily, 1),
                 "levels_ft": [round(lv_lo), round(lv_hi)] if lv_hi > lv_lo else None}

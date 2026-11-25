@@ -35,7 +35,7 @@ ski_resort_snow/
 ├── blend_weights.py               # Skill weights for the blends (live archive, or --hindcast from Open-Meteo's archive)
 ├── calibration_baseline.py        # NBM raw vs elevation-adjusted scores at the SNOTEL sites on storm-days
 ├── skill_report.py                # Member and blend skill at the pillows: days, whole storms, bias-corrected, categorical
-├── neighborhood_hindcast.py       # Cells around each pillow: elevation-shift test, and `fit --apply` for the Corrected blend
+├── neighborhood_hindcast.py       # Cells around each pillow: elevation-shift test, and `fit --apply` for the Elevation-adjusted blend
 ├── server.py                      # Server: refreshes data on launch, every 30 min (roads 5 min), /api/status
 ├── config/
 │   ├── resorts.json               # GPS coordinates, elevation bands, CDEC station IDs, NWS grid coords
@@ -51,7 +51,7 @@ ski_resort_snow/
 │   ├── hrrr_slw.py                # HRRR and RRFS on AWS: supercooled liquid, riming layers and column total at the summits
 │   ├── storm_days.py              # Storm-days from SNOTEL hourly data (QC rules applied)
 │   ├── nbm_downscale.py           # Moves NBM/NWS cell values to tier elevations (local regression)
-│   ├── precip_shift.py            # Precipitation elevation shift from a model's own neighborhood (Corrected blend)
+│   ├── precip_shift.py            # Precipitation elevation shift from a model's own neighborhood (Elevation-adjusted blend)
 │   ├── grid_terrain.py            # 2.5 km cell terrain heights from the NWS grid (cached)
 │   ├── raob_client.py             # Observed radiosonde (REV) from IEM
 │   ├── verification.py            # Forecast archive and verification against CDEC sensors
@@ -166,7 +166,7 @@ Baseline scores for NBM at the SNOTEL sites (after `nbm_archive_sync.py fetch`):
 ```bash
 python3 calibration_baseline.py --md
 ```
-Precipitation correction for the Corrected blend (elevation shift from each model's neighborhood, then a residual multiplier; the fetch is ~4,000 Open-Meteo calls for five seasons, the rest runs from the cache in seconds):
+Precipitation correction for the Elevation-adjusted blend (elevation shift from each model's neighborhood, then a residual multiplier; the fetch is ~4,000 Open-Meteo calls for five seasons, the rest runs from the cache in seconds):
 ```bash
 python3 neighborhood_hindcast.py fetch --plan
 python3 neighborhood_hindcast.py score --md

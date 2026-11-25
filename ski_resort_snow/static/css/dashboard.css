@@ -929,3 +929,28 @@ kbd { font-family: var(--font-mono); font-size: 11px; padding: 2px 6px; border-r
 .corr-toggle.on i::after { transform: translateX(11px); background: #0b1220; }
 .corr-toggle.na i { opacity: .55; }
 @media (min-width: 1100px) { .corr-toggle { width: 100%; padding: 7px 9px; order: 1; } .model-chips { order: 2; } }   /* rail: switch above the chips, always in view */
+
+/* v15: 7-day outlook: tiles past the end of a short run, picked tile */
+.day.ens-only { opacity: .78; border-style: dashed; cursor: default; }
+.day.picked { border-color: var(--ice); box-shadow: 0 0 0 1px var(--ice) inset; }
+.leaflet-container .leaflet-control-attribution { font-size: 9px; line-height: 1.35; padding: 0 5px; }   /* map credits: small */
+
+/* v16: method text moved out of the panes into footnotes */
+.card-notes { margin-top: 12px; font-size: 11.5px; color: var(--ink-3); line-height: 1.5; }
+.card-notes summary { cursor: pointer; color: var(--ink-2); font-size: 11px; font-weight: 600; letter-spacing: .04em; list-style: none; }
+.card-notes summary::-webkit-details-marker { display: none; }
+.card-notes summary::before { content: "▸ "; }
+.card-notes[open] summary::before { content: "▾ "; }
+.card-notes p { margin: 6px 0 0; }
+.card-foot:empty { display: none; }
+#lift-foot { margin-top: 10px; }
+.footer { font-size: 10.5px; }
+
+/* v17: day-tile spread bars on one scale, with ticks; supercooled liquid past the end of a run */
+.whisker .wtick { position: absolute; top: 4px; width: 1px; height: 6px; background: var(--line-strong); }
+.whisker-axis { position: relative; height: 12px; margin: 0 0 4px; font-size: 9.5px; color: var(--ink-3); font-family: var(--font-mono); }
+.whisker-axis span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.whisker-axis span:first-child { transform: none; }
+.whisker-axis span:last-child { transform: translateX(-100%); }
+.slw-after { margin: 10px 0; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 13px; color: var(--ink-2); }
+.slw-after .text-btn { margin-left: 6px; }

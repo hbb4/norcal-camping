@@ -127,7 +127,7 @@
     },
     {
       "id": "blend_corrected",
-      "label": "Corrected blend",
+      "label": "Elevation-adjusted blend",
       "members": {
         "ecmwf_hres": 1,
         "aifs": 1,
@@ -140,8 +140,8 @@
       "precip_correction": true,
       "profile_from": "ecmwf_hres",
       "min_weight_share": 0.5,
-      "description": "Equal-weight mean of 7 single models with their precipitation corrected. Each model's precipitation at each tier comes from a distance-weighted line through its own 3x3 neighborhood of grid cells against cell height (and distance across the crest), evaluated at the tier's height but at most 1,000 ft above the highest cell, then times one residual multiplier per model (ECMWF HRES 1.04, ECMWF AIFS 1.25, HRRR/GFS 1.12, ICON 1.17, UKMO 1.24, GEM 1.71) fitted against the SQV and WC3 pillows over WY2023-WY2027 (neighborhood_hindcast.py fit). Snow follows from the corrected liquid through each model's own snow fraction and SLR; temperature, wind and the profile panels are the same as the Equal blend. RRFS: no hindcast yet, so the elevation shift only (multiplier 1.0).",
-      "weights_note": "precipitation elevation-shifted and bias-corrected"
+      "description": "Equal-weight mean of 7 single models with their precipitation adjusted to each tier's elevation and calibrated to the SNOTEL pillows. Each model's precipitation at each tier comes from a distance-weighted line through its own 3x3 neighborhood of grid cells against cell height (and distance across the crest), evaluated at the tier's height but at most 1,000 ft above the highest cell, then times one residual multiplier per model (ECMWF HRES 1.04, ECMWF AIFS 1.25, HRRR/GFS 1.12, ICON 1.17, UKMO 1.24, GEM 1.71) fitted against the SQV and WC3 pillows over WY2023-WY2027 (neighborhood_hindcast.py fit). Snow follows from the corrected liquid through each model's own snow fraction and SLR; temperature, wind and the profile panels are the same as the Equal blend. RRFS: no hindcast yet, so the elevation shift only (multiplier 1.0).",
+      "weights_note": "precipitation moved to each tier's elevation, calibrated to SNOTEL"
     },
     {
       "id": "blend_skill",

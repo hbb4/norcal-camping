@@ -233,10 +233,10 @@ function renderModelBar(resort) {
   };
   box.innerHTML = list.map(m => `<button class="model-chip${m.id === cur ? " active" : ""}" role="tab" data-model="${m.id}" ${m.status !== "success" ? "disabled" : ""}
       title="${m.provider} · ${m.grid} · sounding: ${m.sounding_label}${m.sounding_has_vertical_velocity ? "" : " (no vertical velocity)"} · ${m.hours_available ?? "?"} h">
-      <b>${m.label}</b><small>${m.members ? `${m.members.length} models` : runOf(m)}${m.hours_available && m.hours_available < 160 ? ` · ${Math.round(m.hours_available / 24 * 10) / 10} d` : ""}${corrOn && m.corrected_available ? " · corr." : ""}</small></button>`).join("");
+      <b>${m.label}</b><small>${m.members ? `${m.members.length} models` : runOf(m)}${m.hours_available && m.hours_available < 160 ? ` · ${Math.round(m.hours_available / 24 * 10) / 10} d` : ""}${corrOn && m.corrected_available ? " · elev. adj." : ""}</small></button>`).join("");
   box.querySelectorAll(".model-chip").forEach(b => b.addEventListener("click", () => { Prefs.set("model", b.dataset.model); renderDashboard(); }));
   // corrected-precipitation toggle: applies to the six single models (NBM is already elevation-adjusted;
-  // the blends have their own Corrected blend entry)
+  // the blends have their own Elevation-adjusted blend entry)
   const tg = document.getElementById("corr-toggle");
   if (tg) {
     const curCard = list.find(m => m.id === cur) || {};
@@ -246,7 +246,7 @@ function renderModelBar(resort) {
     tg.classList.toggle("on", corrOn);
     tg.classList.toggle("na", corrOn && !applies);
     document.getElementById("corr-toggle-state").textContent = !corrOn ? "off" : (applies ? "on" : "single models only");
-    tg.title = "Precipitation shifted to each tier's height through the model's neighboring grid cells, then times one multiplier per model fitted against the SQV and WC3 pillows. Applies to the six single models; NBM is already elevation-adjusted, and the Corrected blend is the corrected Equal blend.";
+    tg.title = "Each model's precipitation moved to each tier's elevation through its neighboring grid cells, then calibrated against the SQV and WC3 SNOTEL pillows. Applies to the single models; NBM is already elevation-adjusted; for a blend, choose the Elevation-adjusted blend.";
     tg.onclick = () => { Prefs.set("precipCorr", !corrOn); renderDashboard(); };
   }
   const om = resort.sources.open_meteo || {};
@@ -941,8 +941,8 @@ function renderSounding(resort) {
   if (eb) {
     const q = (om.query_points || {}).summit || {}, pm = om.profile_model;
     eb.textContent = pm
-      ? `Column: ${pm.label} at ${q.lat ?? "?"}, ${q.lon ?? "?"} (${(om.model || {}).label} has no vertical profile) · snow level and surface values: ${(om.model || {}).label}`
-      : `Model sounding (${(om.primary_model || {}).label || "model"}) at ${q.lat ?? "?"}, ${q.lon ?? "?"}`;
+      ? `${pm.label} column at the summit · ${(om.model || {}).label} has none`
+      : `${(om.model || {}).label || "Model"} column at the summit`;
   }
 
   // DGZ
@@ -1010,11 +1010,11 @@ function initRoadMap() {
   // Resorts
   const resortIcon = L.divIcon({ className: "map-resort-dot", iconSize: [14, 14] });
   [
-    [[39.1970, -120.2356], "Palisades Tahoe", "Base 6,200' · Summit 9,050'"],
-    [[39.1644, -120.2386], "Alpine Meadows", "Base 6,835' · Ward Peak 8,637'"]
-  ].forEach(([ll, name, sub]) => {
+    [[39.1970, -120.2356], "Palisades Tahoe", "Base 6,200' · Summit 9,050'", [-8, -18]],
+    [[39.1644, -120.2386], "Alpine Meadows", "Base 6,835' · Ward Peak 8,637'", [-8, 18]]
+  ].forEach(([ll, name, sub, offset]) => {
     L.marker(ll, { icon: resortIcon }).addTo(roadMap)
-      .bindTooltip(`<b>${name}</b><span>${sub}</span>`, { permanent: true, direction: "left", offset: [-8, 0], className: "map-label map-label-resort", pane: "labels" })
+      .bindTooltip(`<b>${name}</b><span>${sub}</span>`, { permanent: true, direction: "left", offset, className: "map-label map-label-resort", pane: "labels" })
       .bindPopup(`<div class="map-popup-header">${name}</div><div class="map-popup-desc">${sub}</div>`);
   });
 
@@ -1108,7 +1108,7 @@ function updateRoadMapData() {
     const mid = pl[anchorIdx];
     if (!minor) {
       L.marker(mid, {
-        icon: L.divIcon({ className: "", html: `<div class="map-shield" style="--c:${color}">${shieldSvg}<span class="lvl">${seg.status}</span></div>`, iconSize: null }),
+        icon: L.divIcon({ className: "", html: `<div class="map-shield" style="--c:${color}">${shieldSvg}${elevated(seg.status) ? `<span class="lvl">${seg.status}</span>` : ""}</div>`, iconSize: null }),
         pane: "labels"
       }).on("click", () => line.openPopup(mid)).addTo(roadLabelLayer);
     }
@@ -1139,10 +1139,13 @@ function renderRoadList() {
   container.innerHTML = segments.map(seg => `
     <div class="road-card" onclick="focusRoadSegment('${seg.id}')">
       <span class="road-card-name">${window.routeShield ? routeShield(seg.route, 20) : ""}${seg.common_name || seg.name}</span>
-      <span class="road-card-badge" style="background:${seg.status_color}22;color:${seg.status_color};border:1px solid ${seg.status_color}55;">${seg.status}</span>
+      ${elevated(seg.status) || seg.status === "NO FEED" ? `<span class="road-card-badge" style="background:${seg.status_color}22;color:${seg.status_color};border:1px solid ${seg.status_color}55;">${seg.status}</span>` : ""}
       <span class="road-card-chk">${seg.status === "NO FEED" ? `No live feed · ${seg.feed_note || ""}` : seg.status === "R-0" ? seg.checkpoint : `${seg.status_label} · ${seg.checkpoint}`}</span>
     </div>`).join("");
 }
+
+// chain-control categories worth a label: anything above R-0 (R-1, R-2, R-3, closures)
+function elevated(status) { return !!status && !["R-0", "UNKNOWN", "NO FEED"].includes(status); }
 
 window.focusRoadSegment = function(segId) {
   const layer = roadLayers[segId];
@@ -1268,8 +1271,9 @@ function renderLiftsAndOperations(resort) {
   if (lifts.length) {
     const order = { open: 0, sched: 1, mod: 2, closed: 3 };
     lifts.sort((a, b) => (isExposed(b.name) - isExposed(a.name)) || (order[statusCls(a.status)] - order[statusCls(b.status)]) || a.name.localeCompare(b.name));
-    if (sub) sub.textContent = `Resort lift status${rep.status === "stale" ? " (stale)" : ""}: ${rep.lifts_open} of ${rep.lifts_total} open or scheduled; operations ${(rep.operating_status || "n/a").toLowerCase()}. ` +
-      `Wind-exposed lifts also show the peak daytime (8 AM–4 PM) summit gust forecast for the next 24 h${peakRow.time ? ` (${new Date(peakRow.time).toLocaleString([], { weekday: "short", hour: "numeric" })})` : ""}: 45–64 mph intermittent holds possible, ≥ 65 mph holds likely.`;
+    if (sub) sub.textContent = `${rep.lifts_open} of ${rep.lifts_total} open or scheduled${rep.status === "stale" ? " (stale)" : ""}; operations ${(rep.operating_status || "n/a").toLowerCase()}.`;
+    const lf = document.getElementById("lift-foot");
+    if (lf) lf.textContent = `Wind-exposed lifts show the peak daytime (8 AM–4 PM) summit gust forecast for the next 24 h${peakRow.time ? ` (${new Date(peakRow.time).toLocaleString([], { weekday: "short", hour: "numeric" })})` : ""}: 45–64 mph, intermittent holds possible; 65 mph and up, holds likely.`;
     const card = l => {
       const exp = isExposed(l.name);
       return `<div class="lift-item"><div><b>${l.name}</b><small>${l.type || ""} · ${l.area || ""}</small></div>

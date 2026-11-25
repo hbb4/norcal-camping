@@ -1015,8 +1015,8 @@ class TestPrecipCorrection(unittest.TestCase):
 
         c = Stub(blends=[], precip_correction={"method": "line + residual", "fitted": {"seasons": "WY2023-WY2027"}, "residual": {"icon": 1.17}})
         out = c._corrected_output({"id": "icon", "label": "ICON", "grid": "13 km"}, {}, {"residual": 1.17, "tiers": {}}, [], {}, True, "now")
-        self.assertEqual((out["model"]["id"], out["model"]["label"], out["model"]["corrected"]), ("icon", "ICON (corrected)", True))  # same id: the toggle swaps files
-        self.assertEqual(out["primary_model"]["label"], "ICON (13 km), precipitation corrected")
+        self.assertEqual((out["model"]["id"], out["model"]["label"], out["model"]["corrected"]), ("icon", "ICON (elevation-adjusted precip)", True))  # same id: the toggle swaps files
+        self.assertEqual(out["primary_model"]["label"], "ICON (13 km), precipitation elevation-adjusted")
         self.assertEqual(out["precip_correction"]["members"]["icon"]["residual"], 1.17)
 
     def test_corrected_blend_members(self):

@@ -277,7 +277,7 @@ def score(md=False):
 CONFIG = BASE_DIR / "config" / "sources.json"
 RESIDUAL_BOUNDS = [0.5, 2.0]
 CORRECTED_BLEND = {
-    "id": "blend_corrected", "label": "Corrected blend",
+    "id": "blend_corrected", "label": "Elevation-adjusted blend",
     "members": {"ecmwf_hres": 1, "aifs": 1, "hrrr_gfs": 1, "rrfs": 1, "icon": 1, "ukmo": 1, "gem": 1},
     "precip_correction": True, "profile_from": "ecmwf_hres", "min_weight_share": 0.5,
 }
@@ -340,7 +340,7 @@ def fit(apply=False):
     names = {m["id"]: m["label"] for m in MODELS}
     r = ", ".join(f"{names.get(m, m)} {v:.2f}" for m, v in pooled.items())
     unfitted = [names.get(m, m) for m in b["members"] if m not in pooled]
-    b["description"] = (f"Equal-weight mean of {len(b['members'])} single models with their precipitation corrected. Each model's precipitation at each tier "
+    b["description"] = (f"Equal-weight mean of {len(b['members'])} single models with their precipitation adjusted to each tier's elevation and calibrated to the SNOTEL pillows. Each model's precipitation at each tier "
                         "comes from a distance-weighted line through its own 3x3 neighborhood of grid cells against cell height (and distance "
                         "across the crest), evaluated at the tier's height but at most 1,000 ft above the highest cell, then times one residual "
                         f"multiplier per model ({r}) fitted against the SQV and WC3 pillows over {block['fitted']['seasons']} "
@@ -360,7 +360,7 @@ def main():
     ap.add_argument("--points", type=int, choices=[5, 9], default=9)
     ap.add_argument("--plan", action="store_true", help="fetch: only count the requests")
     ap.add_argument("--md", action="store_true")
-    ap.add_argument("--apply", action="store_true", help="fit: write the multipliers and the corrected blend into config/sources.json")
+    ap.add_argument("--apply", action="store_true", help="fit: write the multipliers and the Elevation-adjusted blend into config/sources.json")
     a = ap.parse_args()
     if a.command == "score":
         return score(a.md)

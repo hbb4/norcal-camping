@@ -61,6 +61,7 @@ LEVEL_VARS = ["temperature", "relative_humidity", "geopotential_height", "vertic
 TIMELINE_HOURS = 168
 FORECAST_HOURS = 168
 DEFAULT_MODEL = "nbm"
+TAIL_REF_MODEL = "ecmwf_hres"   # its snow factor extends a shorter model's ensemble range to 7 days
 # Static blends shown as their own entries in the model selector (config/sources.json "blends" overrides).
 # NBM is left out: it is already a blend that includes GFS and ECMWF.
 DEFAULT_BLENDS = [{"id": "blend", "label": "Equal blend", "members": {"ecmwf_hres": 1, "aifs": 1, "hrrr_gfs": 1, "rrfs": 1, "icon": 1, "ukmo": 1},
@@ -299,6 +300,8 @@ class OpenMeteoClient:
         tiers: {"base"|"mid"|"summit": {"lat", "lon", "elevation_m", "note"}}; sensor: same plus "id"."""
         say = progress or (lambda msg: None)
         labels = {"base": "Base", "mid": "Mid mountain", "summit": "Summit"}
+        # snow factor (fraction x SLR) by hour from a 7-day model, so a shorter model's ensemble range still runs 7 days
+        self._tail_ref, self._tail_label = {}, None
         exposure = {"base": 0.0, "mid": 0.6, "summit": 1.0}
         om_ids = [m["om"] for m in MODELS if m["om"]]
         try:
@@ -350,6 +353,9 @@ class OpenMeteoClient:
                     continue
                 parsed = {k: self._build_tier(parts[k], prof, labels[k], tiers[k]["elevation_m"], exposure[k], ensembles[k], w_ok) for k in tiers}
                 parsed_by_model[m["id"]] = parsed
+                if m["id"] == TAIL_REF_MODEL:
+                    self._tail_ref = {labels[k]: [(s["time"], self._snow_factor(s)) for s in parsed[k]["_steps"]] for k in tiers}
+                    self._tail_label = m["label"]
                 if m["om"] in nbr:
                     try:
                         corr = self._corrected_tiers(m, parts, parsed, nbr[m["om"]], tiers, prof, labels, exposure, ensembles, w_ok)
@@ -680,11 +686,11 @@ class OpenMeteoClient:
     def _corrected_output(self, m: Dict[str, Any], parsed_c: Dict[str, Any], info: Dict[str, Any], prof: List[Dict[str, Any]],
                           tiers: Dict[str, Any], w_ok: bool, now: str) -> Dict[str, Any]:
         """A single model's full output with its precipitation corrected (same id; shown by the page's toggle)."""
-        out = self._assemble({**m, "label": f"{m['label']} (corrected)"}, parsed_c, prof, tiers, w_ok, now)
+        out = self._assemble({**m, "label": f"{m['label']} (elevation-adjusted precip)"}, parsed_c, prof, tiers, w_ok, now)
         pc = self.precip_correction or {}
         out["model"]["corrected"] = True
-        out["primary_model"]["label"] = out["primary_model"]["label"].replace(" (corrected) (", " (") + ", precipitation corrected"
-        out["source"] = f"Open-Meteo: {m['label']}, precipitation corrected"
+        out["primary_model"]["label"] = out["primary_model"]["label"].replace(" (elevation-adjusted precip) (", " (") + ", precipitation elevation-adjusted"
+        out["source"] = f"Open-Meteo: {m['label']}, precipitation elevation-adjusted"
         out["precip_correction"] = {"method": pc.get("method"), "fitted": pc.get("fitted"),
                                     "members": {m["id"]: {"label": m["label"], **info}}, "uncorrected": []}
         out["methodology"]["precip_correction"] = pc.get("method")
@@ -1268,7 +1274,8 @@ class OpenMeteoClient:
             return round(sum(s[key] * s["precip_in"] for s in wet) / tot, 1) if tot > 0 else None
 
         daily = self._daily_rollup(steps)
-        ens = self._ensemble_summary(ensemble, steps, daily) if ensemble else None
+        tail = (getattr(self, "_tail_ref", {}) or {}).get(level_name) if len(steps) < FORECAST_HOURS - 3 else None
+        ens = self._ensemble_summary(ensemble, steps, daily, tail) if ensemble else None
         adj = None
         first = [s for s in steps[:24] if s.get("cell_elevation_ft") is not None]
         if first:
@@ -1282,11 +1289,19 @@ class OpenMeteoClient:
                    "hours_without_column": sum(1 for s in steps if s.get("temp_shift_source") != "column")}
         if ens:
             by_date = {d["date"]: d for d in ens["daily"]}
+            pick = lambda e: {"snow_p10": e["p10"], "snow_p25": e["p25"], "snow_p50": e["p50"], "snow_p75": e["p75"],
+                              "snow_p90": e["p90"], "prob_6in": e["prob_6in"], "prob_12in": e["prob_12in"]}
             for d in daily:
                 e = by_date.get(d["date"])
                 if e:
-                    d.update({"snow_p10": e["p10"], "snow_p25": e["p25"], "snow_p50": e["p50"], "snow_p75": e["p75"],
-                              "snow_p90": e["p90"], "prob_6in": e["prob_6in"], "prob_12in": e["prob_12in"]})
+                    d.update(pick(e))
+                    if e.get("hours", 0) > d.get("hours", 0):
+                        d["model_hours"] = d["hours"]     # the model's run ends during this day; the range covers all of it
+                        d["hours"] = e["hours"]
+            have = {d["date"] for d in daily}
+            for e in ens["daily"]:      # past the end of a short run: the ensemble range alone
+                if e["date"] not in have:
+                    daily.append({"date": e["date"], "hours": e.get("hours"), "model_hours": 0, "ensemble_only": True, **pick(e)})
 
         liq48 = sum(s["precip_in"] * (s.get("snow_fraction") or 0) for s in steps[:48])
         liq7 = sum(s["precip_in"] * (s.get("snow_fraction") or 0) for s in steps)
@@ -1347,31 +1362,56 @@ class OpenMeteoClient:
         lo, hi = int(math.floor(k)), int(math.ceil(k))
         return v[lo] + (v[hi] - v[lo]) * (k - lo)
 
-    def _ensemble_summary(self, ens: Dict[str, Any], steps: List[Dict[str, Any]], daily: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        """Each member's liquid x this tier's hourly snow fraction x SLR, then percentiles."""
+    @staticmethod
+    def _snow_factor(s: Dict[str, Any]) -> float:
+        return s["snow_factor"] if s.get("snow_factor") is not None else (s.get("snow_fraction") or 0) * (s.get("slr") or 0)
+
+    def _ensemble_summary(self, ens: Dict[str, Any], steps: List[Dict[str, Any]], daily: List[Dict[str, Any]],
+                          tail: Optional[List] = None) -> Optional[Dict[str, Any]]:
+        """Each member's liquid x this tier's hourly snow factor (fraction x SLR), then percentiles.
+
+        tail: [(time, factor)] from a 7-day model, used past the end of a shorter run so the range still covers
+        7 days (the members' liquid runs 7 days; only the conversion to snow borrows the other model's column)."""
         h = ens.get("hourly", {})
         keys = [k for k in h if k.startswith("precipitation")]
         if not keys or not steps:
             return None
-        factor = [s["snow_factor"] if s.get("snow_factor") is not None else (s.get("snow_fraction") or 0) * (s.get("slr") or 0) for s in steps]
-        dates = [(datetime.fromisoformat(s["time"].replace("Z", "+00:00")) - timedelta(hours=8)).strftime("%Y-%m-%d") for s in steps]
+        times = [s["time"] for s in steps]
+        factor = [self._snow_factor(s) for s in steps]
+        ext_from = None
+        if tail:
+            add = [(tt, f) for tt, f in tail if tt > times[-1]][:max(0, FORECAST_HOURS - len(steps))]
+            if add:
+                ext_from = len(steps)
+                times += [tt for tt, _ in add]
+                factor += [f for _, f in add]
+        n = len(times)
+        dates = [(datetime.fromisoformat(tt.replace("Z", "+00:00")) - timedelta(hours=8)).strftime("%Y-%m-%d") for tt in times]
         day_keys = [d["date"] for d in daily]
-        ens_times = [t + "Z" if not t.endswith("Z") else t for t in h.get("time", [])]
+        for d in dates:
+            if d not in day_keys and len(day_keys) < 8:
+                day_keys.append(d)
+        hours_per_day = {d: dates.count(d) for d in day_keys}
+        ens_times = [x + "Z" if not x.endswith("Z") else x for x in h.get("time", [])]
         offset = 0
         if steps and ens_times:
             t0 = steps[0]["time"].replace(":00Z", "").rstrip("Z")
-            offset = next((i for i, t in enumerate(ens_times) if t.startswith(t0[:13])), 0)
+            offset = next((i for i, x in enumerate(ens_times) if x.startswith(t0[:13])), 0)
         members = []
         for k in keys:
             arr = h[k]
             if arr is None or sum(1 for x in arr[:len(steps)] if x is not None) < len(steps) * 0.5:
                 continue
-            snow = [((arr[i + offset] or 0.0) * factor[i]) if i + offset < len(arr) else 0.0 for i in range(len(steps))]
+            snow = [((arr[i + offset] or 0.0) * factor[i]) if i + offset < len(arr) else 0.0 for i in range(n)]
             per_day = {d: 0.0 for d in day_keys}
             for i, v in enumerate(snow):
                 if dates[i] in per_day:
                     per_day[dates[i]] += v
-            members.append({"h24": sum(snow[:24]), "h48": sum(snow[:48]), "d7": sum(snow), "days": per_day,
+            run, cum = 0.0, []
+            for v in snow:
+                run += v
+                cum.append(run)
+            members.append({"h24": sum(snow[:24]), "h48": sum(snow[:48]), "d7": sum(snow), "days": per_day, "cum": cum,
                             "liq48": sum((arr[i] or 0.0) for i in range(min(48, len(arr))))})
         if len(members) < 5:
             return None
@@ -1393,6 +1433,8 @@ class OpenMeteoClient:
             cs = stats(running)
             cs["date"] = d
             out_cum.append(cs)
+            st["hours"] = hours_per_day.get(d, 0)
+        cum_hourly = [{"time": times[i], **stats([m["cum"][i] for m in members])} for i in range(n)]
         return {
             "members": len(members),
             "models": ["GEFS (NOAA)", "ECMWF ENS", "ICON-EPS (DWD)"],
@@ -1404,6 +1446,9 @@ class OpenMeteoClient:
                             "d7": sorted(round(m["d7"], 1) for m in members)},
             "daily": out_daily,
             "cumulative_daily": out_cum,
+            "cumulative_hourly": cum_hourly,     # every hour, 10th-90th percentile of the running total
+            "hours": n,
+            "extended": {"from_hour": ext_from, "snow_factor_from": getattr(self, "_tail_label", None)} if ext_from else None,
         }
 
     @staticmethod
