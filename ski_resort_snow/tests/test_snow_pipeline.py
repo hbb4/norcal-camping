@@ -1010,7 +1010,7 @@ def _grib_message(s3, s5, s7, cat, par, lev_type, lev_val, fh, disc=0):
 
 
 class TestHRRRSLW(unittest.TestCase):
-    """HRRR supercooled liquid: index, cycle, column diagnostics, and one run on a synthetic file."""
+    """HRRR and RRFS supercooled liquid: index, cycle, column diagnostics, and runs on synthetic files."""
 
     HRRR = {"tmpl": 30, "radius": 6371229.0, "nx": 1799, "ny": 1059, "la1": 21.138123, "lo1": -122.719528, "lad": 38.5,
             "lov": -97.5, "dx": 3000.0, "dy": 3000.0, "scan": 0x40, "latin1": 38.5, "latin2": 38.5}
@@ -1035,46 +1035,59 @@ class TestHRRRSLW(unittest.TestCase):
 
     PER_LAYER = 1e-3 * 100 / 9.80665 * 25      # 1 g/kg over a 25 hPa layer, in kg/m²
 
-    def _file(self, fh, wrong_code_at=None):
-        """A small wrfprs-like file on 24 x 24 cells of the real HRRR grid, and its index."""
+    def _build(self, fh, items):
+        """GRIB2 messages on 24 x 24 cells of the real HRRR (and RRFS) 3 km grid, and their index.
+        items: (name, level, category, parameter, level type, level value, value, decimal scale)."""
         from collectors import nbm_archive as na
-        from collectors.hrrr_slw import LEVELS_HPA
         la1, lo1 = na.cell_latlon(self.HRRR, 241, 626)
         s3 = _lambert_s3(self.NX, self.NY, la1, lo1)
         npts = self.NX * self.NY
         tilt = [(k % self.NX - 10) + (k // self.NX - 10) for k in range(npts)]   # one packed unit per cell from (10, 10)
-        prof = self._profile()
         data, lines = b"", []
-
-        def add(name, level, cat, par, lev_type, lev_val, value, D):
-            nonlocal data
+        for name, level, cat, par, lev_type, lev_val, value, D in items:
             ints = [0] * npts if value == 0 else [round(value * 10 ** D) + t for t in tilt]
             s5, s7 = _pack_complex(ints, order=2, group_len=11, D=D)
             lines.append(f"{len(lines) + 1}:{len(data)}:d=2026112418:{name}:{level}:{fh} hour fcst:")
             data += _grib_message(s3, s5, s7, cat, par, lev_type, lev_val, fh)
+        return data, "\n".join(lines) + "\n"
 
+    def _file(self, fh, wrong_code_at=None, model="hrrr"):
+        """A small pressure-level file (HRRR wrfprs or RRFS prslev) and its index. RRFS names cloud ice
+        ICMR (1/23) and keeps the terrain height in its 2-D file (_sfc_file)."""
+        from collectors.hrrr_slw import LEVELS_HPA
+        prof, items = self._profile(), []
+        ice = ("CIMIXR", (1, 82)) if model == "hrrr" else ("ICMR", (1, 23))
         for p in sorted(LEVELS_HPA):                 # the file runs from the top down
             lev = f"{p} mb"
-            add("HGT", lev, 3, 5, 100, p * 100, 3000.0 if p == 700 else 1000.0, 1)
-            add("TMP", lev, 0, 0, 100, p * 100, 273.15 + prof[p]["t"], 1)
-            add("RH", lev, 1, 1, 100, p * 100, 80.0, 1)
-            for name, (cat, par), key in (("CLMR", (1, 22), "qc"), ("CIMIXR", (1, 82), "qi"), ("RWMR", (1, 24), "qr"),
+            items += [("HGT", lev, 3, 5, 100, p * 100, 3000.0 if p == 700 else 1000.0, 1),
+                      ("TMP", lev, 0, 0, 100, p * 100, 273.15 + prof[p]["t"], 1), ("RH", lev, 1, 1, 100, p * 100, 80.0, 1)]
+            for name, (cat, par), key in (("CLMR", (1, 22), "qc"), (ice[0], ice[1], "qi"), ("RWMR", (1, 24), "qr"),
                                           ("SNMR", (1, 25), "qs"), ("GRLE", (1, 32), "qg")):
                 if wrong_code_at == (name, p):
                     par = 25 if par != 25 else 22
-                add(name, lev, cat, par, 100, p * 100, prof[p][key] / 1000.0, 7)
-        add("HGT", "surface", 3, 5, 1, 0, 2400.0, 1)
-        return data, "\n".join(lines) + "\n"
+                items.append((name, lev, cat, par, 100, p * 100, prof[p][key] / 1000.0, 7))
+        if model == "hrrr":
+            items.append(("HGT", "surface", 3, 5, 1, 0, 2400.0, 1))
+        return self._build(fh, items)
+
+    def _sfc_file(self, fh):
+        """A small RRFS 2dfld-like file: terrain height between other 2-D fields."""
+        return self._build(fh, [("TMP", "2 m above ground", 0, 0, 103, 2, 270.0, 1), ("HGT", "surface", 3, 5, 1, 0, 2350.0, 1),
+                                ("HGT", "lowest bottom level of supercooled liquid water layer", 3, 5, 253, 0, 2600.0, 1)])
 
     def test_parse_idx(self):
         from collectors.nbm_archive import parse_idx
         from collectors.hrrr_slw import IDX_FIELDS
         idx = ("1:0:d=2026112418:HGT:700 mb:anl:\n2:500:d=2026112418:TMP:700 mb:anl:\n3:900:d=2026112418:RH:700 mb:anl:\n"
                "4:1000:d=2026112418:CLMR:700 mb:anl:\n5:1100:d=2026112418:TMP:2 m above ground:anl:\n6:1200:d=2026112418:HGT:surface:anl:\n")
-        self.assertEqual(parse_idx(idx, 0, IDX_FIELDS), {"HGT:700": (0, 499), "TMP:700": (500, 899), "CLMR:700": (1000, 1099), "HGT:surface": (1200, None)})
+        hrrr, rrfs = IDX_FIELDS["hrrr"], IDX_FIELDS["rrfs"]
+        self.assertEqual(parse_idx(idx, 0, hrrr), {"HGT:700": (0, 499), "TMP:700": (500, 899), "CLMR:700": (1000, 1099), "HGT:surface": (1200, None)})
         fc = idx.replace("anl", "6 hour fcst")
-        self.assertEqual(parse_idx(fc, 6, IDX_FIELDS)["TMP:700"], (500, 899))
-        self.assertEqual(parse_idx(fc, 5, IDX_FIELDS), {})
+        self.assertEqual(parse_idx(fc, 6, hrrr)["TMP:700"], (500, 899))
+        self.assertEqual(parse_idx(fc, 5, hrrr), {})
+        ice = "1:0:d=2026112412:CIMIXR:700 mb:12 hour fcst:\n2:70:d=2026112412:ICMR:700 mb:12 hour fcst:\n3:140:d=2026112412:RWMR:700 mb:12 hour fcst:\n"
+        self.assertEqual(list(parse_idx(ice, 12, hrrr)), ["CIMIXR:700", "RWMR:700"])   # each model asks for its own ice name
+        self.assertEqual(list(parse_idx(ice, 12, rrfs)), ["ICMR:700", "RWMR:700"])
 
     def test_latest_cycle(self):
         import urllib.error
@@ -1091,6 +1104,15 @@ class TestHRRRSLW(unittest.TestCase):
         with mock.patch.object(hs, "_request", fake_request):
             self.assertEqual(hs.latest_cycle(datetime(2026, 11, 24, 19, 30, tzinfo=timezone.utc)), datetime(2026, 11, 24, 12, tzinfo=timezone.utc))
         self.assertEqual(asked, ["hrrr.t18z.wrfprsf48.grib2.idx", "hrrr.t12z.wrfprsf48.grib2.idx"])
+        asked.clear()
+        with mock.patch.object(hs, "_request", lambda url, rng=None, **kw: asked.append(url) or b"1"):
+            self.assertEqual(hs.latest_cycle(datetime(2026, 11, 24, 19, 30, tzinfo=timezone.utc), "rrfs"), datetime(2026, 11, 24, 18, tzinfo=timezone.utc))
+        self.assertEqual(asked, ["https://noaa-rrfs-ops-pds.s3.amazonaws.com/rrfs.20261124/18/rrfs.t18z.prslev.3km.f084.conus.grib2.idx"])
+        c = datetime(2026, 11, 24, 6, tzinfo=timezone.utc)
+        self.assertEqual(hs.file_url(c, 7), "https://noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.20261124/conus/hrrr.t06z.wrfprsf07.grib2")
+        self.assertEqual(hs.file_url(c, 84, "rrfs", "sfc"), "https://noaa-rrfs-ops-pds.s3.amazonaws.com/rrfs.20261124/06/rrfs.t06z.2dfld.3km.f084.conus.grib2")
+        with self.assertRaises(ValueError):
+            hs.SLWClient("unused", "gfs")
 
     def test_heights_surface_and_layers(self):
         import math
@@ -1139,6 +1161,7 @@ class TestHRRRSLW(unittest.TestCase):
         def server(wrong=None):
             def fake_get(url, rng=None, **kw):
                 fh = int(url.split("wrfprsf")[1][:2])
+                self.assertNotIn("2dfld", url)
                 if fh not in files:
                     files[fh] = self._file(fh, wrong)
                 data, idx = files[fh]
@@ -1149,14 +1172,14 @@ class TestHRRRSLW(unittest.TestCase):
             return fake_get
 
         now = datetime(2026, 11, 26, 16, 20, tzinfo=timezone.utc)      # hours 46-48 of the 18Z run are left
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(hs, "latest_cycle", lambda now=None: cycle), \
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(hs, "latest_cycle", lambda now=None, model="hrrr": cycle), \
                 mock.patch.object(na, "HEAD_MIN", 64), mock.patch.object(hs, "_get", server()):
-            client = hs.HRRRSLWClient(tmp, workers=1)
+            client = hs.SLWClient(tmp, "hrrr", workers=1)
             r = client.fetch(self.PTS, now=now)
             self.assertEqual(r["status"], "success", r)
             pal, alp = r["points"]["pal"], r["points"]["alp"]
             self.assertEqual([h["time"] for h in pal["hours"]], ["2026-11-26T16:00Z", "2026-11-26T17:00Z", "2026-11-26T18:00Z"])
-            self.assertEqual(pal["fh_range"], [46, 48])
+            self.assertEqual((pal["model"], pal["last_fh"], pal["fh_range"]), ("HRRR", 48, [46, 48]))
             self.assertEqual((pal["cell"]["i"], pal["cell"]["j"]), (10, 10))
             self.assertEqual((alp["cell"]["i"], alp["cell"]["j"]), (11, 7))
             self.assertEqual(pal["cell"]["terrain_ft"], round(2400 * 3.28084))
@@ -1183,8 +1206,59 @@ class TestHRRRSLW(unittest.TestCase):
             self.assertTrue(again["points"]["pal"]["download"]["from_cache"])
             self.assertEqual(again["points"]["pal"]["hours"], pal["hours"])
         files.clear()
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(hs, "latest_cycle", lambda now=None: cycle), \
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(hs, "latest_cycle", lambda now=None, model="hrrr": cycle), \
                 mock.patch.object(hs, "_get", server(wrong=("CLMR", 600))):
-            r = hs.HRRRSLWClient(tmp, workers=1).fetch(self.PTS, now=now)
+            r = hs.SLWClient(tmp, "hrrr", workers=1).fetch(self.PTS, now=now)
         self.assertEqual(r["status"], "error")
         self.assertIn("GRIB2 codes", r["error_message"])
+
+    def test_fetch_rrfs_on_synthetic_files(self):
+        """RRFS: three-digit hours to 84, ICMR for cloud ice, terrain from the 2-D file, its own cache."""
+        import re
+        import tempfile
+        from datetime import datetime, timezone
+        from unittest import mock
+        from collectors import hrrr_slw as hs, nbm_archive as na
+        cycle = datetime(2026, 11, 24, 18, tzinfo=timezone.utc)
+        files, asked = {}, []
+
+        def fake_get(url, rng=None, **kw):
+            m = re.search(r"/rrfs\.20261124/18/rrfs\.t18z\.(prslev|2dfld)\.3km\.f(\d{3})\.conus\.grib2", url)
+            self.assertIsNotNone(m, url)
+            kind, fh = m.group(1), int(m.group(2))
+            if (kind, fh) not in files:
+                files[kind, fh] = self._file(fh, model="rrfs") if kind == "prslev" else self._sfc_file(fh)
+            data, idx = files[kind, fh]
+            if url.endswith(".idx"):
+                return idx.encode()
+            asked.append((kind, fh))
+            return data[rng[0]:len(data) if rng[1] is None else rng[1] + 1]
+
+        now = datetime(2026, 11, 28, 4, 20, tzinfo=timezone.utc)      # hours 82-84 of the 18Z run are left
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(hs, "latest_cycle", lambda now=None, model="hrrr": cycle), \
+                mock.patch.object(na, "HEAD_MIN", 64), mock.patch.object(hs, "_get", fake_get):
+            r = hs.SLWClient(tmp, "rrfs", workers=1).fetch(self.PTS, now=now)
+            self.assertEqual(r["status"], "success", r)
+            pal = r["points"]["pal"]
+            self.assertEqual((pal["model"], pal["last_fh"], pal["fh_range"]), ("RRFS", 84, [82, 84]))
+            self.assertEqual([h["time"] for h in pal["hours"]], ["2026-11-28T04:00Z", "2026-11-28T05:00Z", "2026-11-28T06:00Z"])
+            self.assertEqual(pal["cell"]["terrain_ft"], round(2350 * 3.28084))                # from the 2-D file
+            self.assertEqual(sorted({fh for kind, fh in asked if kind == "2dfld"}), [82, 83])   # terrain from the first hours only
+            h = pal["hours"][0]
+            self.assertAlmostEqual(h["qi"][hs.LEVELS_HPA.index(500)], 0.03)                    # ICMR
+            self.assertAlmostEqual(h["slw_col_kg_m2"], (0.2 * 5 + 0.02) * self.PER_LAYER, places=4)
+            self.assertAlmostEqual(h["rime_col_kg_m2"], (0.2 * 3 + 0.02) * self.PER_LAYER, places=4)
+            self.assertTrue(Path(tmp, "rrfs_slw_2026112418.json").exists())
+            self.assertFalse(Path(tmp, "hrrr_slw_2026112418.json").exists())
+
+    def test_prune_per_model(self):
+        import tempfile
+        from collectors import hrrr_slw as hs
+        with tempfile.TemporaryDirectory() as tmp:
+            for m in ("hrrr", "rrfs"):
+                for k in range(6):
+                    Path(tmp, f"{m}_slw_202611{20 + k}00.json").write_text("{}")
+            hs.SLWClient(tmp, "hrrr")._prune()
+            self.assertEqual(sorted(x.name for x in Path(tmp).glob("hrrr_slw_*.json")),
+                             [f"hrrr_slw_202611{20 + k}00.json" for k in range(6 - hs.KEEP_CYCLES, 6)])
+            self.assertEqual(len(list(Path(tmp).glob("rrfs_slw_*.json"))), 6)

@@ -878,12 +878,13 @@ kbd { font-family: var(--font-mono); font-size: 11px; padding: 2px 6px; border-r
 .brand-text { font-weight: 600; color: #7dd3fc; letter-spacing: -0.015em; }
 .brand-text b { font-weight: 800; color: var(--ink); }
 
-/* v13: supercooled liquid water (HRRR). One line per value like the cards above on wide screens; on narrow ones
+/* v13: supercooled liquid water (HRRR, RRFS). One line per value like the cards above on wide screens; on narrow ones
    the four boxes go two across and their text wraps into reserved space, so playback does not move the layout. */
 .slw-card { margin-top: 14px; }
 .atmo-icon.slw { background: rgba(240, 143, 71, 0.14); color: #f08f47; }
 .chip-slw { background: rgba(240, 143, 71, 0.12); color: #fcb17e; border-color: rgba(240, 143, 71, 0.32); }
 .slw-card .block-sub { margin-top: -4px; }
+.slw-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; }
 .slw-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .slw-wrap { position: relative; }
 .slw-chart svg { display: block; width: 100%; height: auto; }

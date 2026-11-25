@@ -3,7 +3,7 @@
  *  - Skew-T log-P (model sounding at the selected hour, or observed REV/OAK radiosonde)
  *  - Ice-crystal habit diagram (temperature vs. ice supersaturation) with model levels
  *  - Precipitation type by elevation (vertical) + T / Tw / T-Td table per tier
- *  - Supercooled liquid water above the summit (HRRR native fields): time-height chart and column total
+ *  - Supercooled liquid water above the summit (HRRR or RRFS native fields): time-height chart and column total
  *  - Route shields (Interstate, US, California)
  *  - Sources & verification tables
  */
@@ -11,7 +11,8 @@
   const $ = id => document.getElementById(id);
   const esc = t => String(t ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const FT = 3.28084;
-  const state = { resort: null, hour: 0, skewSrc: "model" };
+  const state = { resort: null, hour: 0, skewSrc: "model", slwModel: "hrrr" };
+  try { if (localStorage.getItem("slwModel") === "rrfs") state.slwModel = "rrfs"; } catch (e) { /* no storage: HRRR */ }
 
   // ---------------------------------------------------------------- thermo
   const esW = t => 6.112 * Math.exp(17.67 * t / (t + 243.5));
@@ -616,7 +617,7 @@
     });
   }
 
-  // ---------------------------------------------------------------- supercooled liquid water (HRRR)
+  // ---------------------------------------------------------------- supercooled liquid water (HRRR, RRFS)
   // One-hue sequential ramp (orange, OKLCH L 0.50 -> 0.90) on a 1-2.5-5 scale, validated as an ordinal ramp against the
   // card surface (monotone lightness, adjacent steps >= 0.06, darkest step 2.9:1). Liquid at or above 0 °C is neutral gray.
   const SLW_EDGES = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5];           // g/kg, lower edge of each bin
@@ -669,12 +670,24 @@
       + `</div>`;
   }
 
+  const SLW_LAST = { hrrr: 48, rrfs: 84 };              // last forecast hour of each model's 00/06/12/18Z runs
   function slwData() {
-    const s = ((state.resort || {}).sources || {}).hrrr_slw || {};
+    const s = ((state.resort || {}).sources || {})[`${state.slwModel}_slw`] || {};
     const t0 = ((((om().elevation_timelines || {}).summit) || [])[0] || {}).time;
     return { s, hours: (s.hours || []).filter(x => !t0 || x.time >= t0) };
   }
-  // dashboard hour -> index into the HRRR hours (-1 when the hour is outside the run)
+  // the HRRR | RRFS switch: the active model, and each model's run (cycle, length) from its data
+  function slwSwitch() {
+    const seg = $("slw-model"), src = (state.resort || {}).sources || {};
+    if (!seg) return;
+    seg.querySelectorAll(".seg-btn").forEach(b => {
+      const m = b.dataset.model, d = src[`${m}_slw`] || {}, on = m === state.slwModel;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+      b.innerHTML = `${esc(d.model || m.toUpperCase())} <span>${(d.hours || []).length ? `${d.cycle_utc.slice(11, 13)}Z · ${d.last_fh ?? SLW_LAST[m]} h` : "no data"}</span>`;
+    });
+  }
+  // dashboard hour -> index into the model's hours (-1 when the hour is outside the run)
   function slwIndex(hours, h) {
     const t = ((((om().elevation_timelines || {}).summit) || [])[h] || {}).time;
     return t ? hours.findIndex(x => x.time === t) : Math.min(h, hours.length - 1);
@@ -701,11 +714,15 @@
     if (!box || !state.resort) return;
     const { s, hours } = slwData();
     const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
+    const M = s.model || state.slwModel.toUpperCase();
+    slwSwitch();
+    set("slw-sub", `${M} cloud water and rain water colder than 0 °C above the summit, by hour and pressure level.`);
     const badge = $("slw-badge"), legend = $("slw-legend"), kvBox = $("slw-kv"), table = $("slw-table");
     const stats = ["slw-col", "slw-summit", "slw-peak", "slw-rime"];
     if (!hours.length) {
-      const why = s.status === "error" || !s.status ? `HRRR supercooled liquid is unavailable${s.error_message ? ` (${s.error_message})` : ""}.` : "The cached HRRR run has no hours from now on; the next refresh fetches a newer one.";
+      const why = s.status === "error" || !s.status ? `${M} supercooled liquid is unavailable${s.error_message ? ` (${s.error_message})` : ""}.` : `The cached ${M} run has no hours from now on; the next refresh fetches a newer one.`;
       box.innerHTML = `<p class="mini-label" style="padding:12px 0">${esc(why)}</p>`;
+      const tip = $("slw-tip"); if (tip) tip.style.display = "none";      // its chart (and mouseleave) is gone
       stats.forEach(id => { set(id, "n/a"); set(`${id}-sub`, ""); });
       if (badge) { badge.textContent = "No data"; badge.className = "chip"; }
       [legend, kvBox, table].forEach(e => { if (e) e.innerHTML = ""; });
@@ -729,9 +746,9 @@
       set("slw-col", `${fmtCol(sel.slw_col_kg_m2)} kg/m²`);
       set("slw-col-sub", ks.length ? `${lv[ks[0]]}–${lv[ks[ks.length - 1]]} hPa, ${tC(sel.t_c[ks[0]])} to ${tC(sel.t_c[ks[ks.length - 1]])}` : `no level with ${th.liquid} g/kg or more`);
       set("slw-summit", sm ? `${fmtQ(sm.slw_g_kg)} g/kg` : "n/a");
-      set("slw-summit-sub", sm ? `${tC(sm.t_c)} at ${summitFt ? `${summitFt.toLocaleString()} ft` : "the summit"} (${Math.round(sm.p_hpa)} hPa)` : "below the HRRR levels used");
+      set("slw-summit-sub", sm ? `${tC(sm.t_c)} at ${summitFt ? `${summitFt.toLocaleString()} ft` : "the summit"} (${Math.round(sm.p_hpa)} hPa)` : `below the ${M} levels used`);
     } else {
-      set("slw-col", "n/a"); set("slw-col-sub", `after the HRRR run (ends ${when(hours[n - 1].time)})`);
+      set("slw-col", "n/a"); set("slw-col-sub", `after the ${M} run (ends ${when(hours[n - 1].time)})`);
       set("slw-summit", "n/a"); set("slw-summit-sub", "");
     }
     const win = si >= 0 ? hours.slice(si, si + 24) : [];
@@ -753,8 +770,8 @@
     if (kvBox) kvBox.innerHTML = `
       <dt>Hours with supercooled liquid, 24 h from the selected hour</dt><dd>${win.length ? `${slwH} of ${win.length} h` : "n/a"}</dd>
       <dt>Hours with graupel below 0 °C, same 24 h</dt><dd>${win.length ? `${grH} h` : "n/a"}</dd>
-      <dt>HRRR cell (3 km)</dt><dd>${cell.lat != null ? `${cell.lat.toFixed(3)}, ${cell.lon.toFixed(3)} · terrain ${cell.terrain_ft.toLocaleString()} ft` : "n/a"}</dd>`;
-    const run = s.cycle_utc ? `HRRR ${s.cycle_utc.slice(11, 13)}Z ${new Date(s.cycle_utc).toLocaleDateString([], { month: "short", day: "numeric" })} run` : "HRRR run";
+      <dt>${M} cell (3 km)</dt><dd>${cell.lat != null ? `${cell.lat.toFixed(3)}, ${cell.lon.toFixed(3)} · terrain ${cell.terrain_ft.toLocaleString()} ft` : "n/a"}</dd>`;
+    const run = s.cycle_utc ? `${M} ${s.cycle_utc.slice(11, 13)}Z ${new Date(s.cycle_utc).toLocaleDateString([], { month: "short", day: "numeric" })} run` : `${M} run`;
     const miss = (s.missing_hours || []).filter(fh => fh > hours[0].fh);
     set("slw-note", `${run}, hours ${hours[0].fh}–${hours[n - 1].fh} (fetched ${ago(s.fetched_at_utc)}), native pressure-level output on AWS, at the 3 km cell nearest the summit point (${cell.offset_km ?? "?"} km away). `
       + `Supercooled liquid: cloud water + rain water at levels colder than 0 °C and above the model terrain; the column total runs from the model surface to ${s.column_top_hpa || 450} hPa. `
@@ -870,15 +887,18 @@
     g += `<path d="${cols.map((v, i) => `${i ? "L" : "M"}${cx(i)},${Yc(v).toFixed(1)}`).join("")}" fill="none" stroke="${SLW_LINE}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
     const imax = cols.indexOf(Math.max(...cols));
     if (cols[imax] > 0) g += `<text x="${Math.min(L + PW - 4, Math.max(L + 24, +cx(imax)))}" y="${(Yc(cols[imax]) - 5).toFixed(1)}" text-anchor="middle" fill="#e2e8f0" font-size="9.5" font-family="var(--font-mono)">${fmtCol(cols[imax])}</text>`;
-    // time axis
-    const dayFmt = d => d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+    // time axis: shorter day names and sparser hour labels when the run is long for the width
+    const shortDay = dx * 24 < 100, every = [narrow ? 12 : 6, 12, 24].find(h => h * dx >= 40) || 24;
+    const labelAt = every === 24 ? 12 : 0;              // daily labels at noon: midnight already carries the day name
+    const dayFmt = d => (shortDay ? `${d.toLocaleDateString([], { weekday: "short" })} ${d.getDate()}`
+      : d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }));
     const firstMid = hours.findIndex(x => new Date(x.time).getHours() === 0);
-    if (firstMid !== 0 && (firstMid < 0 || firstMid * dx > 70)) g += `<text x="${L + 3}" y="${yAx + 26}" fill="#cbd5e1" font-size="10" font-weight="700">${dayFmt(new Date(hours[0].time))}</text>`;
+    if (firstMid !== 0 && (firstMid < 0 || firstMid * dx > (shortDay ? 46 : 70))) g += `<text x="${L + 3}" y="${yAx + 26}" fill="#cbd5e1" font-size="10" font-weight="700">${dayFmt(new Date(hours[0].time))}</text>`;
     hours.forEach((x, i) => {
       const d = new Date(x.time), hr = d.getHours();
       if (hr === 0 && i > 0) g += `<line x1="${X(i).toFixed(1)}" x2="${X(i).toFixed(1)}" y1="${T}" y2="${yAx}" stroke="rgba(255,255,255,0.12)"/>`;
       if (hr === 0) g += `<text x="${(X(i) + 3).toFixed(1)}" y="${yAx + 26}" fill="#cbd5e1" font-size="10" font-weight="700">${dayFmt(d)}</text>`;
-      if (hr % (narrow ? 12 : 6) === 0) g += `<text x="${cx(i)}" y="${yAx + 12}" text-anchor="middle" fill="#94a3b8" font-size="9.5">${d.toLocaleTimeString([], { hour: "numeric" })}</text>`;
+      if (hr % every === labelAt) g += `<text x="${cx(i)}" y="${yAx + 12}" text-anchor="middle" fill="#94a3b8" font-size="9.5">${d.toLocaleTimeString([], { hour: "numeric" })}</text>`;
     });
     if (si >= 0) g += `<line x1="${cx(si)}" x2="${cx(si)}" y1="${T}" y2="${yAx}" stroke="#f8fafc" stroke-opacity="0.8" stroke-width="1.5"/>`;
     g += `<line id="slw-cross" x1="0" x2="0" y1="${T}" y2="${yAx}" stroke="#fff" stroke-opacity="0.35" visibility="hidden"/>
@@ -906,13 +926,13 @@
         cellBox.setAttribute("y", yTop[k]); cellBox.setAttribute("height", Math.max(1, Math.min(yBot[k], Yp(x.psfc_hpa)) - yTop[k]));
         cellBox.setAttribute("visibility", "visible");
       } else {
-        if (k >= 0) rows.push(row(`${lv[k]} hPa`, "below the HRRR terrain"));
+        if (k >= 0) rows.push(row(`${lv[k]} hPa`, "below the model terrain"));
         cellBox.setAttribute("visibility", "hidden");
       }
       rows.push(row("Column supercooled liquid", `${fmtCol(x.slw_col_kg_m2)} kg/m²`));
       rows.push(row("in riming layers", `${fmtCol(x.rime_col_kg_m2)} kg/m²`));
       if (x.summit) rows.push(row(`At ${summitFt ? summitFt.toLocaleString() : "summit"} ft`, `${tC(x.summit.t_c)} · ${fmtQ(x.summit.slw_g_kg)} g/kg`));
-      tip.innerHTML = `<div class="tt-time">${new Date(x.time).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric" })} · HRRR +${x.fh} h</div>${rows.join("")}`;
+      tip.innerHTML = `<div class="tt-time">${new Date(x.time).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric" })} · ${M} +${x.fh} h</div>${rows.join("")}`;
       tip.style.display = "block";
       const wr = wrap.getBoundingClientRect(), tw = tip.offsetWidth || 260;
       let left = ev.clientX - wr.left + 16; if (left + tw > wr.width) left = ev.clientX - wr.left - tw - 16;
@@ -931,7 +951,7 @@
       table.innerHTML = rowsT.length ? `<thead><tr><th>Valid</th><th>Column</th><th>In riming layers</th><th>Peak</th><th>Levels with supercooled liquid</th><th>Graupel below 0 °C</th></tr></thead><tbody>`
         + rowsT.map(x => {
           const ks = slwLevels(x), p = peakOf(x);
-          return `<tr><td>${new Date(x.time).toLocaleString([], { weekday: "short", hour: "numeric" })}<small>HRRR +${x.fh} h</small></td><td><b>${fmtCol(x.slw_col_kg_m2)}</b> kg/m²</td><td>${fmtCol(x.rime_col_kg_m2)} kg/m²</td>
+          return `<tr><td>${new Date(x.time).toLocaleString([], { weekday: "short", hour: "numeric" })}<small>${M} +${x.fh} h</small></td><td><b>${fmtCol(x.slw_col_kg_m2)}</b> kg/m²</td><td>${fmtCol(x.rime_col_kg_m2)} kg/m²</td>
             <td>${fmtQ(p.v)} g/kg<small>${lv[p.k]} hPa, ${tC(x.t_c[p.k])}</small></td><td>${lv[ks[0]]}–${lv[ks[ks.length - 1]]} hPa<small>${ks.length} of ${nl} levels</small></td><td>${fmtCol(x.graupel_col_kg_m2)} kg/m²</td></tr>`;
         }).join("") + `</tbody>`
         : `<tbody><tr><td class="muted">No hour of this run has ${th.liquid} g/kg or more of supercooled liquid at the summit cell.</td></tr></tbody>`;
@@ -1252,6 +1272,13 @@
       const b = ev.target.closest(".seg-btn"); if (!b) return;
       seg.querySelectorAll(".seg-btn").forEach(x => x.classList.toggle("active", x === b));
       state.skewSrc = b.dataset.src; renderSkewT();
+    });
+    const slwSeg = $("slw-model");
+    slwSeg && slwSeg.addEventListener("click", ev => {
+      const b = ev.target.closest(".seg-btn"); if (!b || b.dataset.model === state.slwModel) return;
+      state.slwModel = b.dataset.model;
+      try { localStorage.setItem("slwModel", state.slwModel); } catch (e) { /* no storage: choice lasts this visit */ }
+      if (state.resort) renderSLW();
     });
   });
 })();

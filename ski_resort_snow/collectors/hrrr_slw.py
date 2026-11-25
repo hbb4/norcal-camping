@@ -1,28 +1,37 @@
-"""Supercooled liquid water above the resort summits, from HRRR's native GRIB2 output on AWS.
+"""Supercooled liquid water above the resort summits, from the native GRIB2 output of NOAA's
+3 km convection-allowing models on AWS: HRRR (to 48 h) and RRFS (to 84 h).
 
-NBM and Open-Meteo carry no cloud liquid water, so this reads the HRRR pressure-level files
-directly: bucket https://noaa-hrrr-bdp-pds.s3.amazonaws.com (no authentication),
-hrrr.YYYYMMDD/conus/hrrr.tHHz.wrfprsfFF.grib2 (about 430 MB each) plus a text index (.idx)
-with every message's byte offset. HRRR's microphysics (Thompson-Eidhammer) carries cloud
-water, rain, snow, graupel and cloud ice as separate mixing ratios.
+NBM and Open-Meteo carry no cloud liquid water, so this reads the models' pressure-level files
+directly (no authentication), each with a text index (.idx) of every message's byte offset:
+  HRRR  https://noaa-hrrr-bdp-pds.s3.amazonaws.com
+        hrrr.YYYYMMDD/conus/hrrr.tHHz.wrfprsfFF.grib2 (about 430 MB each)
+  RRFS  https://noaa-rrfs-ops-pds.s3.amazonaws.com
+        rrfs.YYYYMMDD/HH/rrfs.tHHz.prslev.3km.fFFF.conus.grib2 (about 570 MB each); the terrain
+        height is in the 2-D file, rrfs.tHHz.2dfld.3km.fFFF.conus.grib2
+Both run the Thompson-Eidhammer aerosol-aware microphysics (HRRR in WRF, RRFS in FV3), which
+carries cloud water, rain, snow, graupel and cloud ice as separate mixing ratios. RRFS's CONUS
+output is on HRRR's 3 km Lambert grid with the same packing, so the same cells and code serve
+both; cloud ice is CIMIXR (1/82) in HRRR and ICMR (1/23) in RRFS.
 
-Run used: the latest complete 00/06/12/18Z cycle (the runs that reach 48 h; complete = its
-hour-48 index is on AWS), from the current hour to hour 48.
+Run used: the latest complete 00/06/12/18Z cycle (the runs that reach 48 h in HRRR and 84 h in
+RRFS; complete = its last hour's index is on AWS), from the current hour to its end.
 
 Per forecast hour only these messages are downloaded, by HTTP range:
   TMP at 775-450 hPa every 25 hPa, read only as far as the summit cells
       (nbm_archive.ArchiveReader.fetch_message: sections 1-6, the group tables and the data
-      up to the cells, about 70% of each 0.57 MB message)
-  CLMR, CIMIXR, RWMR, SNMR, GRLE at the same levels, adjacent in the file: one request per level
+      up to the cells, about 70% of each message)
+  cloud water, cloud ice, rain, snow, graupel at the same levels, adjacent in the file: one
+      request per level
   HGT at 700 hPa (partial): anchors the heights of the other levels
   HGT at the surface (partial, first hours of a cycle only): the cells' model terrain
-About 11.8 MB per hour and 0.55 GB per cycle (Nov 24, 2026: 47 hours in 70 s), downloaded
-once and cached in data/cache/ (hrrr_slw_YYYYMMDDHH.json, last 4 cycles kept). Each
-message's GRIB2 codes are checked before use, and only the summit cells are decoded
-(grib2_complex.values_at). Hours run in a pool of worker processes, each downloading one
-hour over kept-alive connections; if a pool cannot start, the hours run in threads here.
+HRRR: about 11.8 MB per hour and 0.55 GB per cycle (Nov 24, 2026: 47 hours in 70 s). RRFS's
+messages are larger: about 15 MB per hour and 1.2 GB per cycle. Downloaded once and cached in
+data/cache/ ({model}_slw_YYYYMMDDHH.json, last 4 cycles per model kept). Each message's GRIB2
+codes are checked before use, and only the summit cells are decoded (grib2_complex.values_at).
+Hours run in a pool of worker processes, each downloading one hour over kept-alive connections;
+if a pool cannot start, the hours run in threads here.
 
-Derived per hour at each summit's nearest HRRR cell (3 km):
+Derived per hour at each summit's nearest grid cell (3 km, the same cell in both models):
   level heights   hypsometric from HGT at 700 hPa and the TMP profile (dry air, < 0.3% error)
   surface         pressure at the cell's model terrain; levels below it are left out
   supercooled liquid   cloud water + rain water at levels colder than 0 °C
@@ -60,51 +69,62 @@ except ImportError:
     from grib2_simple import parse_grid, parse_product
     from nbm_archive import ArchiveReader, _request, cell_latlon, grid_ij, grid_key, parse_idx
 
-BUCKET = "https://noaa-hrrr-bdp-pds.s3.amazonaws.com"
-USER_AGENT = "SierraSnowDashboard/3.0 (HRRR supercooled liquid)"
+USER_AGENT = "SierraSnowDashboard/3.0 (HRRR/RRFS supercooled liquid)"
 LEVELS_HPA = list(range(775, 449, -25))     # 775 ... 450; the summit cells' terrain is near 765-775 hPa
 ANCHOR_HPA = 700
-LAST_FH = 48
-HYDRO = ("CLMR", "CIMIXR", "RWMR", "SNMR", "GRLE")
-SHORT = {"CLMR": "qc", "CIMIXR": "qi", "RWMR": "qr", "SNMR": "qs", "GRLE": "qg"}
-CODES = {"TMP": (0, 0), "HGT": (3, 5), "CLMR": (1, 22), "CIMIXR": (1, 82), "RWMR": (1, 24),
+# Per model: file paths ("prs" pressure levels; "sfc" the file with the terrain height when it is not
+# in "prs"), the last forecast hour of the 00/06/12/18Z runs, and the hydrometeor short names.
+MODELS: Dict[str, Dict[str, Any]] = {
+    "hrrr": {"name": "HRRR", "bucket": "https://noaa-hrrr-bdp-pds.s3.amazonaws.com",
+             "prs": "hrrr.{c:%Y%m%d}/conus/hrrr.t{c:%H}z.wrfprsf{fh:02d}.grib2", "sfc": None, "last_fh": 48,
+             "hydro": ("CLMR", "CIMIXR", "RWMR", "SNMR", "GRLE"),
+             "source": "NOAA HRRR on AWS (noaa-hrrr-bdp-pds), wrfprs pressure-level GRIB2, native fields"},
+    "rrfs": {"name": "RRFS", "bucket": "https://noaa-rrfs-ops-pds.s3.amazonaws.com",
+             "prs": "rrfs.{c:%Y%m%d}/{c:%H}/rrfs.t{c:%H}z.prslev.3km.f{fh:03d}.conus.grib2",
+             "sfc": "rrfs.{c:%Y%m%d}/{c:%H}/rrfs.t{c:%H}z.2dfld.3km.f{fh:03d}.conus.grib2", "last_fh": 84,
+             "hydro": ("CLMR", "ICMR", "RWMR", "SNMR", "GRLE"),
+             "source": "NOAA RRFS on AWS (noaa-rrfs-ops-pds), prslev 3 km CONUS GRIB2, native fields"},
+}
+SHORT = {"CLMR": "qc", "CIMIXR": "qi", "ICMR": "qi", "RWMR": "qr", "SNMR": "qs", "GRLE": "qg"}
+CODES = {"TMP": (0, 0), "HGT": (3, 5), "CLMR": (1, 22), "CIMIXR": (1, 82), "ICMR": (1, 23), "RWMR": (1, 24),
          "SNMR": (1, 25), "GRLE": (1, 32)}      # (category, parameter), discipline 0 (meteorological)
 LIQ_MIN = 0.01        # g/kg: supercooled liquid counted for a riming layer from here
 SNOW_MIN = 0.01       # g/kg: snow + graupel in the same layer
 CACHE_VERSION = 1
-KEEP_CYCLES = 4
+KEEP_CYCLES = 4       # per model
 DEADLINE_S = 420      # stop waiting for hours after this; finished hours stay cached
 RD, G0 = 287.05, 9.80665
 M_TO_FT = 3.28084
 
 
-def _idx_fields():
+def _idx_fields(hydro):
     tail = r":(?:(\d+) hour fcst|anl):$"
-    out = [(re.compile(rf"^{n}:{p} mb{tail}"), f"{n}:{p}") for n in ("TMP",) + HYDRO for p in LEVELS_HPA]
+    out = [(re.compile(rf"^{n}:{p} mb{tail}"), f"{n}:{p}") for n in ("TMP",) + tuple(hydro) for p in LEVELS_HPA]
     out.append((re.compile(rf"^HGT:{ANCHOR_HPA} mb{tail}"), f"HGT:{ANCHOR_HPA}"))
     out.append((re.compile(rf"^HGT:surface{tail}"), "HGT:surface"))
     return out
 
 
-IDX_FIELDS = _idx_fields()
+IDX_FIELDS = {m: _idx_fields(spec["hydro"]) for m, spec in MODELS.items()}
 
 
-def file_url(cycle: datetime, fh: int) -> str:
-    return f"{BUCKET}/hrrr.{cycle:%Y%m%d}/conus/hrrr.t{cycle:%H}z.wrfprsf{fh:02d}.grib2"
+def file_url(cycle: datetime, fh: int, model: str = "hrrr", kind: str = "prs") -> str:
+    spec = MODELS[model]
+    return f"{spec['bucket']}/{spec[kind].format(c=cycle, fh=fh)}"
 
 
 def iso_hour(t: datetime) -> str:
     return t.strftime("%Y-%m-%dT%H:%MZ")      # same form as the Open-Meteo timelines
 
 
-def latest_cycle(now: Optional[datetime] = None, lookback_h: int = 36) -> Optional[datetime]:
-    """Newest 00/06/12/18Z cycle whose hour-48 index is on AWS (one 1-byte request per cycle tried)."""
+def latest_cycle(now: Optional[datetime] = None, model: str = "hrrr", lookback_h: int = 36) -> Optional[datetime]:
+    """Newest 00/06/12/18Z cycle whose last-hour index is on AWS (one 1-byte request per cycle tried)."""
     now = now or datetime.now(timezone.utc)
     c = now.replace(minute=0, second=0, microsecond=0)
     c -= timedelta(hours=c.hour % 6)
     while now - c <= timedelta(hours=lookback_h):
         try:
-            _request(file_url(c, LAST_FH) + ".idx", (0, 0), tries=2, timeout=20)
+            _request(file_url(c, MODELS[model]["last_fh"], model) + ".idx", (0, 0), tries=2, timeout=20)
             return c
         except urllib.error.HTTPError as e:
             e.close()
@@ -239,43 +259,59 @@ def _cell_values(msg: bytes, key: str, fh: int, reader: CellReader) -> List[floa
 
 
 def fetch_hour(cycle: str, fh: int, latlons: List[Tuple[float, float]], terrain: bool = False,
-               threads: int = 8) -> Dict[str, Any]:
+               threads: int = 8, model: str = "hrrr") -> Dict[str, Any]:
     """Download and decode one forecast hour at the points' cells (runs in a worker process).
 
-    cycle "YYYYMMDDHH". Returns {"fh", "cells": [per point: {"t_c", "qc", "qi", "qr", "qs",
-    "qg" (775-450 hPa, °C and g/kg), "z700_m", "terrain_m" (if asked)}], "ij", "bytes"}
-    or {"fh", "error"}.
+    cycle "YYYYMMDDHH", model a key of MODELS. Returns {"fh", "cells": [per point: {"t_c", "qc",
+    "qi", "qr", "qs", "qg" (775-450 hPa, °C and g/kg), "z700_m", "terrain_m" (if asked)}], "ij",
+    "bytes"} or {"fh", "error"}.
     """
     try:
+        spec = MODELS[model]
         cyc = datetime.strptime(cycle, "%Y%m%d%H").replace(tzinfo=timezone.utc)
-        url = file_url(cyc, fh)
+        url = file_url(cyc, fh, model)
         try:
             idx = _get(url + ".idx").decode("utf-8", errors="replace")
         except urllib.error.HTTPError as e:
             e.close()
             return {"fh": fh, "error": f"index HTTP {e.code}"}
-        want = parse_idx(idx, fh, IDX_FIELDS)
-        partial = [f"TMP:{p}" for p in LEVELS_HPA] + [f"HGT:{ANCHOR_HPA}"] + (["HGT:surface"] if terrain else [])
-        hydro = [f"{n}:{p}" for p in LEVELS_HPA for n in HYDRO]
+        want = parse_idx(idx, fh, IDX_FIELDS[model])
+        partial = [f"TMP:{p}" for p in LEVELS_HPA] + [f"HGT:{ANCHOR_HPA}"]
+        hydro = [f"{n}:{p}" for p in LEVELS_HPA for n in spec["hydro"]]
+        total = len(idx)
+        jobs: List[Tuple[str, Any, Tuple[int, Optional[int]], str]] = []
+        if terrain and spec["sfc"]:          # terrain height in a second file (RRFS 2dfld)
+            surl = file_url(cyc, fh, model, "sfc")
+            try:
+                sidx = _get(surl + ".idx").decode("utf-8", errors="replace")
+            except urllib.error.HTTPError as e:
+                e.close()
+                return {"fh": fh, "error": f"2-D index HTTP {e.code}"}
+            total += len(sidx)
+            sfc = parse_idx(sidx, fh, IDX_FIELDS[model]).get("HGT:surface")
+            if sfc is None:
+                return {"fh": fh, "error": "2-D index has no HGT:surface"}
+            jobs.append(("partial", "HGT:surface", sfc, surl))
+        elif terrain:
+            partial.append("HGT:surface")
         lacking = [k for k in partial + hydro if k not in want]
         if lacking:
             return {"fh": fh, "error": f"index has no {', '.join(lacking[:4])}{' ...' if len(lacking) > 4 else ''}"}
         reader = CellReader(latlons)
-        jobs = [("partial", k, want[k]) for k in partial] + [("block", keys, rng) for rng, keys in _blocks(want, hydro)]
+        jobs += [("partial", k, want[k], url) for k in partial] + [("block", keys, rng, url) for rng, keys in _blocks(want, hydro)]
 
         def run(job):
-            kind, key, rng = job
+            kind, key, rng, u = job
             if kind == "partial":
-                msg, _, nb = reader.fetch_message(url, rng)
+                msg, _, nb = reader.fetch_message(u, rng)
                 return [(key, msg)], nb
-            data = _get(url, rng)
+            data = _get(u, rng)
             msgs = _split(data)
             if len(msgs) != len(key):
                 raise ValueError(f"bytes {rng}: {len(msgs)} messages where the index lists {len(key)}")
             return list(zip(key, msgs)), len(data)
 
         vals: Dict[str, List[float]] = {}
-        total = len(idx)
         pool = ThreadPoolExecutor(threads)
         try:
             for fut in as_completed([pool.submit(run, j) for j in jobs]):
@@ -290,7 +326,7 @@ def fetch_hour(cycle: str, fh: int, latlons: List[Tuple[float, float]], terrain:
         for c in range(len(latlons)):
             cell: Dict[str, Any] = {"t_c": [round(vals[f"TMP:{p}"][c] - 273.15, 2) for p in LEVELS_HPA],
                                     "z700_m": round(vals[f"HGT:{ANCHOR_HPA}"][c], 1)}
-            for n in HYDRO:   # kg/kg -> g/kg; packing can leave values a hair below 0
+            for n in spec["hydro"]:   # kg/kg -> g/kg; packing can leave values a hair below 0
                 cell[SHORT[n]] = [round(max(0.0, vals[f"{n}:{p}"][c]) * 1000.0, 5) for p in LEVELS_HPA]
             if terrain:
                 cell["terrain_m"] = round(vals["HGT:surface"][c], 1)
@@ -387,8 +423,13 @@ def _save(path: Path, data: Dict[str, Any]) -> None:
     tmp.replace(path)
 
 
-class HRRRSLWClient:
-    def __init__(self, cache_dir: Path, workers: Optional[int] = None, deadline_s: float = DEADLINE_S):
+class SLWClient:
+    """One model's supercooled liquid at the summits (model: "hrrr" or "rrfs")."""
+
+    def __init__(self, cache_dir: Path, model: str = "hrrr", workers: Optional[int] = None, deadline_s: float = DEADLINE_S):
+        if model not in MODELS:
+            raise ValueError(f"unknown model {model!r}; expected one of {', '.join(MODELS)}")
+        self.model, self.spec = model, MODELS[model]
         self.cache_dir = Path(cache_dir)
         self.workers = workers if workers is not None else max(1, min(8, (os.cpu_count() or 2) - 1))
         self.deadline_s = deadline_s
@@ -398,6 +439,7 @@ class HRRRSLWClient:
         """fetch_hour for every job: worker processes if possible, else threads here."""
         pending = {j[1]: j for j in jobs}
         deadline = time.monotonic() + self.deadline_s
+        name = self.spec["name"]
 
         def collect(futs):
             for f in as_completed(futs, timeout=max(1.0, deadline - time.monotonic())):
@@ -409,26 +451,26 @@ class HRRRSLWClient:
             pool = None
             try:
                 pool = ProcessPoolExecutor(max_workers=min(self.workers, len(jobs)), mp_context=multiprocessing.get_context("spawn"))
-                collect([pool.submit(fetch_hour, *j) for j in jobs])
+                collect([pool.submit(fetch_hour, *j, model=self.model) for j in jobs])
             except FuturesTimeout:
-                say(f"HRRR: stopped after {self.deadline_s:.0f} s, {len(pending)} hours left for the next refresh")
+                say(f"{name}: stopped after {self.deadline_s:.0f} s, {len(pending)} hours left for the next refresh")
                 pending.clear()
             except Exception as e:          # no worker processes here: finish in threads
-                say(f"HRRR: worker processes unavailable ({type(e).__name__}), using threads")
+                say(f"{name}: worker processes unavailable ({type(e).__name__}), using threads")
             finally:
                 if pool is not None:
                     pool.shutdown(wait=False, cancel_futures=True)
         if pending:
             tp = ThreadPoolExecutor(max_workers=3)
             try:
-                collect([tp.submit(fetch_hour, *j, threads=4) for j in list(pending.values())])
+                collect([tp.submit(fetch_hour, *j, threads=4, model=self.model) for j in list(pending.values())])
             except FuturesTimeout:
-                say(f"HRRR: stopped after {self.deadline_s:.0f} s, {len(pending)} hours left for the next refresh")
+                say(f"{name}: stopped after {self.deadline_s:.0f} s, {len(pending)} hours left for the next refresh")
             finally:
                 tp.shutdown(wait=False, cancel_futures=True)
 
     def _prune(self) -> None:
-        for old in sorted(self.cache_dir.glob("hrrr_slw_*.json"))[:-KEEP_CYCLES]:
+        for old in sorted(self.cache_dir.glob(f"{self.model}_slw_*.json"))[:-KEEP_CYCLES]:
             try:
                 old.unlink()
             except OSError:
@@ -440,23 +482,24 @@ class HRRRSLWClient:
         say = progress or (lambda m: None)
         now = now or datetime.now(timezone.utc)
         started = time.monotonic()
-        cycle = latest_cycle(now)
+        name = self.spec["name"]
+        cycle = latest_cycle(now, self.model)
         if cycle is None:
-            return {"status": "error", "error_message": "no complete 00/06/12/18Z HRRR cycle on AWS in the last 36 h"}
+            return {"status": "error", "error_message": f"no complete 00/06/12/18Z {name} cycle on AWS in the last 36 h"}
         cyc = cycle.strftime("%Y%m%d%H")
         hour0 = now.replace(minute=0, second=0, microsecond=0)
-        fhs = [fh for fh in range(LAST_FH + 1) if cycle + timedelta(hours=fh) >= hour0]
+        fhs = [fh for fh in range(self.spec["last_fh"] + 1) if cycle + timedelta(hours=fh) >= hour0]
         ids = list(points)
         latlons = [[round(points[i]["lat"], 4), round(points[i]["lon"], 4)] for i in ids]
-        path = self.cache_dir / f"hrrr_slw_{cyc}.json"
+        path = self.cache_dir / f"{self.model}_slw_{cyc}.json"
         cache = _load(path)
         if cache.get("cache_version") != CACHE_VERSION or cache.get("latlons") != latlons or cache.get("levels_hpa") != LEVELS_HPA:
-            cache = {"cache_version": CACHE_VERSION, "cycle_utc": iso_hour(cycle), "source": BUCKET, "levels_hpa": LEVELS_HPA,
+            cache = {"cache_version": CACHE_VERSION, "cycle_utc": iso_hour(cycle), "source": self.spec["bucket"], "levels_hpa": LEVELS_HPA,
                      "latlons": latlons, "ij": None, "cell_latlon": None, "terrain_m": None, "hours": {}, "errors": {}, "bytes": 0}
         todo = [fh for fh in fhs if str(fh) not in cache["hours"]]
         new_bytes = 0
         if todo:
-            say(f"HRRR {cycle:%H}Z: {len(todo)} hours to download")
+            say(f"{name} {cycle:%H}Z: {len(todo)} hours to download")
             need_terrain = cache.get("terrain_m") is None
             jobs = [(cyc, fh, [tuple(x) for x in latlons], need_terrain and k < 2) for k, fh in enumerate(todo)]
             done = [0]
@@ -479,7 +522,7 @@ class HRRRSLWClient:
                     cache["bytes"] = cache.get("bytes", 0) + r.get("bytes", 0)
                 done[0] += 1
                 if done[0] % 8 == 0 or done[0] == len(todo):
-                    say(f"HRRR {cycle:%H}Z: {done[0]}/{len(todo)} hours")
+                    say(f"{name} {cycle:%H}Z: {done[0]}/{len(todo)} hours")
                 cache["updated_at_utc"] = datetime.now(timezone.utc).isoformat()
                 _save(path, cache)
 
@@ -490,7 +533,7 @@ class HRRRSLWClient:
             errs = sorted(set(cache.get("errors", {}).values()))
             what = "no hours decoded" if not have else "model terrain not read yet (retried on the next refresh)"
             return {"status": "error", "cycle_utc": iso_hour(cycle),
-                    "error_message": f"HRRR {cycle:%HZ %b %d}: {what}" + (f" ({errs[0]})" if errs else "")}
+                    "error_message": f"{name} {cycle:%HZ %b %d}: {what}" + (f" ({errs[0]})" if errs else "")}
         out = {}
         for c, pid in enumerate(ids):
             pt = points[pid]
@@ -503,8 +546,8 @@ class HRRRSLWClient:
             i, j = cache["ij"][c]
             la, lo = cache["cell_latlon"][c]
             out[pid] = {
-                "status": "success", "model": "HRRR", "cycle_utc": iso_hour(cycle),
-                "source": "NOAA HRRR on AWS (noaa-hrrr-bdp-pds), wrfprs pressure-level GRIB2, native fields",
+                "status": "success", "model": name, "cycle_utc": iso_hour(cycle), "last_fh": self.spec["last_fh"],
+                "source": self.spec["source"],
                 "fh_range": [have[0], have[-1]], "missing_hours": [fh for fh in fhs if fh not in have],
                 "levels_hpa": LEVELS_HPA, "column_top_hpa": LEVELS_HPA[-1],
                 "thresholds_g_kg": {"liquid": LIQ_MIN, "snow_graupel": SNOW_MIN},
@@ -519,15 +562,19 @@ class HRRRSLWClient:
         return {"status": "success", "cycle_utc": iso_hour(cycle), "points": out}
 
 
-if __name__ == "__main__":       # python3 collectors/hrrr_slw.py: fetch for the configured summits and print the columns
+if __name__ == "__main__":       # python3 collectors/hrrr_slw.py [--model rrfs]: fetch for the summits, print the columns
+    import argparse
+    ap = argparse.ArgumentParser(description="Supercooled liquid at the resort summits from HRRR or RRFS (cached in data/cache/)")
+    ap.add_argument("--model", choices=sorted(MODELS), default="hrrr")
+    args = ap.parse_args()
     cfg = json.loads((Path(__file__).resolve().parent.parent / "config" / "resorts.json").read_text())
     pts = {r["id"]: {"lat": r["elevations"]["summit"]["latitude"], "lon": r["elevations"]["summit"]["longitude"],
                      "elevation_ft": r["elevations"]["summit"]["feet"]} for r in cfg["resorts"]}
-    res = HRRRSLWClient(Path(__file__).resolve().parent.parent / "data" / "cache").fetch(pts, progress=lambda m: print(m, file=sys.stderr))
+    res = SLWClient(Path(__file__).resolve().parent.parent / "data" / "cache", args.model).fetch(pts, progress=lambda m: print(m, file=sys.stderr))
     if res["status"] != "success":
         sys.exit(res.get("error_message"))
     for pid, p in res["points"].items():
-        print(f"{pid}: HRRR {p['cycle_utc']} hours {p['fh_range']}, cell {p['cell']}, {p['download']}")
+        print(f"{pid}: {p['model']} {p['cycle_utc']} hours {p['fh_range']}, cell {p['cell']}, {p['download']}")
         for h in p["hours"]:
             s = h["summit"] or {}
             print(f"  {h['time']}  column {h['slw_col_kg_m2']:.3f} kg/m2  riming {h['rime_col_kg_m2']:.3f}  "

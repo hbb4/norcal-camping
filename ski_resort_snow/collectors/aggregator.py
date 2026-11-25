@@ -27,7 +27,7 @@ try:
     from .grid_terrain import terrain_ft
     from .nbm_downscale import Downscaler
     from .verification import ForecastVerifier
-    from .hrrr_slw import HRRRSLWClient
+    from .hrrr_slw import MODELS as SLW_MODELS, SLWClient
 except ImportError:
     import http_ssl  # noqa: F401
     from open_meteo_client import OpenMeteoClient
@@ -40,7 +40,7 @@ except ImportError:
     from grid_terrain import terrain_ft
     from nbm_downscale import Downscaler
     from verification import ForecastVerifier
-    from hrrr_slw import HRRRSLWClient
+    from hrrr_slw import MODELS as SLW_MODELS, SLWClient
 
 try:
     from data.mock_live_data import generate_mock_live_snow_dataset
@@ -81,7 +81,7 @@ class SnowAggregator:
         self.caltrans = CaltransClient()
         self.raob = RaobClient()
         self.nbm = NBMClient(self.data_dir / "cache")
-        self.hrrr_slw = HRRRSLWClient(self.data_dir / "cache")
+        self.slw = {m: SLWClient(self.data_dir / "cache", m) for m in SLW_MODELS}      # HRRR to 48 h, RRFS to 84 h
         self.verifier = ForecastVerifier(self.data_dir, self.cdec)
 
     @staticmethod
@@ -143,20 +143,23 @@ class SnowAggregator:
         now = _now()
         out: Dict[str, Any] = {"metadata": {}, "resorts": {}}
 
-        # HRRR supercooled liquid at the summits runs beside everything else: a new cycle is
-        # ~0.55 GB of byte-range downloads (worker processes, ~70 s), a cached one a single request.
+        # HRRR and RRFS supercooled liquid at the summits run beside everything else, one model after
+        # the other (each uses a pool of worker processes). A new cycle is ~0.55 GB of byte-range
+        # downloads for HRRR (~70 s) and ~1.2 GB for RRFS (~2.5 min); a cached one is a single request.
         slw_pts = {r["id"]: {"lat": r["elevations"]["summit"]["latitude"], "lon": r["elevations"]["summit"]["longitude"],
                              "elevation_ft": r["elevations"]["summit"]["feet"]} for r in self.resorts_cfg.get("resorts", [])}
-        slw_res: Dict[str, Any] = {}
+        slw_res: Dict[str, Dict[str, Any]] = {m: {} for m in self.slw}
 
         def run_slw():
-            try:
-                slw_res.update(self.hrrr_slw.fetch(slw_pts, progress=lambda m: say(m, "running")))
-            except Exception as e:
-                slw_res.update({"status": "error", "error_message": f"{type(e).__name__}: {e}"})
+            for m, client in self.slw.items():
+                try:
+                    slw_res[m].update(client.fetch(slw_pts))
+                except Exception as e:
+                    slw_res[m].update({"status": "error", "error_message": f"{type(e).__name__}: {e}"})
 
-        say("HRRR supercooled liquid", "running")
-        slw_thread = threading.Thread(target=run_slw, name="hrrr-slw", daemon=True)
+        for m in self.slw:
+            say(f"{SLW_MODELS[m]['name']} supercooled liquid", "running")
+        slw_thread = threading.Thread(target=run_slw, name="slw-models", daemon=True)
         slw_thread.start()
 
         say("Caltrans chain controls", "running")
@@ -292,12 +295,14 @@ class SnowAggregator:
             }
 
         slw_thread.join()
-        for rid, r in out["resorts"].items():
-            new = (slw_res.get("points") or {}).get(rid) if slw_res.get("status") == "success" else None
-            new = new or {"status": "error", "error_message": slw_res.get("error_message") or "no HRRR data for this summit"}
-            r["sources"]["hrrr_slw"] = self._keep_or_fail(new, ((prev_resorts.get(rid) or {}).get("sources") or {}).get("hrrr_slw"),
-                                                          new.get("status") == "success")
-        say("HRRR supercooled liquid", "done" if slw_res.get("status") == "success" else "error")
+        for m, res in slw_res.items():          # sources.hrrr_slw, sources.rrfs_slw
+            name, key = SLW_MODELS[m]["name"], f"{m}_slw"
+            for rid, r in out["resorts"].items():
+                new = (res.get("points") or {}).get(rid) if res.get("status") == "success" else None
+                new = new or {"status": "error", "error_message": res.get("error_message") or f"no {name} data for this summit"}
+                r["sources"][key] = self._keep_or_fail(new, ((prev_resorts.get(rid) or {}).get("sources") or {}).get(key),
+                                                       new.get("status") == "success")
+            say(f"{name} supercooled liquid", "done" if res.get("status") == "success" else "error")
 
         out["metadata"] = {
             "generated_at_utc": now,

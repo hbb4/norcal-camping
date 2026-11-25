@@ -9,7 +9,7 @@ Snow forecast, observation and road-condition dashboard for Palisades Tahoe (Oly
 - **Now**: a station observations section (right after the overview) lists the resort's base, mid and summit weather stations beside the selected model's first hour, both its 2 m value and the model column's free-air temperature at each station's height. At hour 0 the scene, phase panel and pills also use the station readings (footnoted).
 - **Elevation time series**: temperature (2 m and free air), RH and visibility at base, mid and summit.
 - **Uncertainty**: 10th–90th percentile ranges from the ensembles; 7-day fan chart.
-- **Atmospheric profile**: DGZ height and pressure, ice saturation and lift; precipitation type by elevation with dry bulb, wet bulb and dew-point depression per tier; supercooled liquid water above the summit from HRRR's native output on AWS (cloud and rain water colder than 0 °C by hour and pressure level, with the 0/−10/−20 °C isotherms, the DGZ, riming layers where snow or graupel shares the layer, and the column total); skew-T log-P (model at any hour, or the latest Reno radiosonde; HRRR/GFS column when NBM is selected); ice-crystal habit diagram with temperature × supersaturation regions and the base, mid and summit points. A second time slider in this section moves with the one in the hero.
+- **Atmospheric profile**: DGZ height and pressure, ice saturation and lift; precipitation type by elevation with dry bulb, wet bulb and dew-point depression per tier; supercooled liquid water above the summit from HRRR (to 48 h) or RRFS (to 84 h) native output on AWS, with a switch between them (cloud and rain water colder than 0 °C by hour and pressure level, with the 0/−10/−20 °C isotherms, the DGZ, riming layers where snow or graupel shares the layer, and the column total); skew-T log-P (model at any hour, or the latest Reno radiosonde; HRRR/GFS column when NBM is selected); ice-crystal habit diagram with temperature × supersaturation regions and the base, mid and summit points. A second time slider in this section moves with the one in the hero.
 - **Observations**: CDEC snow pillows SQV (8,010 ft, NRCS location) and WC3 (6,750 ft), radiosondes, NWS Reno discussion and alerts.
 - **Verification**: every forecast is archived and compared with the snow sensors once its 48 h window has passed.
 - **Roads**: Caltrans chain controls on routed road geometry, with Interstate, U.S. Route and California State Route shields drawn to the real sign designs.
@@ -46,7 +46,7 @@ ski_resort_snow/
 │   ├── grib2_simple.py            # Pure-Python GRIB2 reader (Lambert grid, simple packing)
 │   ├── grib2_complex.py           # GRIB2 complex packing + spatial differencing (NBM archive files, HRRR point values)
 │   ├── nbm_archive.py             # NBM archive on AWS: index, byte ranges, extended box
-│   ├── hrrr_slw.py                # HRRR on AWS: supercooled liquid, riming layers and column total at the summits
+│   ├── hrrr_slw.py                # HRRR and RRFS on AWS: supercooled liquid, riming layers and column total at the summits
 │   ├── storm_days.py              # Storm-days from SNOTEL hourly data (QC rules applied)
 │   ├── nbm_downscale.py           # Moves NBM/NWS cell values to tier elevations (local regression)
 │   ├── grid_terrain.py            # 2.5 km cell terrain heights from the NWS grid (cached)
@@ -111,7 +111,7 @@ python3 update_snow_data.py
 ```
 
 This will:
-1. Query Open-Meteo, NOAA/NWS Reno, CDEC sensors (`SQV`, `WC3`), resort reports, Caltrans CWWP2, and HRRR on AWS (a new 00/06/12/18Z cycle is about 0.55 GB of byte-range downloads and a minute of work, once per 6 hours; it is cached in `data/cache/`).
+1. Query Open-Meteo, NOAA/NWS Reno, CDEC sensors (`SQV`, `WC3`), resort reports, Caltrans CWWP2, and HRRR and RRFS on AWS (a new 00/06/12/18Z cycle is about 0.55 GB of byte-range downloads for HRRR and 1.2 GB for RRFS, 3–4 minutes of work in all, once per 6 hours; cached in `data/cache/`).
 2. Calculate consensus forecast ranges, elevation spreads, powder scores, wind-hold alerts, and road restrictions.
 3. Save the consolidated JSON to `data/live_snow_data.json`.
 4. Automatically update the embedded data in `dashboard.html`.
@@ -163,9 +163,10 @@ Baseline scores for NBM at the SNOTEL sites (after `nbm_archive_sync.py fetch`):
 ```bash
 python3 calibration_baseline.py --md
 ```
-HRRR supercooled liquid at both summits, hour by hour, without a full refresh (same cache as the server):
+HRRR or RRFS supercooled liquid at both summits, hour by hour, without a full refresh (same cache as the server):
 ```bash
 python3 collectors/hrrr_slw.py
+python3 collectors/hrrr_slw.py --model rrfs
 ```
 
 ---
