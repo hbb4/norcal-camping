@@ -954,3 +954,48 @@ kbd { font-family: var(--font-mono); font-size: 11px; padding: 2px 6px; border-r
 .whisker-axis span:last-child { transform: translateX(-100%); }
 .slw-after { margin: 10px 0; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 13px; color: var(--ink-2); }
 .slw-after .text-btn { margin-left: 6px; }
+
+/* v18: run picker (right rail on wide screens, bottom sheet on narrow ones) */
+.run-bar { position: fixed; z-index: 1100; right: 14px; top: 50%; transform: translateY(-50%); width: 118px; max-height: calc(100vh - 140px);
+  display: flex; flex-direction: column; padding: 10px 8px; border-radius: 16px; background: var(--surface-solid); border: 1px solid var(--line);
+  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.6); }
+.run-bar[hidden] { display: none; }
+.run-bar-toggle { display: none; }
+.run-bar-body { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.run-bar-head { display: flex; flex-direction: column; gap: 1px; padding: 0 3px; }
+.run-bar-head small { font-size: 10.5px; color: var(--ink-2); }
+.run-list { display: flex; flex-direction: column; gap: 5px; overflow-y: auto; scrollbar-width: none; }
+.run-list::-webkit-scrollbar { display: none; }
+.run-chip { display: grid; grid-template-columns: 1fr auto; gap: 0 4px; align-items: baseline; text-align: left; padding: 6px 8px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; font: inherit; }
+.run-chip b { font-size: 12px; font-family: var(--font-mono); }
+.run-chip small { font-size: 10px; color: var(--ink-3); }
+.run-chip span { grid-column: 1 / -1; font-size: 10.5px; color: var(--ice); font-family: var(--font-mono); }
+.run-chip:hover { border-color: var(--line-strong); }
+.run-chip.active { background: var(--ink); border-color: var(--ink); color: #0b1220; }
+.run-chip.active small, .run-chip.active span { color: #334155; }
+.run-bar-hint { font-size: 9.5px; color: var(--ink-3); line-height: 1.35; padding: 0 3px; }
+@media (min-width: 1100px) { .page { margin-right: max(140px, calc((100vw - 1320px) / 2)); } }
+@media (max-width: 1099px) {
+  .run-bar { top: auto; transform: none; right: 10px; bottom: calc(78px + env(safe-area-inset-bottom)); width: auto; max-width: calc(100vw - 20px); padding: 6px; }
+  .run-bar-toggle { display: block; font: inherit; font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); cursor: pointer; }
+  .run-bar:not(.open) .run-bar-body { display: none; }
+  .run-bar.open .run-bar-body { margin-top: 6px; max-height: 50vh; }
+  .run-bar.open .run-list { flex-direction: row; flex-wrap: wrap; max-width: 330px; }
+}
+
+/* bluebird index ring */
+.verdict-score.bluebird { margin-top: 10px; }
+.ring-fg.ring-blue { stroke: #38bdf8; }
+
+/* roads legend: two columns, one line each */
+.map-legend { max-width: none; padding: 7px 10px; }
+.map-legend-title span { font-weight: 500; color: var(--ink-3); }
+.map-legend-grid { display: grid; grid-template-columns: repeat(2, auto); gap: 1px 14px; }
+.map-legend-grid .map-legend-row { grid-template-columns: 22px 46px auto; white-space: nowrap; margin: 1px 0; }
+
+/* roads legend: a single line under the map */
+.map-legend-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 8px 2px 0; padding: 6px 10px; box-shadow: none; background: transparent; border: 0; }
+.map-legend-strip .map-legend-title { margin: 0 4px 0 0; }
+.map-legend-strip .map-legend-row { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; margin: 0; }
+.map-legend-strip .map-legend-row > span:last-child { color: var(--ink-3); }

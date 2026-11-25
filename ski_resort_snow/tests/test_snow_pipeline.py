@@ -1069,6 +1069,37 @@ class TestModelList(unittest.TestCase):
             self.assertIn("rrfs unfitted", b["weights_note"])
 
 
+class TestRunArchive(unittest.TestCase):
+    """Past runs for the page's run picker: keyed by the newest run, pruned to KEEP_RUNS, indexed with totals."""
+
+    def test_archive_and_prune(self):
+        import gzip
+        import tempfile
+        from collectors.aggregator import SnowAggregator, KEEP_RUNS
+
+        def out(run_hour, snow):
+            init = f"2026-11-{20 + run_hour // 24:02d}T{run_hour % 24:02d}:00:00+00:00"
+            return {"status": "success", "model": {"id": "icon", "runs": [{"model": "dwd_icon", "run_init_utc": init}]},
+                    "summit_summary": {"snow_48h": snow, "snow_7d": snow * 2, "hours_available": 165},
+                    "elevation_timelines": {"summit": [{"time": "t"}]}, "hourly_timeline": [{"time": "t"}]}
+        self.assertEqual(SnowAggregator.run_key({"model": {"runs": [{"run_init_utc": "2026-11-25T00:00:00+00:00"},
+                                                                      {"run_init_utc": "2026-11-24T18:00:00+00:00"}]}}), "2026112500")
+        self.assertIsNone(SnowAggregator.run_key({"model": {"runs": [{"run_note": "run time not reported"}]}}))
+        with tempfile.TemporaryDirectory() as tmp:
+            agg = SnowAggregator.__new__(SnowAggregator)
+            d = Path(tmp)
+            for k in range(KEEP_RUNS + 3):
+                agg._archive_runs(d, {"icon": out(6 * k, float(k))}, {})
+            files = sorted((d / "runs" / "icon").glob("*.json.gz"))
+            self.assertEqual(len(files), KEEP_RUNS)                                  # oldest pruned
+            idx = json.loads((d / "runs" / "icon" / "index.json").read_text())["runs"]
+            self.assertEqual([r["run"] for r in idx], sorted((f.name[:10] for f in files), reverse=True))   # newest first, only kept runs
+            self.assertEqual(idx[0]["summit"]["snow_48h"], float(KEEP_RUNS + 2))
+            body = json.loads(gzip.decompress(files[-1].read_bytes()))
+            self.assertNotIn("hourly_timeline", body)                               # the duplicate summit timeline is dropped
+            self.assertEqual(body["run_key"], files[-1].name[:10])
+
+
 class TestSkillReport(unittest.TestCase):
     """Storm grouping, out-of-sample bias correction, categorical scores, neighborhood estimates."""
 

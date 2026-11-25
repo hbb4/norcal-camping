@@ -440,6 +440,9 @@
       const score = midFresh + fresh * 0.4 - Math.max(0, gust - 40) * 0.35 - (x.snowfall_rate_in_hr > 2 ? 3 : 0);
       if (!best || score > best.score) best = { i, d, fresh, midFresh, gust, summitGust: x.gust_mph || 0, score };
     });
+    const runH = stAll.length;
+    if ($("best-label")) $("best-label").textContent = `Best window, 9 AM–1 PM, ${runH >= 160 ? "next 7 days" : `to +${runH - 1} h`}`;
+    renderBluebird(tls);
     if (best && best.midFresh >= 2) {
       $("best-when").textContent = `${dayName(best.d)} ${hourName(best.d)}`;
       $("best-why").textContent = `${U.snow(best.midFresh, 0)} new at mid in prior 18 h · mid gust ${Math.round(best.gust)} mph · summit gust ${Math.round(best.summitGust)} mph`;
@@ -449,6 +452,55 @@
       $("best-why").textContent = `Less than ${U.snow(2, 0)} new at mid in any 18 h window`;
       delete $("best-when").dataset.hour;
     }
+  }
+
+  // ---------------------------------------------------------------- bluebird index
+  // 0-10 per hour at mid-mountain: sky from cloud cover (clear 10, partly cloudy ~7-8, overcast ~2), 0 while it
+  // snows or rains, minus 0.1 per °F below 20 °F (at most 2). The index is the 9 AM–3 PM mean of the next
+  // daylight period; the best day is the highest 9 AM–3 PM mean in the selected model's run.
+  const SKY_PTS = [[0, 10], [20, 9.5], [50, 7.5], [75, 4.5], [90, 2.5], [100, 2]];
+  function skyScore(c) {
+    if (c == null) return null;
+    for (let i = 1; i < SKY_PTS.length; i++) {
+      const [x0, y0] = SKY_PTS[i - 1], [x1, y1] = SKY_PTS[i];
+      if (c <= x1) return y0 + (y1 - y0) * (c - x0) / (x1 - x0);
+    }
+    return 2;
+  }
+  function bluebirdHour(x) {
+    if (!x) return null;
+    if ((x.precip_in || 0) >= 0.01 || (x.snowfall_rate_in_hr || 0) >= 0.05) return 0;
+    const s = skyScore(x.cloud_cover_pct);
+    if (s == null) return null;
+    const cold = x.temp_f != null ? Math.min(2, Math.max(0, (20 - x.temp_f) * 0.1)) : 0;
+    return Math.max(0, Math.min(10, s - cold));
+  }
+  function renderBluebird(tls) {
+    const tl = tls.mid || tls.summit || [];
+    const byDay = {};
+    tl.forEach((x, i) => {
+      const d = new Date(x.time), h = d.getHours();
+      if (h < 9 || h > 15) return;
+      const k = d.toLocaleDateString("en-CA"), v = bluebirdHour(x);
+      if (v == null) return;
+      (byDay[k] = byDay[k] || { k, d, vals: [], cloud: [], precipH: 0, tmin: 99, i0: i }).vals.push(v);
+      byDay[k].cloud.push(x.cloud_cover_pct); if ((x.precip_in || 0) >= 0.01) byDay[k].precipH++; byDay[k].tmin = Math.min(byDay[k].tmin, x.temp_f ?? 99);
+    });
+    const days = Object.values(byDay).filter(d => d.vals.length >= 4).map(d => ({ ...d, score: d.vals.reduce((a, v) => a + v, 0) / d.vals.length }));
+    const val = $("kpi-bluebird-val"), ring = $("bluebird-ring");
+    const first = days[0], best = days.slice().sort((a, b) => b.score - a.score)[0];
+    if (val) val.textContent = first ? first.score.toFixed(1) : "--";
+    if (ring) ring.style.strokeDashoffset = `${314.16 * (1 - Math.min(10, first ? first.score : 0) / 10)}`;
+    const def = $("bluebird-def");
+    if (def) {
+      def.textContent = first ? `${first.d.toLocaleDateString("en-CA") === new Date().toLocaleDateString("en-CA") ? "Today" : dayName(first.d)}, 9 AM–3 PM, mid-mountain · 0–10` : "0–10 · mid-mountain";
+      def.title = "Mean of hourly scores, 9 AM–3 PM: clear sky 10, partly cloudy about 7–8, overcast about 2; 0 in any hour with snow or rain (≥ 0.01 in); minus 0.1 per °F below 20 °F, at most 2.";
+    }
+    const lbl = $("bluebird-when-label");
+    if (lbl) lbl.textContent = `Best day, 9 AM–3 PM, ${tl.length >= 160 ? "next 7 days" : `to +${tl.length - 1} h`}`;
+    const bw = $("bluebird-best"), why = $("bluebird-why");
+    if (bw) { bw.textContent = best ? `${dayName(best.d)} ${best.score.toFixed(1)}` : "--"; if (best) bw.dataset.hour = best.i0; else delete bw.dataset.hour; }
+    if (why) why.textContent = best ? `cloud ${Math.round(Math.min(...best.cloud))}–${Math.round(Math.max(...best.cloud))}%${best.precipH ? ` · ${best.precipH} h with precipitation` : " · dry"} · low ${U.tempShort(best.tmin)}` : "";
   }
 
   // ---------------------------------------------------------------- 7-day
@@ -752,6 +804,9 @@
     document.querySelectorAll("[data-speed]").forEach(b => b.addEventListener("click", nextSpeed));
     setSpeed(state.speed);
     $("best-when") && $("best-when").addEventListener("click", e => { const h = e.currentTarget.dataset.hour; if (h != null) setHour(+h); });
+    $("bluebird-best") && $("bluebird-best").addEventListener("click", e => { const h = e.currentTarget.dataset.hour; if (h != null) setHour(+h); });
+    const rbt = $("run-bar-toggle");
+    rbt && rbt.addEventListener("click", () => { const bar = $("run-bar"), open = !bar.classList.contains("open"); bar.classList.toggle("open", open); rbt.setAttribute("aria-expanded", String(open)); });
 
     // snow toggle (persisted per viewer)
     const tog = $("toggle-snowfx");
@@ -804,6 +859,7 @@
       else if (k === " ") { e.preventDefault(); togglePlay(); }
       else if (k === "x") nextSpeed();
       else if ((k === "arrowright" || k === "arrowleft") && e.target.type !== "range") { e.preventDefault(); togglePlay(false); setHour(state.hour + (k === "arrowright" ? 1 : -1)); }
+      else if ((k === "arrowup" || k === "arrowdown") && e.target.type !== "range" && window.stepRun) { e.preventDefault(); window.stepRun(k === "arrowup" ? 1 : -1); }
       else if (k === "f" && tog) { tog.checked = !tog.checked; tog.dispatchEvent(new Event("change")); }
       else if (k === "r") $("btn-refresh") && $("btn-refresh").click();
       else if (k === "[" || k === "]") {

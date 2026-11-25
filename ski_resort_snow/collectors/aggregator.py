@@ -9,6 +9,7 @@ Rules:
 * Each run is archived and verified against CDEC sensors (see verification.py).
 """
 
+import gzip
 import json
 import threading
 from datetime import datetime, timezone
@@ -50,6 +51,7 @@ except ImportError:
     from data.mock_live_data import generate_mock_live_snow_dataset
 
 M_PER_FT = 0.3048
+KEEP_RUNS = 8   # past runs kept per model (data/models/<resort>/runs/<model>/), for the page's run picker
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -289,6 +291,10 @@ class SnowAggregator:
                     entry["corrected_available"] = True
                     entry["corrected_summary"] = co.get("summit_summary")
                 available.append(entry)
+            try:
+                self._archive_runs(model_dir, models, corrected)
+            except Exception as e:  # the run history never takes the refresh down
+                say(f"{name}: run archive failed: {e}", "running")
             if models:
                 om["available_models"] = available
                 om["scales"] = self._scales(models)
@@ -335,6 +341,55 @@ class SnowAggregator:
             out["verification"] = {"error": str(e), "history": []}
         say("Verification archive", "done")
         return out
+
+    # ------------------------------------------------------------------ run history
+    @staticmethod
+    def run_key(mo: Dict[str, Any]) -> Optional[str]:
+        """YYYYMMDDHH of a model output's newest run (for a blend: its newest member's)."""
+        inits = [r.get("run_init_utc") for r in ((mo.get("model") or {}).get("runs") or []) if r.get("run_init_utc")]
+        if not inits:
+            return None
+        try:
+            return max(datetime.fromisoformat(i.replace("Z", "+00:00")) for i in inits).strftime("%Y%m%d%H")
+        except ValueError:
+            return None
+
+    def _archive_runs(self, model_dir: Path, models: Dict[str, Any], corrected: Dict[str, Any]) -> None:
+        """Keep each model's last KEEP_RUNS runs (gzip JSON, the duplicate summit timeline dropped) and an
+        index of their totals, so the page can step back through recent runs."""
+        now = _now()
+        outputs = {mid: mo for mid, mo in models.items()}
+        outputs.update({f"{mid}.corrected": mo for mid, mo in (corrected or {}).items()})
+        for key, mo in outputs.items():
+            if mo.get("status") != "success":
+                continue
+            run = self.run_key(mo)
+            if not run:
+                continue
+            d = model_dir / "runs" / key
+            d.mkdir(parents=True, exist_ok=True)
+            path = d / f"{run}.json.gz"
+            is_blend = bool((mo.get("model") or {}).get("members"))
+            if not path.exists() or is_blend:     # a single model's run never changes; a blend's can (other members)
+                slim = {k: v for k, v in mo.items() if k != "hourly_timeline"}
+                slim.update({"run_key": run, "archived_at_utc": now})
+                with gzip.open(path, "wt", encoding="utf-8") as f:
+                    json.dump(slim, f, separators=(",", ":"))
+            runs = sorted(d.glob("*.json.gz"), reverse=True)
+            for old in runs[KEEP_RUNS:]:
+                old.unlink()
+            idx_path = d / "index.json"
+            try:
+                idx = {r["run"]: r for r in json.loads(idx_path.read_text()).get("runs", [])}
+            except Exception:
+                idx = {}
+            s = mo.get("summit_summary") or {}
+            idx[run] = {"run": run, "archived_at_utc": idx.get(run, {}).get("archived_at_utc", now), "updated_at_utc": now,
+                        "runs": [{"model": r.get("model"), "run_init_utc": r.get("run_init_utc")} for r in ((mo.get("model") or {}).get("runs") or [])],
+                        "summit": {k: s.get(k) for k in ("snow_48h", "snow_7d", "liquid_48h", "liquid_7d", "hours_available")},
+                        "mid_48h": mo.get("mid_48h_inches"), "base_48h": mo.get("base_48h_inches")}
+            keep = {p.name[:-8] for p in d.glob("*.json.gz")}
+            idx_path.write_text(json.dumps({"model": key, "runs": sorted((v for k, v in idx.items() if k in keep), key=lambda r: r["run"], reverse=True)}))
 
     # ------------------------------------------------------------------ consensus
     def _calculate_consensus(self, resort: Dict[str, Any], om: Dict[str, Any], nws: Dict[str, Any]) -> Dict[str, Any]:

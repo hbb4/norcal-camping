@@ -195,6 +195,25 @@ async function ensureModel(resort) {
   const card = (def.available_models || []).find(m => m.id === want) || {};
   const corr = !!Prefs.get("precipCorr") && !!card.corrected_available;
   resort._corrected = corr;
+  // run history: a past run of this model (null = the latest); switching model or the switch resets it
+  const runFile = corr ? `${want}.corrected` : want;
+  if (resort._runFor !== runFile) { resort._runFor = runFile; resort._run = null; }
+  if (resort._run) {
+    const key = `${resort.id}|${runFile}|run${resort._run}`;
+    if (!ModelCache[key]) {
+      try {
+        const r = await fetch(`/api/run?resort=${resort.id}&model=${encodeURIComponent(runFile)}&run=${resort._run}`, { cache: "no-store" });
+        if (r.ok) { const m = await r.json(); m.hourly_timeline = (m.elevation_timelines || {}).summit || []; ModelCache[key] = m; }
+      } catch (e) { /* static file mode: no run history */ }
+    }
+    const m = ModelCache[key];
+    if (m) {
+      m.available_models = def.available_models; m.scales = def.scales;
+      resort.sources.open_meteo = m; resort.consensus_forecast = m.consensus_forecast || resort._consDefault; resort._modelId = want;
+      return;
+    }
+    resort._run = null;
+  }
   if (want === defId && !corr) {
     resort.sources.open_meteo = def; resort.consensus_forecast = resort._consDefault; resort._modelId = defId;
     return;
@@ -233,8 +252,9 @@ function renderModelBar(resort) {
   };
   box.innerHTML = list.map(m => `<button class="model-chip${m.id === cur ? " active" : ""}" role="tab" data-model="${m.id}" ${m.status !== "success" ? "disabled" : ""}
       title="${m.provider} · ${m.grid} · sounding: ${m.sounding_label}${m.sounding_has_vertical_velocity ? "" : " (no vertical velocity)"} · ${m.hours_available ?? "?"} h">
-      <b>${m.label}</b><small>${m.members ? `${m.members.length} models` : runOf(m)}${m.hours_available && m.hours_available < 160 ? ` · ${Math.round(m.hours_available / 24 * 10) / 10} d` : ""}${corrOn && m.corrected_available ? " · elev. adj." : ""}</small></button>`).join("");
+      <b>${m.label}</b><small>${m.members ? `${m.members.length} models` : runOf(m)}${corrOn && m.corrected_available ? " · elev. adj." : ""}</small></button>`).join("");
   box.querySelectorAll(".model-chip").forEach(b => b.addEventListener("click", () => { Prefs.set("model", b.dataset.model); renderDashboard(); }));
+  renderRunBar(resort);
   // corrected-precipitation toggle: applies to the six single models (NBM is already elevation-adjusted;
   // the blends have their own Elevation-adjusted blend entry)
   const tg = document.getElementById("corr-toggle");
@@ -254,8 +274,54 @@ function renderModelBar(resort) {
   const gp = om.nbm_grid_points;
   const shared = gp && gp.mid && gp.summit && gp.mid.grid_lat === gp.summit.grid_lat && gp.mid.grid_lon === gp.summit.grid_lon;
   const adjNote = om.nbm_elevation_adjustment ? " · values moved from the 2.5 km cells to each tier's elevation" : (shared ? " · mid and summit share one 2.5 km grid point" : "");
-  if (note) note.textContent = resort._modelError || `${(om.primary_model || {}).label || ""} · ${(om.model || {}).hours_available ?? "?"} h · fetched ${Fmt.ago(om.fetched_at_utc)}${adjNote}`;
+  const runNote = resort._run ? ` · past run ${resort._run.slice(4, 6)}/${resort._run.slice(6, 8)} ${resort._run.slice(8, 10)}Z` : "";
+  if (note) note.textContent = resort._modelError || `${(om.primary_model || {}).label || ""} · ${(om.model || {}).hours_available ?? "?"} h · fetched ${Fmt.ago(om.fetched_at_utc)}${adjNote}${runNote}`;
 }
+
+/* Run picker: the selected model's recent runs (archived by each refresh), newest first, with each
+   run's summit 48 h and extended snow so the trend reads down the list. Up/Down step through it. */
+const RunIndex = {};
+async function renderRunBar(resort) {
+  const bar = document.getElementById("run-bar"), list = document.getElementById("run-list");
+  if (!bar || !list) return;
+  const file = resort._runFor;
+  const key = `${resort.id}|${file}|${snowData.metadata.generated_at_utc}`;
+  if (!(key in RunIndex)) {
+    RunIndex[key] = null;
+    try { const r = await fetch(`/api/runs?resort=${resort.id}&model=${encodeURIComponent(file)}`, { cache: "no-store" }); RunIndex[key] = r.ok ? (await r.json()).runs || [] : []; }
+    catch (e) { RunIndex[key] = []; }
+  }
+  const runs = RunIndex[key] || [];
+  bar.hidden = runs.length < 2;
+  if (runs.length < 2) return;
+  const cur = resort._run || runs[0].run;
+  const fmtRun = k => `${k.slice(4, 6)}/${k.slice(6, 8)} ${k.slice(8, 10)}Z`;
+  const latestMs = Date.UTC(+runs[0].run.slice(0, 4), +runs[0].run.slice(4, 6) - 1, +runs[0].run.slice(6, 8), +runs[0].run.slice(8, 10));
+  const lab = document.getElementById("run-bar-model");
+  const om = resort.sources.open_meteo || {};
+  if (lab) lab.textContent = `${((om.model || {}).label || "").replace(/ \(.*\)$/, "")}${resort._corrected ? " · elev. adj." : ""}`;
+  list.innerHTML = runs.map((r, i) => {
+    const ms = Date.UTC(+r.run.slice(0, 4), +r.run.slice(4, 6) - 1, +r.run.slice(6, 8), +r.run.slice(8, 10));
+    const age = i === 0 ? "latest" : `−${Math.round((latestMs - ms) / 3600e3)} h`;
+    const s = r.summit || {};
+    const ext = s.hours_available != null && s.hours_available < 160 ? `to +${s.hours_available - 1} h` : "extended";
+    return `<button class="run-chip${r.run === cur ? " active" : ""}" data-run="${r.run}" title="Summit: ${U.snow(s.snow_48h ?? 0)} in 48 h, ${U.snow(s.snow_7d ?? 0)} ${ext}">
+      <b>${fmtRun(r.run)}</b><small>${age}</small><span>${U.snow(s.snow_48h ?? 0, 0)} · ${U.snow(s.snow_7d ?? 0, 0)}</span></button>`;
+  }).join("");
+  list.querySelectorAll(".run-chip").forEach(b => b.addEventListener("click", () => { resort._run = b.dataset.run === runs[0].run ? null : b.dataset.run; renderDashboard(); }));
+}
+// +1: one run newer, -1: one run older
+window.stepRun = function (dir) {
+  const resort = activeResort();
+  if (!resort) return;
+  const runs = RunIndex[`${resort.id}|${resort._runFor}|${snowData.metadata.generated_at_utc}`] || [];
+  if (runs.length < 2) return;
+  const i = Math.max(0, runs.findIndex(r => r.run === (resort._run || runs[0].run)));
+  const j = Math.max(0, Math.min(runs.length - 1, i - dir));
+  if (j === i) return;
+  resort._run = j === 0 ? null : runs[j].run;
+  renderDashboard();
+};
 
 let renderSeq = 0;
 async function renderDashboard() {
@@ -362,11 +428,11 @@ function renderKPIs(resort) {
       const m = om[t] || {}, w = nt[t] || {};
       const v = k => (w[k] || {}).value;
       return `<tr><td><b>${{ base: "Base", mid: "Mid", summit: "Summit" }[t]}</b><small>${(elv[`${t}_ft`] || 0).toLocaleString()} ft</small></td>
-        <td>${sn(m.snow_24h_inches)}</td><td>${sn(m.snow_48h_inches)}</td><td>${sn(m.snow_7d_total_inches)}</td>
+        <td>${sn(m.snow_24h_inches)}</td><td>${sn(m.snow_48h_inches)}</td><td>${(m.hours_available ?? 168) < 160 ? `<span class="muted">ends +${m.hours_available - 1} h</span>` : sn(m.snow_7d_total_inches)}</td>
         <td>${sn(v("24h"))}</td><td>${sn(v("48h"))}</td><td>${sn(v("total"))}</td></tr>`;
     };
     tc.innerHTML = `<thead><tr><th></th><th colspan="3" class="grp">${label}</th><th colspan="3" class="grp">NWS gridded</th></tr>
-      <tr><th></th><th>24 h</th><th>48 h</th><th>7 d</th><th>24 h</th><th>48 h</th><th>to ${thruTxt}</th></tr></thead>
+      <tr><th></th><th>24 h</th><th>48 h</th><th>Extended</th><th>24 h</th><th>48 h</th><th>to ${thruTxt}</th></tr></thead>
       <tbody>${row("summit")}${row("mid")}${row("base")}</tbody>`;
   }
   const nwsEl = document.getElementById("nws-line");
@@ -453,7 +519,9 @@ function renderDistribution(resort) {
   const c = resort.consensus_forecast || {};
   const om = resort.sources.open_meteo || {};
   const sc = (om.scales || {}).distribution_in;
-  const periods = [["24h", "h24", "24 h"], ["48h", "h48", "48 h"], ["7d", "d7", "7 days"]];
+  const hrs = (om.summit || {}).hours_available ?? (om.model || {}).hours_available ?? 168;
+  const shortRun = hrs < 160, mLabel = (om.model || {}).label || "selected model";
+  const periods = [["24h", "h24", "24 h"], ["48h", "h48", "48 h"], ["7d", "d7", "Extended (7 d)"]];
   // base on the left of each center line, summit on the right
   const sides = [["base", "#fbbf24", "Base", -1], ["summit", "#7dd3fc", "Summit", 1]];
   const unit = U.snowAxisUnit();
@@ -461,7 +529,10 @@ function renderDistribution(resort) {
   const allMax = sc ? Math.max(1, sc) : Math.max(1, ...periods.flatMap(([k, m]) => sides.flatMap(([t]) => [((c[t] || {})[k] || {}).value || 0, ...((((c[t] || {}).members || {})[m]) || [])])));
   const dt = document.getElementById("dist-title");
   const nMembers = ((c.summit || {}).members || {}).d7 ? c.summit.members.d7.length : 0;
-  if (dt) dt.textContent = `${nMembers ? nMembers + " ensemble members" : "Ensemble"} vs. ${(om.model || {}).label || "selected model"}, next 24 h, 48 h and 7 days`;
+  if (dt) dt.textContent = `${nMembers ? nMembers + " ensemble members" : "Ensemble"} vs. ${mLabel}, next 24 h, 48 h and extended (7 days)`;
+  const dsrc = document.getElementById("dist-ext-note");
+  const ex = ((om.summit || {}).ensemble || {}).extended;
+  if (dsrc) dsrc.textContent = shortRun ? `${mLabel} ends at +${hrs - 1} h, so it has no extended value. The extended shapes are the ensemble members to 7 days, converted to snow with ${mLabel}'s snow fraction and SLR to +${hrs - 1} h${ex && ex.snow_factor_from ? ` and ${ex.snow_factor_from}'s after` : ""}.` : "";
 
   const W = Math.max(280, Math.round(box.clientWidth || 360));
   const L = 40, R = 6, T = 22, PH = 170, tickH = 30, labH = 50, H = T + PH + tickH + labH;
@@ -506,7 +577,7 @@ function renderDistribution(resort) {
         const beyond = vals.filter(v => v > maxIn).length;
         if (beyond) s += `<text x="${cx + dir * 4}" y="${T + 10}" text-anchor="${dir < 0 ? "end" : "start"}" fill="${col}" font-size="10">▲ ${beyond}</text>`;
       }
-      const v = ((c[t] || {})[k] || {}).value;
+      const v = k === "7d" && shortRun ? null : ((c[t] || {})[k] || {}).value;
       if (v != null) {
         const vv = U.snowNum(v), N2 = mem.length;
         const pAt = N2 ? Math.round(100 * mem.filter(m => U.snowNum(m) >= vv).length / N2) : null;
@@ -515,8 +586,9 @@ function renderDistribution(resort) {
     });
     const by = T + PH + tickH + 16;
     s += `<text x="${cx}" y="${by}" text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="650">${label}</text>
-      <text x="${cx}" y="${by + 15}" text-anchor="middle" font-size="11" style="font-variant-numeric:tabular-nums" fill="#fbbf24">Base ${fmt(((c.base || {})[k] || {}).value)}</text>
-      <text x="${cx}" y="${by + 29}" text-anchor="middle" font-size="11" style="font-variant-numeric:tabular-nums" fill="#7dd3fc">Summit ${fmt(((c.summit || {})[k] || {}).value)}</text>`;
+      ${k === "7d" && shortRun ? `<text x="${cx}" y="${by + 15}" text-anchor="middle" font-size="11" fill="#94a3b8">${mLabel.replace(/[&<>]/g, "")} ends +${hrs - 1} h</text>
+      <text x="${cx}" y="${by + 29}" text-anchor="middle" font-size="11" fill="#94a3b8">ensemble only</text>` : `<text x="${cx}" y="${by + 15}" text-anchor="middle" font-size="11" style="font-variant-numeric:tabular-nums" fill="#fbbf24">Base ${fmt(((c.base || {})[k] || {}).value)}</text>
+      <text x="${cx}" y="${by + 29}" text-anchor="middle" font-size="11" style="font-variant-numeric:tabular-nums" fill="#7dd3fc">Summit ${fmt(((c.summit || {})[k] || {}).value)}</text>`}`;
   });
   box.innerHTML = s + "</svg>";
 }
@@ -716,7 +788,7 @@ function renderHourlyDualAxisChart(resort) {
       const v = arr[arr.length - 1];
       endLabels.push({ y: yv(v) + 4, txt: `${v.toFixed(v >= 10 ? 0 : 1)}${U.snowSuffix()} ${TIER_LABEL[t]}`, fill: sel ? "#f8fafc" : "#94a3b8", size: sel ? 11 : 10, weight: sel ? 800 : 600 });
     });
-    if (rawLabel) endLabels.push({ y: yv(rawLabel.v) + 4, txt: `${rawLabel.v.toFixed(rawLabel.v >= 10 ? 0 : 1)}${U.snowSuffix()} 7:1 field (${TIER_LABEL[currentTier]})`, fill: "#94a3b8", size: 10, weight: 500, italic: true });
+    if (rawLabel) endLabels.push({ y: yv(rawLabel.v) + 4, txt: `${rawLabel.v.toFixed(rawLabel.v >= 10 ? 0 : 1)}${U.snowSuffix()} Open-Meteo snowfall at 7:1 (${TIER_LABEL[currentTier]})`, fill: "#94a3b8", size: 10, weight: 500, italic: true });
     endLabels.sort((a, b) => a.y - b.y);
     const gap = 12, lo = p.top + 8, hi = p.top + p.h + 8;
     endLabels.forEach((l, i) => { l.y = Math.max(l.y, lo, i ? endLabels[i - 1].y + gap : lo); });
@@ -979,11 +1051,11 @@ function renderSounding(resort) {
 // Nevada roads (no live feed) are drawn as thin reference lines, left out of the list and the counts
 const isContext = seg => seg.display === "context" || seg.id === "nv28_east_shore" || seg.id === "us50_east_shore";
 const R_LEVELS = [
-  ["R-0", "#10b981", "No controls"],
-  ["R-1", "#f59e0b", "Chains or snow tires (4WD/AWD exempt)"],
-  ["R-2", "#f97316", "Chains unless 4WD/AWD + snow tires"],
-  ["R-3", "#ef4444", "Chains on everyone"],
-  ["CLOSED", "#e11d48", "Road closed"]
+  ["R-0", "#10b981", "No controls", "No controls"],
+  ["R-1", "#f59e0b", "Chains or snow tires (4WD/AWD exempt)", "Chains or snow tires"],
+  ["R-2", "#f97316", "Chains unless 4WD/AWD + snow tires", "Chains unless 4WD + snow tires"],
+  ["R-3", "#ef4444", "Chains on everyone", "Chains on all"],
+  ["CLOSED", "#e11d48", "Road closed", "Closed"]
 ];
 let roadLabelLayer = null;
 
@@ -1034,18 +1106,12 @@ function initRoadMap() {
   L.polyline([[39.1965, -120.2356], [39.1644, -120.2386]], { color: "#38bdf8", weight: 2, dashArray: "4,5", opacity: 0.8 })
     .addTo(roadMap).bindPopup(`<b>Base to Base Gondola</b><br>Subject to wind holds above ~45 mph`);
 
-  // Legend
-  const legend = L.control({ position: "bottomleft" });
-  legend.onAdd = () => {
-    const div = L.DomUtil.create("div", "map-legend");
-    div.innerHTML = `<div class="map-legend-title">Caltrans chain control</div>` +
-      R_LEVELS.map(([lvl, c, txt]) => `<div class="map-legend-row"><span class="map-legend-line${lvl === "CLOSED" ? " dashed" : ""}" style="--c:${c}"></span><b>${lvl}</b><span>${txt}</span></div>`).join("") +
-      `<div class="map-legend-row"><span class="map-legend-line map-legend-thin" style="--c:#94a3b8"></span><b>NV</b><span>Nevada roads, shown for reference</span></div>` +
-      `<div class="map-legend-row"><span class="map-legend-pass"></span><b>▲</b><span>Mountain pass</span></div><div class="map-legend-foot">Full definitions below the map</div>`;
-    L.DomEvent.disableClickPropagation(div);
-    return div;
-  };
-  legend.addTo(roadMap);
+  // Legend: one line under the map (on the map, every corner hides roads or labels)
+  if (!document.getElementById("map-legend-strip")) {
+    mapEl.insertAdjacentHTML("afterend", `<div class="map-legend map-legend-strip" id="map-legend-strip"><b class="map-legend-title">Caltrans chain control</b>` +
+      R_LEVELS.map(([lvl, c, , short]) => `<span class="map-legend-row"><span class="map-legend-line${lvl === "CLOSED" ? " dashed" : ""}" style="--c:${c}"></span><b>${lvl}</b><span>${short}</span></span>`).join("") +
+      `<span class="map-legend-row"><span class="map-legend-pass"></span><b>▲</b><span>Mountain pass</span></span></div>`);
+  }
 
   updateRoadMapData();
 }
@@ -1117,7 +1183,8 @@ function updateRoadMapData() {
     const pass = seg.coordinates && (seg.coordinates.pass || seg.coordinates.summit || seg.coordinates.echo_summit || seg.coordinates.emerald_bay_overlook);
     if (pass && seg.pass_elevation_ft > 6500 && seg.key_pass) {
       L.marker([pass.lat, pass.lon], { icon: L.divIcon({ className: "map-pass-icon", html: "▲", iconSize: [12, 12] }), interactive: false, pane: "labels" })
-        .bindTooltip(`${seg.key_pass} ${seg.pass_elevation_ft.toLocaleString()}'`, { permanent: true, direction: "top", offset: [0, -6], className: "map-label map-label-pass", pane: "labels" })
+        // southern passes (Emerald Bay, Echo) label to the right, over the lake, clear of the legend
+        .bindTooltip(`${seg.key_pass} ${seg.pass_elevation_ft.toLocaleString()}'`, pass.lat < 39.0 ? { permanent: true, direction: "right", offset: [6, 0], className: "map-label map-label-pass", pane: "labels" } : { permanent: true, direction: "top", offset: [0, -6], className: "map-label map-label-pass", pane: "labels" })
         .addTo(roadLabelLayer);
     }
   });

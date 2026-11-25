@@ -137,7 +137,7 @@
     $("skewt-sub").textContent = title;
     // init and valid time, prominently
     const RUN_NAMES = { ncep_hrrr_conus: "HRRR", ncep_gfs025: "GFS", ncep_gfs013: "GFS", ecmwf_ifs: "ECMWF IFS", ecmwf_ifs025: "ECMWF IFS 0.25°",
-      ecmwf_aifs025_single: "ECMWF AIFS", dwd_icon: "ICON", ukmo_global_deterministic_10km: "UKMO", cmc_gem_gdps: "GEM", cmc_gem_rdps: "GEM regional", ncep_rrfs_conus: "RRFS" };
+      ecmwf_aifs025_single: "ECMWF AIFS", dwd_icon: "ICON", ukmo_global_deterministic_10km: "UKMO", cmc_gem_gdps: "GEM", cmc_gem_rdps: "GEM regional", cmc_gem_rdps_10km: "GEM regional", cmc_gem_gdps_15km: "GEM global", ncep_rrfs_conus: "RRFS" };
     const tEl = $("skewt-times");
     if (tEl) {
       const fmtLocal = d => d.toLocaleString([], { weekday: "short", month: "numeric", day: "numeric", hour: "numeric" });
@@ -1001,14 +1001,14 @@
     if (ens.members) rows.push(`<tr><td><b>Ensembles</b><small>${ens.members} members</small></td><td>NOAA · ECMWF · DWD</td><td>GEFS · ECMWF ENS · ICON-EPS</td><td>uses selected model</td><td>latest</td><td>168 h</td>
       <td>${L(ens.liquid_48h && ens.liquid_48h.p10)}–${L(ens.liquid_48h && ens.liquid_48h.p90)}</td><td>–</td>
       <td>${S(ens.snow_48h.p10)}–${S(ens.snow_48h.p90)}</td><td>${S(ens.snow_7d.p10)}–${S(ens.snow_7d.p90)}</td></tr>`);
-    $("models-table").innerHTML = `<thead><tr><th>Model</th><th>Provider</th><th>Grid</th><th>Sounding</th><th>Run (UTC)</th><th>Length</th><th>Liquid 48 h</th><th>Liquid 7 d</th><th>Snow 48 h</th><th>Snow 7 d</th></tr></thead><tbody>${rows.join("")}</tbody>`;
+    $("models-table").innerHTML = `<thead><tr><th>Model</th><th>Provider</th><th>Grid</th><th>Sounding</th><th>Run (UTC)</th><th>Length</th><th>Liquid 48 h</th><th>Liquid extended</th><th>Snow 48 h</th><th>Snow extended</th></tr></thead><tbody>${rows.join("")}</tbody>`;
     const q = (o.query_points || {}).summit || {};
     $("models-sub").innerHTML = `Summit point, ${(q.elevation_ft || 0).toLocaleString()} ft. Select a model in the model bar.`;
     const mfoot = $("models-foot");
     const short = (o.model_comparison || o.available_models || []).filter(m => (m.summary || m).covers_7d === false && !m.error);
     if (mfoot) {
       mfoot.hidden = false;
-      mfoot.textContent = (short.length ? `† Run ends before 7 days (${short.map(m => `${m.label} ${(m.summary || m).hours_available ?? m.hours_available ?? "?"} h`).join(", ")}), so its 7-day total covers only the hours it has. ` : "")
+      mfoot.textContent = (short.length ? `Extended: through 7 days (+168 h). † Run ends before 7 days (${short.map(m => `${m.label} ${(m.summary || m).hours_available ?? m.hours_available ?? "?"} h`).join(", ")}), so its 7-day total covers only the hours it has. ` : "")
         + `Snow uses each model's own snow fraction and SLR from its sounding. NBM and ECMWF HRES are surface-only in Open-Meteo, so their soundings come from GFS and ECMWF IFS 0.25°. "adj." lines: the same model with Elevation-adjusted precip. Summit point ${q.lat ?? "?"}, ${q.lon ?? "?"}.`;
     }
 
@@ -1055,11 +1055,11 @@
     };
     const lw = (sm.cobb || {}).lift_weighted;
     if (sm.nbm) {
-      $("slr-table").innerHTML = `<thead><tr><th>Method</th><th>SLR 48 h</th><th>SLR 7 d</th><th>Snow 48 h</th><th>Snow 7 d</th></tr></thead><tbody>
+      $("slr-table").innerHTML = `<thead><tr><th>Method</th><th>SLR 48 h</th><th>SLR extended</th><th>Snow 48 h</th><th>Snow extended</th></tr></thead><tbody>
         ${slrRow("nbm", "NBM's own (used)", "NBM snowfall and SNOWLR fields, as published by NOAA")}
         ${slrRow("fixed_10", "Fixed 10:1", "climatological rule of thumb, for reference")}</tbody>`;
     } else
-    $("slr-table").innerHTML = `<thead><tr><th>Method</th><th>SLR 48 h</th><th>SLR 7 d</th><th>Snow 48 h</th><th>Snow 7 d</th></tr></thead><tbody>
+    $("slr-table").innerHTML = `<thead><tr><th>Method</th><th>SLR 48 h</th><th>SLR extended</th><th>Snow 48 h</th><th>Snow extended</th></tr></thead><tbody>
       ${slrRow("cobb", "Cobb-style (used)", lw === false ? "habit SLR of ice-saturated layers, weighted by depth (this model has no vertical velocity)" : "habit SLR of ice-saturated rising layers, weighted by lift × depth")}
       ${slrRow("experimental_adjusted", "Cobb-style + wind/near-freezing adjustment", "experimental, not calibrated; for comparison only")}
       ${slrRow("kuchera", "Kuchera", "warmest temperature below 500 hPa; used on model snowfall maps")}
@@ -1115,25 +1115,37 @@
       : (ceil.layers || []).some(l => l.base_msl_ft != null) ? `no ceiling; lowest clouds ${ceil.layers.find(l => l.base_msl_ft != null).base_msl_ft.toLocaleString()} ft` : "no ceiling") : null;
     const windTxt = (dir, sp, gu) => `${dir ? dir + " " : ""}${sp != null ? Math.round(sp) : "–"} mph (gust ${gu != null ? Math.round(gu) : "–"})`;
     const stRows = ["summit", "mid", "base"].filter(t => st[t]).map(t => {
-      const w = st[t], m = tl0(t), diff = (a, b) => (a != null && b != null ? `${a - b > 0 ? "+" : ""}${Math.round(a - b)}` : "–");
+      // Δ = model − station, from the values as shown (rounded in the display unit): + means the model is warmer
+      const shown = f => Math.round(U.celsius() ? (f - 32) * 5 / 9 : f);
+      const w = st[t], m = tl0(t), diff = (model, obs) => {
+        if (model == null || obs == null) return "–";
+        const dd = shown(model) - shown(obs);
+        return `${dd > 0 ? "+" : dd < 0 ? "−" : "±"}${Math.abs(dd)}`;
+      };
       const nm = String(w.name || t).replace(/,?\s*el\.\s*[\d,]+'?\s*$/i, "");
       const at = w.observed_at ? new Date(String(w.observed_at).replace(/([+-]\d{2})(\d{2})$/, "$1:$2")) : null;
       const fa = freeAirF(w.elevation_ft);
       return `<tr><td><b>${esc(nm)}</b><small>${w.elevation_ft ? w.elevation_ft.toLocaleString() + " ft · " : ""}observed ${at && !isNaN(at) ? at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "n/a"}</small></td>
-        <td>${tF(w.temp_f)} <small>model 2 m ${tF(m.temp_f)} (Δ ${diff(w.temp_f, m.temp_f)}°F)</small></td>
-        <td>${fa === "below" ? `<small>below the column's terrain (${Math.round(col0.ground * 3.28084).toLocaleString()} ft)</small>` : fa != null ? `${tF(fa)} <small>Δ ${diff(w.temp_f, fa)}°F</small>` : "–"}</td>
+        <td>${tF(w.temp_f)}</td>
+        <td>${tF(m.temp_f)} <small>Δ ${diff(m.temp_f, w.temp_f)}°${U.celsius() ? "C" : "F"}</small></td>
+        <td>${fa === "below" ? `<small>below the column's terrain (${Math.round(col0.ground * 3.28084).toLocaleString()} ft)</small>` : fa != null ? `${tF(fa)} <small>Δ ${diff(fa, w.temp_f)}°${U.celsius() ? "C" : "F"}</small>` : "–"}</td>
         <td>${tF(w.dew_point_f)} <small>model ${tF(m.dew_point_f)}</small></td>
-        <td>${windTxt(w.wind_dir, w.wind_mph, w.gust_mph)} <small>model ${windTxt(m.wind_dir_deg != null ? compass16(m.wind_dir_deg) : "", m.wind_mph, m.gust_mph)}</small></td>
-        <td>${esc(w.skies || "")}${ceilTxt ? `<small>${esc(ceilTxt)}</small>` : ""}<small>model cloud ${m.cloud_cover_pct != null ? Math.round(m.cloud_cover_pct) + "%" : "–"}</small></td></tr>`;
+        <td>${windTxt(w.wind_dir, w.wind_mph, w.gust_mph)} <small>model ${windTxt(m.wind_dir_deg != null ? compass16(m.wind_dir_deg) : "", m.wind_mph, m.gust_mph)}</small></td></tr>`;
     });
+    const clouds = ["base", "mid", "summit"].map(t => tl0(t).cloud_cover_pct).filter(v => v != null).map(Math.round);
+    const skies = [...new Set(["summit", "mid", "base"].map(t => (st[t] || {}).skies).filter(Boolean))];
+    const ceilAt = ceil.observed_at ? new Date(ceil.observed_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+    const skyLine = [skies.length ? `stations ${skies.join(", ").toLowerCase()}` : null,
+      clouds.length ? `model cloud ${Math.min(...clouds) === Math.max(...clouds) ? `${clouds[0]}%` : `${Math.min(...clouds)}–${Math.max(...clouds)}%`} (base–summit cells)` : null,
+      ceil.status === "success" ? `${esc(ceil.station || "KTRK")} ${ceilTxt}${ceilAt ? ` (${ceilAt})` : ""}` : null].filter(Boolean).join(" · ");
     const stEl = $("stations-table");
     const stSub = $("stations-sub");
     if (stSub) {
       const qp = o.query_points || {};
       const tiers = ["base", "mid", "summit"].filter(t => st[t] && qp[t]).map(t => `${t} ${(qp[t].elevation_ft || 0).toLocaleString()} ft`);
-      stSub.textContent = `Measured at the resort's own stations. Model 2 m values are ${(o.model || {}).label || "the selected forecast"}'s first hour at the matching tier${tiers.length ? ` (${tiers.join(", ")})` : ""}. Free air is the ${colLabel || "model"} column's temperature at each station's height, same hour. Δ is station minus model.`;
+      stSub.textContent = `Measured at the resort's own stations. Model 2 m values are ${(o.model || {}).label || "the selected forecast"}'s first hour at the matching tier${tiers.length ? ` (${tiers.join(", ")})` : ""}. Free air is the ${colLabel || "model"} column's temperature at each station's height, same hour. Δ is model minus station: + means the model is warmer.`;
     }
-    if (stEl) stEl.innerHTML = stRows.length ? `<thead><tr><th>Resort station</th><th>Temperature</th><th>Free air</th><th>Dew point</th><th>Wind (gust)</th><th>Sky</th></tr></thead><tbody>${stRows.join("")}</tbody>${ceil.status === "success" ? `<tfoot><tr><td colspan="6" class="muted">Ceiling: ${esc(ceil.name)} (${esc(ceil.station)}, ${ceil.elevation_ft ? ceil.elevation_ft.toLocaleString() + " ft, " : ""}nearest cloud-base sensor; the resort stations don't measure it), observed ${new Date(ceil.observed_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Heights are above sea level.${ceil.layers && ceil.layers.length ? ` Layers: ${ceil.layers.map(l => `${l.amount} ${l.base_msl_ft != null ? l.base_msl_ft.toLocaleString() + " ft" : "?"}`).join(", ")}.` : ""}</td></tr></tfoot>` : ""}`
+    if (stEl) stEl.innerHTML = stRows.length ? `<thead><tr><th>Resort station</th><th>Temperature</th><th>Model 2 m</th><th>Model free air</th><th>Dew point</th><th>Wind (gust)</th></tr></thead><tbody>${stRows.join("")}</tbody>${skyLine ? `<tfoot><tr><td colspan="6" class="muted">Sky: ${skyLine}</td></tr></tfoot>` : ""}`
       : `<tbody><tr><td class="muted">Resort weather stations unavailable.</td></tr></tbody>`;
 
     // verification
@@ -1212,7 +1224,7 @@
         tiers.forEach(t => { series.push({ t, v: tls[t].map(x => tv(x.temp_f)), dash: false }); series.push({ t, v: tls[t].map(x => tv(x.free_air_temp_f)), dash: true }); });
         const fixedT = (o.scales || {}).temp_f;
         const all = fixedT ? fixedT.map(tv) : series.flatMap(x => x.v).filter(v => v != null);
-        lo = Math.floor(Math.min(...all) / 5) * 5; hi = Math.ceil(Math.max(...all) / 5) * 5; if (hi - lo < 10) hi = lo + 10;
+        lo = Math.floor(Math.min(tv(0), ...all) / 5) * 5; hi = Math.ceil(Math.max(...all) / 5) * 5; if (hi - lo < 10) hi = lo + 10;   // always down to 0 °F
       } else if (p.key === "rh") {
         tiers.forEach(t => series.push({ t, v: tls[t].map(x => x.relative_humidity_pct), dash: false })); lo = 0; hi = 100;
       } else {
@@ -1241,6 +1253,9 @@
         s += `<path d="${path(se.v, Y)}" fill="none" stroke="${TIER_COLOR[se.t]}" stroke-width="${se.dash ? 1.4 : 2}" ${se.dash ? 'stroke-dasharray="5 4" opacity="0.75"' : ""}/>`;
         if (!se.dash) {
           const lastI = se.v.map((v, i) => (v == null ? -1 : i)).reduce((a, b) => Math.max(a, b), -1);
+          if (lastI >= 0 && lastI < n - 6 && se.t === "summit")      // the field stops before the run does (NBM visibility: +78 h)
+            s += `<line x1="${X(lastI)}" x2="${X(lastI)}" y1="${p.top}" y2="${p.top + p.h}" stroke="#94a3b8" stroke-opacity=".5" stroke-dasharray="2 3"/>
+              <text x="${X(lastI) + 4}" y="${p.top + 10}" fill="#94a3b8" font-size="10">${esc((o.model || {}).label || "model")} provides this to +${lastI} h</text>`;
           if (lastI >= 0) { let ly = Y(se.v[lastI]) + 4; labels.forEach(o2 => { if (Math.abs(o2 - ly) < 11) ly = o2 + 11; }); labels.push(ly);
             s += `<text x="${L + PW + 6}" y="${ly}" fill="${TIER_COLOR[se.t]}" font-size="10" font-weight="700">${{ base: "Base", mid: "Mid", summit: "Summit" }[se.t]}</text>`; }
         }
@@ -1249,7 +1264,7 @@
     time.forEach((t, i) => {
       const d = new Date(t);
       if (i % (n > 72 ? 12 : 3) === 0) s += `<text x="${X(i)}" y="${axisY + 12}" fill="#94a3b8" font-size="10" text-anchor="middle">${d.toLocaleTimeString([], { hour: "numeric" })}</text>`;
-      if (d.getHours() === 0) s += `<text x="${L + i * step + 2}" y="${axisY + 26}" fill="#cbd5e1" font-size="10" font-weight="700">${d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</text>`;
+      if (d.getHours() === 12) s += `<text x="${X(i)}" y="${axisY + 26}" fill="#cbd5e1" font-size="10" font-weight="700" text-anchor="middle">${d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</text>`;   // centered on noon
     });
     s += `<line id="bands-cross" x1="0" x2="0" y1="${panels[0].top}" y2="${axisY}" stroke="#fff" stroke-opacity=".45" visibility="hidden"/>
       <rect id="bands-hit" x="${L}" y="${panels[0].top}" width="${PW}" height="${axisY - panels[0].top}" fill="transparent" style="cursor:crosshair"/></svg>`;

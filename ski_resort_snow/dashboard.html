@@ -70,7 +70,7 @@
         <a href="#distribution">Spread</a>
         <a href="#forecast">Hourly</a>
         <a href="#atmosphere">Profile</a>
-        <a href="#outlook">7-day</a>
+        <a href="#outlook">Extended</a>
         <a href="#roads">Roads</a>
         <a href="#mountain-ops">Lifts</a>
         <a href="#sources">Sources</a>
@@ -110,6 +110,14 @@
 
   <main class="page" id="main-container">
 
+    <aside class="run-bar" id="run-bar" hidden aria-label="Recent runs of the selected model">
+      <button class="run-bar-toggle" id="run-bar-toggle" type="button" aria-expanded="false">Runs</button>
+      <div class="run-bar-body">
+        <div class="run-bar-head"><span class="eyebrow">Recent runs</span><small id="run-bar-model"></small></div>
+        <div class="run-list" id="run-list"></div>
+        <small class="run-bar-hint">Summit 48 h · extended snow. ↑ newer, ↓ older.</small>
+      </div>
+    </aside>
     <div class="powder-banner" id="powder-banner" hidden></div>
     <section class="model-bar" id="model-bar" aria-label="Forecast model">
       <div class="model-bar-label"><span class="eyebrow">Forecast model</span><span class="mini-label" id="model-note"></span></div>
@@ -141,7 +149,7 @@
         </div>
 
         <div class="scrubber">
-          <button class="play-btn" id="btn-play" data-play title="Step through the 7 days (Space)"><svg><use href="#i-play"/></svg></button>
+          <button class="play-btn" id="btn-play" data-play title="Step through the forecast (Space)"><svg><use href="#i-play"/></svg></button>
           <button class="speed-btn" type="button" data-speed title="Playback speed (X)" aria-label="Playback speed 1×">1×</button>
           <div class="scrub-track">
             <input type="range" id="time-scrubber" class="hour-scrubber" min="0" max="167" value="0" step="1" aria-label="Forecast hour">
@@ -169,9 +177,28 @@
           <div class="score-side">
             <div class="mini-label" id="powder-def" title="">0–10 · snow amount minus wind penalty</div>
             <div class="best-window">
-              <div class="mini-label">Best window, 9 AM–1 PM, next 7 days</div>
+              <div class="mini-label" id="best-label">Best window, 9 AM–1 PM</div>
               <div class="best-when" id="best-when">--</div>
               <div class="best-why" id="best-why"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="verdict-score bluebird">
+          <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+            <circle cx="60" cy="60" r="50" class="ring-bg"/>
+            <circle cx="60" cy="60" r="50" class="ring-fg ring-blue" id="bluebird-ring"/>
+          </svg>
+          <div class="ring-center">
+            <div class="ring-val" id="kpi-bluebird-val">--</div>
+            <div class="ring-cap">bluebird index</div>
+          </div>
+          <div class="score-side">
+            <div class="mini-label" id="bluebird-def" title="">0–10 · clear and sunny 10, overcast ~2, snowing or raining 0</div>
+            <div class="best-window">
+              <div class="mini-label" id="bluebird-when-label">--</div>
+              <div class="best-when" id="bluebird-best">--</div>
+              <div class="best-why" id="bluebird-why"></div>
             </div>
           </div>
         </div>
@@ -221,6 +248,7 @@
           <span class="mini-label">Width at an amount = % of members forecasting at least that much</span></div>
         <div class="dist-body">
           <div id="dist-chart"></div>
+          <p class="card-foot" id="dist-ext-note"></p>
           <div class="dist-notes">
             <div class="mini-label">Snowfall at each elevation (model and NWS both adjusted to the tier height)</div>
             <table class="tier-compare" id="tier-compare"></table>
@@ -236,7 +264,7 @@
       <div class="block-head">
         <div>
           <div class="eyebrow" id="chart-eyebrow">Model: HRRR 3 km (0–48 h)</div>
-          <h2 id="chart-section-title">7-day hourly forecast</h2>
+          <h2 id="chart-section-title">Hourly forecast</h2>
           <p class="block-sub" id="chart-tier-subtitle"></p>
         </div>
         <div class="seg seg-tier" role="tablist" aria-label="Elevation">
@@ -343,31 +371,9 @@
         </article>
       </div>
 
-      <article class="card atmo slw-card" id="slw">
-        <header><span class="atmo-icon slw"><svg><use href="#i-drop"/></svg></span><h3>Supercooled liquid water</h3><span class="chip" id="slw-badge">--</span></header>
-        <p class="block-sub" id="slw-sub">Cloud water and rain water colder than 0 °C above the summit, by hour and pressure level.</p>
-        <div class="slw-controls">
-          <div class="seg seg-sm" id="slw-model" role="tablist" aria-label="Model">
-            <button class="seg-btn active" role="tab" data-model="hrrr">HRRR <span>48 h</span></button>
-            <button class="seg-btn" role="tab" data-model="rrfs">RRFS <span>84 h</span></button>
-          </div>
-        </div>
-        <p class="slw-after" id="slw-after" hidden></p>
-        <div class="dgz-stats slw-stats">
-          <div><span class="mini-label">Column, selected hour</span><b id="slw-col">--</b><small id="slw-col-sub">--</small></div>
-          <div><span class="mini-label">At summit height</span><b id="slw-summit">--</b><small id="slw-summit-sub">--</small></div>
-          <div><span class="mini-label">Peak, 24 h from the selected hour</span><b id="slw-peak">--</b><small id="slw-peak-sub">--</small></div>
-          <div><span class="mini-label">Riming layers, same 24 h</span><b id="slw-rime">--</b><small id="slw-rime-sub">--</small></div>
-        </div>
-        <div class="slw-key" id="slw-legend"></div>
-        <div class="slw-wrap" id="slw-wrap"><div id="slw-chart" class="slw-chart"></div><div class="chart-tooltip" id="slw-tip"></div></div>
-        <dl class="kv" id="slw-kv"></dl>
-        <p class="card-foot" id="slw-note"></p>
-        <details class="report-text slw-table"><summary>Hourly values</summary><div class="table-responsive"><table class="data-table" id="slw-table"></table></div></details>
-      </article>
 
       <div class="scrubber scrubber-atmo">
-        <button class="play-btn" data-play title="Step through the 7 days"><svg><use href="#i-play"/></svg></button>
+        <button class="play-btn" data-play title="Step through the forecast"><svg><use href="#i-play"/></svg></button>
         <button class="speed-btn" type="button" data-speed title="Playback speed (X)" aria-label="Playback speed 1×">1×</button>
         <div class="scrub-track">
           <input type="range" class="hour-scrubber" min="0" max="167" value="0" step="1" aria-label="Forecast hour for the profile panels">
@@ -404,6 +410,29 @@
         </div>
       </div>
 
+      <article class="card atmo slw-card" id="slw">
+        <header><span class="atmo-icon slw"><svg><use href="#i-drop"/></svg></span><h3>Supercooled liquid water</h3><span class="chip" id="slw-badge">--</span></header>
+        <p class="block-sub" id="slw-sub">Cloud water and rain water colder than 0 °C above the summit, by hour and pressure level.</p>
+        <div class="slw-controls">
+          <div class="seg seg-sm" id="slw-model" role="tablist" aria-label="Model">
+            <button class="seg-btn active" role="tab" data-model="hrrr">HRRR <span>48 h</span></button>
+            <button class="seg-btn" role="tab" data-model="rrfs">RRFS <span>84 h</span></button>
+          </div>
+        </div>
+        <p class="slw-after" id="slw-after" hidden></p>
+        <div class="dgz-stats slw-stats">
+          <div><span class="mini-label">Column, selected hour</span><b id="slw-col">--</b><small id="slw-col-sub">--</small></div>
+          <div><span class="mini-label">At summit height</span><b id="slw-summit">--</b><small id="slw-summit-sub">--</small></div>
+          <div><span class="mini-label">Peak, 24 h from the selected hour</span><b id="slw-peak">--</b><small id="slw-peak-sub">--</small></div>
+          <div><span class="mini-label">Riming layers, same 24 h</span><b id="slw-rime">--</b><small id="slw-rime-sub">--</small></div>
+        </div>
+        <div class="slw-key" id="slw-legend"></div>
+        <div class="slw-wrap" id="slw-wrap"><div id="slw-chart" class="slw-chart"></div><div class="chart-tooltip" id="slw-tip"></div></div>
+        <dl class="kv" id="slw-kv"></dl>
+        <p class="card-foot" id="slw-note"></p>
+        <details class="report-text slw-table"><summary>Hourly values</summary><div class="table-responsive"><table class="data-table" id="slw-table"></table></div></details>
+      </article>
+
     </section>
 
     <!-- ============ 7-DAY ============ -->
@@ -411,7 +440,7 @@
       <div class="block-head">
         <div>
           <div class="eyebrow">Ensembles: GEFS · ECMWF ENS · ICON-EPS</div>
-          <h2>7-day snowfall</h2>
+          <h2>Extended forecast</h2>
           <p class="block-sub" id="outlook-sub"></p>
         </div>
         <div class="seg seg-tier" role="tablist" aria-label="Elevation">
@@ -565,7 +594,8 @@
     <dl>
       <dt><kbd>1</kbd> <kbd>2</kbd></dt><dd>Palisades / Alpine</dd>
       <dt><kbd>B</kbd> <kbd>M</kbd> <kbd>S</kbd></dt><dd>Base / mid / summit</dd>
-      <dt><kbd>Space</kbd></dt><dd>Play / pause the 7 days</dd>
+      <dt><kbd>Space</kbd></dt><dd>Play / pause the forecast</dd>
+      <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Newer / older run of the selected model</dd>
       <dt><kbd>X</kbd></dt><dd>Playback speed 1× / 2× / 4× / 8×</dd>
       <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Step one hour</dd>
       <dt><kbd>F</kbd></dt><dd>Animation on / off</dd>

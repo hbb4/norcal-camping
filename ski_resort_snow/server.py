@@ -30,7 +30,7 @@ import time
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR.parent))
@@ -163,7 +163,33 @@ class SnowDashboardHandler(SimpleHTTPRequestHandler):
                 return self._json({"error": "no data yet"}, 503)
         if path == "/api/resorts":
             return self._file_json(BASE_DIR / "config" / "resorts.json")
+        if path in ("/api/runs", "/api/run"):
+            return self._runs(path, parse_qs(urlparse(self.path).query))
         return super().do_GET()
+
+    def _runs(self, path, q):
+        """/api/runs?resort=&model=  -> the model's archived runs, newest first (index.json)
+        /api/run?resort=&model=&run=YYYYMMDDHH -> that run's full output"""
+        import gzip
+        import re
+        resort, model, run = (q.get("resort") or [""])[0], (q.get("model") or [""])[0], (q.get("run") or [""])[0]
+        if not re.fullmatch(r"[a-z_]+", resort) or not re.fullmatch(r"[a-z0-9_]+(\.corrected)?", model):
+            return self._json({"error": "bad resort or model"}, 400)
+        d = BASE_DIR / "data" / "models" / resort / "runs" / model
+        if path == "/api/runs":
+            idx = d / "index.json"
+            return self._file_json(idx) if idx.exists() else self._json({"model": model, "runs": []})
+        if not re.fullmatch(r"\d{10}", run):
+            return self._json({"error": "bad run"}, 400)
+        f = d / f"{run}.json.gz"
+        if not f.exists():
+            return self._json({"error": "run not archived"}, 404)
+        body = gzip.decompress(f.read_bytes())
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_POST(self):
         if urlparse(self.path).path == "/api/refresh":

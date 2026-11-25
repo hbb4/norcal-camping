@@ -89,8 +89,10 @@ MODELS = [
      "sounding": "icon_seamless", "sounding_label": "own (no vertical velocity)", "meta": ["dwd_icon"]},
     {"id": "ukmo", "om": "ukmo_seamless", "label": "UKMO", "provider": "Met Office (UK)", "grid": "10 km",
      "sounding": "ukmo_seamless", "sounding_label": "own", "meta": ["ukmo_global_deterministic_10km"]},
-    {"id": "gem", "om": "gem_seamless", "label": "GEM", "provider": "ECCC (Canada)", "grid": "10-15 km",
-     "sounding": "gem_seamless", "sounding_label": "own (no vertical velocity)", "meta": ["cmc_gem_gdps"]},
+    # gem_seamless here: GEM regional (RDPS, 10 km) to ~84 h, then GEM global (15 km); Open-Meteo's run times for
+    # those are cmc_gem_rdps_10km and cmc_gem_gdps_15km (the older cmc_gem_rdps / cmc_gem_gdps stopped in May 2026)
+    {"id": "gem", "om": "gem_seamless", "label": "GEM", "provider": "ECCC (Canada)", "grid": "10 km to ~84 h, then 15 km",
+     "sounding": "gem_seamless", "sounding_label": "own (no vertical velocity)", "meta": ["cmc_gem_rdps_10km", "cmc_gem_gdps_15km"]},
 ]
 SOUNDING_SOURCES = sorted({m["sounding"] for m in MODELS if m["sounding"]})
 SURFACE_VARS = ["snowfall", "precipitation", "precipitation_probability", "temperature_2m", "dew_point_2m",
