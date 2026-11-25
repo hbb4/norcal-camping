@@ -33,6 +33,7 @@
       <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z" fill="currentColor"/></symbol>
       <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
       <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 2.5 13.8 10 21.5 12l-7.7 2-1.8 7.5-1.8-7.5L2.5 12l7.7-2z" fill="currentColor"/></symbol>
+      <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 3.2c3.4 4.3 6.2 7.9 6.2 11.2a6.2 6.2 0 0 1-12.4 0c0-3.3 2.8-6.9 6.2-11.2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9.2 15.2a2.9 2.9 0 0 0 2.8 2.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
     </defs>
   </svg>
 
@@ -295,6 +296,7 @@
         <div><b>Snow level</b> = wet-bulb zero height − 500 ft. The wet-bulb zero is where the wet-bulb temperature crosses 0 °C; melting and evaporation cool the air around falling snow, so snow survives below the dry 0 °C freezing level. Within one model the snow level is always below the freezing level (the wet bulb is never warmer than the air). With NBM selected, the snow level is NBM's own field while the freezing level comes from the HRRR/GFS column, so the two can cross.</div>
         <div><b>DGZ</b> = dendritic growth zone, the layer between −12 and −18 °C. Ice-saturated (RH w.r.t. ice ≥ 100%) air rising ≥ 10 cm/s through it produces dendrites and the highest snow/liquid ratios.</div>
         <div><b>Snow/liquid ratio (SLR)</b> primary method: crystal-habit SLR of each ice-saturated layer, weighted by lift × thickness (Cobb &amp; Waldstreicher 2005 style; thickness only for models without vertical velocity). No empirical wind or melting adjustment is applied until one is calibrated on multi-season data; an uncalibrated version is listed under Sources for comparison.</div>
+        <div><b>Supercooled liquid water</b> = cloud droplets and drizzle that stay liquid below 0 °C. Falling snow that meets them collects and freezes them (riming): rimed snow is denser and its snow/liquid ratio lower than the crystal habit alone gives, and heavily rimed snow becomes graupel. Values are the cloud water and rain water mixing ratios (g/kg) of HRRR (to 48 h) or RRFS (to 84 h), both 3 km models with the same microphysics; the column total is in kg/m², equal to mm of water.</div>
       </div>
 
       <div class="atmo-grid">
@@ -339,6 +341,28 @@
           </dl>
         </article>
       </div>
+
+      <article class="card atmo slw-card" id="slw">
+        <header><span class="atmo-icon slw"><svg><use href="#i-drop"/></svg></span><h3>Supercooled liquid water</h3><span class="chip" id="slw-badge">--</span></header>
+        <p class="block-sub" id="slw-sub">Cloud water and rain water colder than 0 °C above the summit, by hour and pressure level.</p>
+        <div class="slw-controls">
+          <div class="seg seg-sm" id="slw-model" role="tablist" aria-label="Model">
+            <button class="seg-btn active" role="tab" data-model="hrrr">HRRR <span>48 h</span></button>
+            <button class="seg-btn" role="tab" data-model="rrfs">RRFS <span>84 h</span></button>
+          </div>
+        </div>
+        <div class="dgz-stats slw-stats">
+          <div><span class="mini-label">Column, selected hour</span><b id="slw-col">--</b><small id="slw-col-sub">--</small></div>
+          <div><span class="mini-label">At summit height</span><b id="slw-summit">--</b><small id="slw-summit-sub">--</small></div>
+          <div><span class="mini-label">Peak, 24 h from the selected hour</span><b id="slw-peak">--</b><small id="slw-peak-sub">--</small></div>
+          <div><span class="mini-label">Riming layers, same 24 h</span><b id="slw-rime">--</b><small id="slw-rime-sub">--</small></div>
+        </div>
+        <div class="slw-key" id="slw-legend"></div>
+        <div class="slw-wrap" id="slw-wrap"><div id="slw-chart" class="slw-chart"></div><div class="chart-tooltip" id="slw-tip"></div></div>
+        <dl class="kv" id="slw-kv"></dl>
+        <p class="atmo-note" id="slw-note"></p>
+        <details class="report-text slw-table"><summary>Hourly values</summary><div class="table-responsive"><table class="data-table" id="slw-table"></table></div></details>
+      </article>
 
       <div class="scrubber scrubber-atmo">
         <button class="play-btn" data-play title="Step through the 7 days"><svg><use href="#i-play"/></svg></button>

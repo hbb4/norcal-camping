@@ -1109,3 +1109,331 @@ class TestSkillReport(unittest.TestCase):
         self.assertAlmostEqual(est["elev-line"], 1.0, places=2)                    # the field's value at the pillow (8,010 ft)
         self.assertAlmostEqual(est["elev-match"], 1.0 + 0.4 * 0.09 + 0.05 * (_cross(*_xy(lat0, lon0 - 0.04)) - xc0), places=2)
         self.assertLess(est["center"], est["elev-line"])                            # the lower center cell is drier
+
+
+class TestValuesAt(unittest.TestCase):
+    """grib2_complex.values_at: exactly decode()'s numbers at any point, without building the field."""
+
+    @staticmethod
+    def _fields():
+        import math
+        smooth = [int(2600 + 80 * math.sin(k / 23.0) + 5 * math.cos(k / 3.0)) for k in range(2600)]
+        noisy = [1500 + (k * 7919) % 523 + int(200 * math.sin(k / 50.0)) for k in range(2600)]   # groups wider than 6 bits
+        flat = [0] * 400 + [12] * 300 + smooth[:900]                                              # constant (zero-width) groups
+        return {"smooth": smooth, "noisy": noisy, "flat": flat}
+
+    def test_matches_decode(self):
+        from collectors.grib2_complex import decode, values_at
+        for name, ints in self._fields().items():
+            n = len(ints)
+            idx = sorted({0, 1, 2, 3, 6, 7, 8, 13, 14, 299, 300, 301, 399, 400, 401, 699, 700, n // 2, n - 2, n - 1})
+            for tmpl, order in ((3, 2), (3, 1), (2, 0)):
+                for gl in (7, 64, 300):          # 300: runs longer than the popcount limit
+                    s5, s7 = _pack_complex(ints, order=order, tmpl=tmpl, group_len=gl)
+                    full = decode(s5, s7)
+                    got = values_at(s5, s7, idx)
+                    self.assertEqual(sorted(got), idx)
+                    for i in idx:
+                        self.assertEqual(got[i], full[i], (name, tmpl, order, gl, i))
+
+    def test_missing_values_and_bad_requests(self):
+        from collectors.grib2_complex import decode, values_at
+        ints = self._fields()["smooth"][:500]
+        s5, s7 = _pack_complex(ints, order=2, missing={5, 6, 250})
+        full = decode(s5, s7)
+        self.assertEqual(values_at(s5, s7, [5, 7, 499]), {5: None, 7: full[7], 499: full[499]})
+        s5, s7 = _pack_complex(ints, order=2, group_len=25)
+        with self.assertRaises(IndexError):
+            values_at(s5, s7, [500])
+        with self.assertRaises(ValueError):          # download cut before the point
+            values_at(s5, s7[:len(s7) // 3], [480])
+
+    def test_fast_unpack(self):
+        import random
+        from collectors.grib2_complex import _uints, _uints_fast
+        rnd = random.Random(3)
+        buf = bytes(rnd.randrange(256) for _ in range(3000))
+        for width in list(range(0, 18)) + [23]:
+            for bitpos in (0, 5, 13):
+                count = (len(buf) * 8 - bitpos) // max(1, width) - 1
+                self.assertEqual(_uints_fast(buf, bitpos, width, count), _uints(buf, bitpos, width, count), (width, bitpos))
+
+
+def _lambert_s3(nx, ny, la1, lo1, lov=-97.5, latin=38.5, dx=3000.0, scan=0x40):
+    """GRIB2 section 3, grid template 3.30 (Lambert conformal, spherical earth)."""
+    import struct
+    s = bytearray(81)
+    s[0:4] = struct.pack(">I", 81); s[4] = 3; s[12:14] = struct.pack(">H", 30); s[14] = 6
+    s[30:34] = struct.pack(">I", nx); s[34:38] = struct.pack(">I", ny)
+    s[38:42] = struct.pack(">I", round(la1 * 1e6)); s[42:46] = struct.pack(">I", round((lo1 % 360) * 1e6))
+    s[47:51] = struct.pack(">I", round(latin * 1e6)); s[51:55] = struct.pack(">I", round((lov % 360) * 1e6))
+    s[55:59] = struct.pack(">I", round(dx * 1e3)); s[59:63] = struct.pack(">I", round(dx * 1e3)); s[64] = scan
+    s[65:69] = struct.pack(">I", round(latin * 1e6)); s[69:73] = struct.pack(">I", round(latin * 1e6))
+    return bytes(s)
+
+
+def _grib_message(s3, s5, s7, cat, par, lev_type, lev_val, fh, disc=0):
+    """One GRIB2 message (product template 4.0) around packed sections 5 and 7."""
+    import struct
+    s1 = struct.pack(">IB", 21, 1) + bytes(16)
+    s4 = bytearray(34)
+    s4[0:4] = struct.pack(">I", 34); s4[4] = 4; s4[7:9] = struct.pack(">H", 0)
+    s4[9], s4[10], s4[17], s4[22], s4[23] = cat, par, 1, lev_type, 0
+    s4[18:22] = struct.pack(">I", fh); s4[24:28] = struct.pack(">I", lev_val)
+    body = s1 + s3 + bytes(s4) + s5 + struct.pack(">IBB", 6, 6, 255) + s7 + b"7777"
+    return b"GRIB" + bytes([0, 0, disc, 2]) + struct.pack(">Q", 16 + len(body)) + body
+
+
+class TestHRRRSLW(unittest.TestCase):
+    """HRRR and RRFS supercooled liquid: index, cycle, column diagnostics, and runs on synthetic files."""
+
+    HRRR = {"tmpl": 30, "radius": 6371229.0, "nx": 1799, "ny": 1059, "la1": 21.138123, "lo1": -122.719528, "lad": 38.5,
+            "lov": -97.5, "dx": 3000.0, "dy": 3000.0, "scan": 0x40, "latin1": 38.5, "latin2": 38.5}
+    NX = NY = 24
+    PTS = {"pal": {"lat": 39.1982, "lon": -120.2873, "elevation_ft": 9050}, "alp": {"lat": 39.1467, "lon": -120.245, "elevation_ft": 8637}}
+
+    @staticmethod
+    def _profile():
+        """6 °C at 775 hPa, 1 °C colder per 10 hPa (0 °C at 715 hPa). g/kg: supercooled cloud water at 650-550 hPa,
+        cloud water at 750 hPa (above 0 °C), snow at 600-525, graupel at 575, drizzle at 550, cloud ice at 500."""
+        from collectors.hrrr_slw import LEVELS_HPA
+        prof = {p: {"t": 6.0 - 0.1 * (775 - p), "qc": 0.0, "qr": 0.0, "qs": 0.0, "qg": 0.0, "qi": 0.0} for p in LEVELS_HPA}
+        for p in (650, 625, 600, 575, 550):
+            prof[p]["qc"] = 0.2
+        prof[750]["qc"] = 0.3
+        for p in (600, 575, 550, 525):
+            prof[p]["qs"] = 0.1
+        prof[575]["qg"] = 0.05
+        prof[550]["qr"] = 0.02
+        prof[500]["qi"] = 0.03
+        return prof
+
+    PER_LAYER = 1e-3 * 100 / 9.80665 * 25      # 1 g/kg over a 25 hPa layer, in kg/m²
+
+    def _build(self, fh, items):
+        """GRIB2 messages on 24 x 24 cells of the real HRRR (and RRFS) 3 km grid, and their index.
+        items: (name, level, category, parameter, level type, level value, value, decimal scale)."""
+        from collectors import nbm_archive as na
+        la1, lo1 = na.cell_latlon(self.HRRR, 241, 626)
+        s3 = _lambert_s3(self.NX, self.NY, la1, lo1)
+        npts = self.NX * self.NY
+        tilt = [(k % self.NX - 10) + (k // self.NX - 10) for k in range(npts)]   # one packed unit per cell from (10, 10)
+        data, lines = b"", []
+        for name, level, cat, par, lev_type, lev_val, value, D in items:
+            ints = [0] * npts if value == 0 else [round(value * 10 ** D) + t for t in tilt]
+            s5, s7 = _pack_complex(ints, order=2, group_len=11, D=D)
+            lines.append(f"{len(lines) + 1}:{len(data)}:d=2026112418:{name}:{level}:{fh} hour fcst:")
+            data += _grib_message(s3, s5, s7, cat, par, lev_type, lev_val, fh)
+        return data, "\n".join(lines) + "\n"
+
+    def _file(self, fh, wrong_code_at=None, model="hrrr"):
+        """A small pressure-level file (HRRR wrfprs or RRFS prslev) and its index. RRFS names cloud ice
+        ICMR (1/23) and keeps the terrain height in its 2-D file (_sfc_file)."""
+        from collectors.hrrr_slw import LEVELS_HPA
+        prof, items = self._profile(), []
+        ice = ("CIMIXR", (1, 82)) if model == "hrrr" else ("ICMR", (1, 23))
+        for p in sorted(LEVELS_HPA):                 # the file runs from the top down
+            lev = f"{p} mb"
+            items += [("HGT", lev, 3, 5, 100, p * 100, 3000.0 if p == 700 else 1000.0, 1),
+                      ("TMP", lev, 0, 0, 100, p * 100, 273.15 + prof[p]["t"], 1), ("RH", lev, 1, 1, 100, p * 100, 80.0, 1)]
+            for name, (cat, par), key in (("CLMR", (1, 22), "qc"), (ice[0], ice[1], "qi"), ("RWMR", (1, 24), "qr"),
+                                          ("SNMR", (1, 25), "qs"), ("GRLE", (1, 32), "qg")):
+                if wrong_code_at == (name, p):
+                    par = 25 if par != 25 else 22
+                items.append((name, lev, cat, par, 100, p * 100, prof[p][key] / 1000.0, 7))
+        if model == "hrrr":
+            items.append(("HGT", "surface", 3, 5, 1, 0, 2400.0, 1))
+        return self._build(fh, items)
+
+    def _sfc_file(self, fh):
+        """A small RRFS 2dfld-like file: terrain height between other 2-D fields."""
+        return self._build(fh, [("TMP", "2 m above ground", 0, 0, 103, 2, 270.0, 1), ("HGT", "surface", 3, 5, 1, 0, 2350.0, 1),
+                                ("HGT", "lowest bottom level of supercooled liquid water layer", 3, 5, 253, 0, 2600.0, 1)])
+
+    def test_parse_idx(self):
+        from collectors.nbm_archive import parse_idx
+        from collectors.hrrr_slw import IDX_FIELDS
+        idx = ("1:0:d=2026112418:HGT:700 mb:anl:\n2:500:d=2026112418:TMP:700 mb:anl:\n3:900:d=2026112418:RH:700 mb:anl:\n"
+               "4:1000:d=2026112418:CLMR:700 mb:anl:\n5:1100:d=2026112418:TMP:2 m above ground:anl:\n6:1200:d=2026112418:HGT:surface:anl:\n")
+        hrrr, rrfs = IDX_FIELDS["hrrr"], IDX_FIELDS["rrfs"]
+        self.assertEqual(parse_idx(idx, 0, hrrr), {"HGT:700": (0, 499), "TMP:700": (500, 899), "CLMR:700": (1000, 1099), "HGT:surface": (1200, None)})
+        fc = idx.replace("anl", "6 hour fcst")
+        self.assertEqual(parse_idx(fc, 6, hrrr)["TMP:700"], (500, 899))
+        self.assertEqual(parse_idx(fc, 5, hrrr), {})
+        ice = "1:0:d=2026112412:CIMIXR:700 mb:12 hour fcst:\n2:70:d=2026112412:ICMR:700 mb:12 hour fcst:\n3:140:d=2026112412:RWMR:700 mb:12 hour fcst:\n"
+        self.assertEqual(list(parse_idx(ice, 12, hrrr)), ["CIMIXR:700", "RWMR:700"])   # each model asks for its own ice name
+        self.assertEqual(list(parse_idx(ice, 12, rrfs)), ["ICMR:700", "RWMR:700"])
+
+    def test_latest_cycle(self):
+        import urllib.error
+        from datetime import datetime, timezone
+        from unittest import mock
+        from collectors import hrrr_slw as hs
+        asked = []
+
+        def fake_request(url, rng=None, **kw):
+            asked.append(url.rsplit("/", 1)[-1])
+            if "hrrr.20261124/conus/hrrr.t12z" in url:
+                return b"1"
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+        with mock.patch.object(hs, "_request", fake_request):
+            self.assertEqual(hs.latest_cycle(datetime(2026, 11, 24, 19, 30, tzinfo=timezone.utc)), datetime(2026, 11, 24, 12, tzinfo=timezone.utc))
+        self.assertEqual(asked, ["hrrr.t18z.wrfprsf48.grib2.idx", "hrrr.t12z.wrfprsf48.grib2.idx"])
+        asked.clear()
+        with mock.patch.object(hs, "_request", lambda url, rng=None, **kw: asked.append(url) or b"1"):
+            self.assertEqual(hs.latest_cycle(datetime(2026, 11, 24, 19, 30, tzinfo=timezone.utc), "rrfs"), datetime(2026, 11, 24, 18, tzinfo=timezone.utc))
+        self.assertEqual(asked, ["https://noaa-rrfs-ops-pds.s3.amazonaws.com/rrfs.20261124/18/rrfs.t18z.prslev.3km.f084.conus.grib2.idx"])
+        c = datetime(2026, 11, 24, 6, tzinfo=timezone.utc)
+        self.assertEqual(hs.file_url(c, 7), "https://noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.20261124/conus/hrrr.t06z.wrfprsf07.grib2")
+        self.assertEqual(hs.file_url(c, 84, "rrfs", "sfc"), "https://noaa-rrfs-ops-pds.s3.amazonaws.com/rrfs.20261124/06/rrfs.t06z.2dfld.3km.f084.conus.grib2")
+        with self.assertRaises(ValueError):
+            hs.SLWClient("unused", "gfs")
+
+    def test_heights_surface_and_layers(self):
+        import math
+        from collectors import hrrr_slw as hs
+        lv = hs.LEVELS_HPA
+        iso = [-10.0] * len(lv)                 # isothermal: z2 - z1 = (Rd T / g) ln(p1 / p2) exactly
+        z = hs.level_heights(lv, iso, 3000.0)
+        H = hs.RD * 263.15 / hs.G0
+        for k, p in enumerate(lv):
+            self.assertAlmostEqual(z[k], 3000.0 + H * math.log(700 / p), places=6)
+        self.assertAlmostEqual(hs.surface_pressure(lv, z, iso, z[3]), lv[3], places=6)
+        ps = hs.surface_pressure(lv, z, iso, 2400.0)
+        self.assertAlmostEqual(ps, 700 * math.exp((3000 - 2400) / H), places=4)
+        self.assertAlmostEqual(hs.surface_pressure(lv, z, iso, z[0] - 100), 775 * math.exp(100 / H), places=4)   # below 775 hPa
+        w = hs.layer_weights(lv, ps)
+        self.assertAlmostEqual(sum(w), ps - 450, places=9)
+        self.assertEqual(w[0], 0.0)                                   # 775 hPa is below the surface
+        self.assertAlmostEqual(w[1], ps - 737.5, places=9)            # lowest level above it reaches down to the surface
+        self.assertEqual(w[2:-1], [25.0] * (len(lv) - 3))
+        self.assertEqual(w[-1], 12.5)
+
+    def test_derive_hour(self):
+        from collectors import hrrr_slw as hs
+        lv, prof = hs.LEVELS_HPA, self._profile()
+        cell = {"t_c": [prof[p]["t"] for p in lv], "z700_m": 3000.0, **{k: [prof[p][k] for p in lv] for k in ("qc", "qr", "qs", "qg", "qi")}}
+        d = hs.derive_hour(lv, cell, 2400.0, 9050 / 3.28084)
+        self.assertTrue(750 < d["psfc_hpa"] < 775)
+        self.assertAlmostEqual(d["slw_col_kg_m2"], (0.2 * 5 + 0.02) * self.PER_LAYER, places=4)
+        self.assertAlmostEqual(d["rime_col_kg_m2"], (0.2 * 3 + 0.02) * self.PER_LAYER, places=4)
+        self.assertAlmostEqual(d["graupel_col_kg_m2"], 0.05 * self.PER_LAYER, places=4)
+        self.assertEqual([p for p, r in zip(lv, d["rime"]) if r], [600, 575, 550])
+        self.assertEqual(d["slw"][lv.index(750)], 0.0)               # liquid above 0 °C is not supercooled
+        self.assertAlmostEqual(d["slw"][lv.index(550)], 0.22)
+        s = d["summit"]                                              # 2,758 m: between 725 and 700 hPa here, just above 0 °C
+        self.assertTrue(700 < s["p_hpa"] < 725 and 0 < s["t_c"] < 1, s)
+        self.assertEqual(s["slw_g_kg"], 0.0)
+
+    def test_fetch_on_synthetic_file(self):
+        import tempfile
+        from datetime import datetime, timezone
+        from unittest import mock
+        from collectors import hrrr_slw as hs, nbm_archive as na
+        cycle = datetime(2026, 11, 24, 18, tzinfo=timezone.utc)
+        files, ranges = {}, []
+
+        def server(wrong=None):
+            def fake_get(url, rng=None, **kw):
+                fh = int(url.split("wrfprsf")[1][:2])
+                self.assertNotIn("2dfld", url)
+                if fh not in files:
+                    files[fh] = self._file(fh, wrong)
+                data, idx = files[fh]
+                if url.endswith(".idx"):
+                    return idx.encode()
+                ranges.append((fh, rng))
+                return data[rng[0]:len(data) if rng[1] is None else rng[1] + 1]
+            return fake_get
+
+        now = datetime(2026, 11, 26, 16, 20, tzinfo=timezone.utc)      # hours 46-48 of the 18Z run are left
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(hs, "latest_cycle", lambda now=None, model="hrrr": cycle), \
+                mock.patch.object(na, "HEAD_MIN", 64), mock.patch.object(hs, "_get", server()):
+            client = hs.SLWClient(tmp, "hrrr", workers=1)
+            r = client.fetch(self.PTS, now=now)
+            self.assertEqual(r["status"], "success", r)
+            pal, alp = r["points"]["pal"], r["points"]["alp"]
+            self.assertEqual([h["time"] for h in pal["hours"]], ["2026-11-26T16:00Z", "2026-11-26T17:00Z", "2026-11-26T18:00Z"])
+            self.assertEqual((pal["model"], pal["last_fh"], pal["fh_range"]), ("HRRR", 48, [46, 48]))
+            self.assertEqual((pal["cell"]["i"], pal["cell"]["j"]), (10, 10))
+            self.assertEqual((alp["cell"]["i"], alp["cell"]["j"]), (11, 7))
+            self.assertEqual(pal["cell"]["terrain_ft"], round(2400 * 3.28084))
+            h = pal["hours"][0]
+            self.assertAlmostEqual(h["slw_col_kg_m2"], (0.2 * 5 + 0.02) * self.PER_LAYER, places=4)
+            self.assertAlmostEqual(h["rime_col_kg_m2"], (0.2 * 3 + 0.02) * self.PER_LAYER, places=4)
+            self.assertAlmostEqual(h["qi"][hs.LEVELS_HPA.index(500)], 0.03)
+            self.assertAlmostEqual(alp["hours"][0]["qc"][hs.LEVELS_HPA.index(600)], 0.2 - 2e-4)      # its cell is 2 units lower
+            # TMP read only as far as the cells; the five hydrometeor messages of a level (adjacent in the file) in one request
+            data, idx = files[46]
+            offs = {(ln.split(":")[3], ln.split(":")[4]): int(ln.split(":")[1]) for ln in idx.splitlines()}
+            starts = sorted(offs.values()) + [len(data)]
+            end_of = {o: starts[starts.index(o) + 1] - 1 for o in offs.values()}
+            asked = [rng for fh, rng in ranges if fh == 46]
+            for p in hs.LEVELS_HPA:
+                a = offs[("TMP", f"{p} mb")]
+                got = sum(b - x + 1 for x, b in asked if a <= x <= end_of[a])
+                self.assertLess(got, end_of[a] - a + 1, p)
+                self.assertIn((offs[("CLMR", f"{p} mb")], end_of[offs[("GRLE", f"{p} mb")]]), asked)
+            self.assertTrue(Path(tmp, "hrrr_slw_2026112418.json").exists())
+            ranges.clear()
+            again = client.fetch(self.PTS, now=now)
+            self.assertEqual(ranges, [])
+            self.assertTrue(again["points"]["pal"]["download"]["from_cache"])
+            self.assertEqual(again["points"]["pal"]["hours"], pal["hours"])
+        files.clear()
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(hs, "latest_cycle", lambda now=None, model="hrrr": cycle), \
+                mock.patch.object(hs, "_get", server(wrong=("CLMR", 600))):
+            r = hs.SLWClient(tmp, "hrrr", workers=1).fetch(self.PTS, now=now)
+        self.assertEqual(r["status"], "error")
+        self.assertIn("GRIB2 codes", r["error_message"])
+
+    def test_fetch_rrfs_on_synthetic_files(self):
+        """RRFS: three-digit hours to 84, ICMR for cloud ice, terrain from the 2-D file, its own cache."""
+        import re
+        import tempfile
+        from datetime import datetime, timezone
+        from unittest import mock
+        from collectors import hrrr_slw as hs, nbm_archive as na
+        cycle = datetime(2026, 11, 24, 18, tzinfo=timezone.utc)
+        files, asked = {}, []
+
+        def fake_get(url, rng=None, **kw):
+            m = re.search(r"/rrfs\.20261124/18/rrfs\.t18z\.(prslev|2dfld)\.3km\.f(\d{3})\.conus\.grib2", url)
+            self.assertIsNotNone(m, url)
+            kind, fh = m.group(1), int(m.group(2))
+            if (kind, fh) not in files:
+                files[kind, fh] = self._file(fh, model="rrfs") if kind == "prslev" else self._sfc_file(fh)
+            data, idx = files[kind, fh]
+            if url.endswith(".idx"):
+                return idx.encode()
+            asked.append((kind, fh))
+            return data[rng[0]:len(data) if rng[1] is None else rng[1] + 1]
+
+        now = datetime(2026, 11, 28, 4, 20, tzinfo=timezone.utc)      # hours 82-84 of the 18Z run are left
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(hs, "latest_cycle", lambda now=None, model="hrrr": cycle), \
+                mock.patch.object(na, "HEAD_MIN", 64), mock.patch.object(hs, "_get", fake_get):
+            r = hs.SLWClient(tmp, "rrfs", workers=1).fetch(self.PTS, now=now)
+            self.assertEqual(r["status"], "success", r)
+            pal = r["points"]["pal"]
+            self.assertEqual((pal["model"], pal["last_fh"], pal["fh_range"]), ("RRFS", 84, [82, 84]))
+            self.assertEqual([h["time"] for h in pal["hours"]], ["2026-11-28T04:00Z", "2026-11-28T05:00Z", "2026-11-28T06:00Z"])
+            self.assertEqual(pal["cell"]["terrain_ft"], round(2350 * 3.28084))                # from the 2-D file
+            self.assertEqual(sorted({fh for kind, fh in asked if kind == "2dfld"}), [82, 83])   # terrain from the first hours only
+            h = pal["hours"][0]
+            self.assertAlmostEqual(h["qi"][hs.LEVELS_HPA.index(500)], 0.03)                    # ICMR
+            self.assertAlmostEqual(h["slw_col_kg_m2"], (0.2 * 5 + 0.02) * self.PER_LAYER, places=4)
+            self.assertAlmostEqual(h["rime_col_kg_m2"], (0.2 * 3 + 0.02) * self.PER_LAYER, places=4)
+            self.assertTrue(Path(tmp, "rrfs_slw_2026112418.json").exists())
+            self.assertFalse(Path(tmp, "hrrr_slw_2026112418.json").exists())
+
+    def test_prune_per_model(self):
+        import tempfile
+        from collectors import hrrr_slw as hs
+        with tempfile.TemporaryDirectory() as tmp:
+            for m in ("hrrr", "rrfs"):
+                for k in range(6):
+                    Path(tmp, f"{m}_slw_202611{20 + k}00.json").write_text("{}")
+            hs.SLWClient(tmp, "hrrr")._prune()
+            self.assertEqual(sorted(x.name for x in Path(tmp).glob("hrrr_slw_*.json")),
+                             [f"hrrr_slw_202611{20 + k}00.json" for k in range(6 - hs.KEEP_CYCLES, 6)])
+            self.assertEqual(len(list(Path(tmp).glob("rrfs_slw_*.json"))), 6)

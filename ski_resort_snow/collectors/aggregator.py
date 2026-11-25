@@ -10,6 +10,7 @@ Rules:
 """
 
 import json
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional, Callable
@@ -26,6 +27,7 @@ try:
     from .grid_terrain import terrain_ft
     from .nbm_downscale import Downscaler
     from .verification import ForecastVerifier
+    from .hrrr_slw import MODELS as SLW_MODELS, SLWClient
 except ImportError:
     import http_ssl  # noqa: F401
     from open_meteo_client import OpenMeteoClient
@@ -38,6 +40,7 @@ except ImportError:
     from grid_terrain import terrain_ft
     from nbm_downscale import Downscaler
     from verification import ForecastVerifier
+    from hrrr_slw import MODELS as SLW_MODELS, SLWClient
 
 try:
     from data.mock_live_data import generate_mock_live_snow_dataset
@@ -79,6 +82,7 @@ class SnowAggregator:
         self.caltrans = CaltransClient()
         self.raob = RaobClient()
         self.nbm = NBMClient(self.data_dir / "cache")
+        self.slw = {m: SLWClient(self.data_dir / "cache", m) for m in SLW_MODELS}      # HRRR to 48 h, RRFS to 84 h
         self.verifier = ForecastVerifier(self.data_dir, self.cdec)
 
     @staticmethod
@@ -139,6 +143,25 @@ class SnowAggregator:
         prev_resorts = prev.get("resorts", {})
         now = _now()
         out: Dict[str, Any] = {"metadata": {}, "resorts": {}}
+
+        # HRRR and RRFS supercooled liquid at the summits run beside everything else, one model after
+        # the other (each uses a pool of worker processes). A new cycle is ~0.55 GB of byte-range
+        # downloads for HRRR (~70 s) and ~1.2 GB for RRFS (~2.5 min); a cached one is a single request.
+        slw_pts = {r["id"]: {"lat": r["elevations"]["summit"]["latitude"], "lon": r["elevations"]["summit"]["longitude"],
+                             "elevation_ft": r["elevations"]["summit"]["feet"]} for r in self.resorts_cfg.get("resorts", [])}
+        slw_res: Dict[str, Dict[str, Any]] = {m: {} for m in self.slw}
+
+        def run_slw():
+            for m, client in self.slw.items():
+                try:
+                    slw_res[m].update(client.fetch(slw_pts))
+                except Exception as e:
+                    slw_res[m].update({"status": "error", "error_message": f"{type(e).__name__}: {e}"})
+
+        for m in self.slw:
+            say(f"{SLW_MODELS[m]['name']} supercooled liquid", "running")
+        slw_thread = threading.Thread(target=run_slw, name="slw-models", daemon=True)
+        slw_thread.start()
 
         say("Caltrans chain controls", "running")
         out = self.refresh_roads({"road_conditions": prev.get("road_conditions"), **out})
@@ -280,6 +303,16 @@ class SnowAggregator:
                 "priority_lifts": resort.get("priority_lifts", []),
                 "sources": {"resort_official": report, "open_meteo": om, "noaa_nws": nws, "cdec_snotel": cdec},
             }
+
+        slw_thread.join()
+        for m, res in slw_res.items():          # sources.hrrr_slw, sources.rrfs_slw
+            name, key = SLW_MODELS[m]["name"], f"{m}_slw"
+            for rid, r in out["resorts"].items():
+                new = (res.get("points") or {}).get(rid) if res.get("status") == "success" else None
+                new = new or {"status": "error", "error_message": res.get("error_message") or f"no {name} data for this summit"}
+                r["sources"][key] = self._keep_or_fail(new, ((prev_resorts.get(rid) or {}).get("sources") or {}).get(key),
+                                                       new.get("status") == "success")
+            say(f"{name} supercooled liquid", "done" if res.get("status") == "success" else "error")
 
         out["metadata"] = {
             "generated_at_utc": now,
