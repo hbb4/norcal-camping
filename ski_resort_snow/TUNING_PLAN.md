@@ -175,7 +175,9 @@ All commands run from `ski_resort_snow/`. Outputs go to `data/tuning/` (not comm
 5. Skill-blend weights, short lead (a few minutes the first time, then cached): `python3 blend_weights.py --hindcast --write --apply blend_skill`. Long lead, e.g. day 3: `python3 blend_weights.py --hindcast --lead-day 3 --write --apply blend_skill_long`. `--apply` writes the weights into `config/sources.json`; the blend appears or changes on the next data refresh (`python3 update_snow_data.py`, or the running server's hourly refresh).
 6. Weights from the live per-model archive (once ~15 cold, wet days have accumulated): `python3 blend_weights.py --write`.
 7. Temperature coupling weights (grows with every pipeline run): `python3 station_bias.py`.
-8. Not built yet: step 4 (Open-Meteo Historical Forecast pulls of the full surface and column fields for the SLR terms) and the HRRR pressure-level archive for free-air temperature in past winters.
+8. Precipitation skill, days and whole storms, raw vs bias-corrected, categorical, blends (seconds, from the cache): `python3 skill_report.py --md`; long lead after step 5's long-lead fit: `python3 skill_report.py --lead-day 3 --md`.
+9. Neighborhood test (interpolation and the precipitation elevation shift): `python3 neighborhood_hindcast.py fetch --plan` to see the size (default WY2026-WY2027, 9 points: 216 requests, about 1,600 Open-Meteo calls, ~5 minutes), then `python3 neighborhood_hindcast.py fetch`, then `python3 neighborhood_hindcast.py score --md`. More seasons: `--seasons 2023,2024,2025,2026,2027` (about 4,000 calls; split over two days if the dashboard is also refreshing). Then `python3 neighborhood_hindcast.py fit` to see the residual multipliers, and `fit --apply` to write them and the Corrected blend into `config/sources.json` (seconds, from the cache).
+10. Not built yet: step 4 (Open-Meteo Historical Forecast pulls of the full surface and column fields for the SLR terms) and the HRRR pressure-level archive for free-air temperature in past winters.
 
 ## 8. Known limits
 
@@ -213,6 +215,41 @@ c ≈ 0 behaves like free air (ventilated slope), c ≈ 1 like the model's 2 m v
 - Static part: c per tier (and per wind class), fit on station pairs going forward and on past winters with SNOTEL temperatures (SQV ≈ mid, WC3/TK2 valley floors, IDP/RP2/CSL) against the NBM archive's 2 m field and the HRRR archive's free-air temperature (pressure-level TMP from AWS, read with the same byte-range decoder, so no Open-Meteo quota). This needs fair-weather days in the NBM sample, not only storm-days.
 - Dynamic part: the hour-0 error decaying with lead time (below). In the first night the 2 m error fell from +7.7 °F at hour 0 to +4.0 at 1–3 h and +1.8 at 4–17 h, mostly because the night ended.
 - Adoption: only after at least ~30 nights per tier and only if leave-one-week-out MAE improves at most tiers, as for every other term.
+
+## 9b. Precipitation skill at the pillows (Nov 24, 2026)
+
+`python3 skill_report.py --md` → `data/tuning/reports/skill_report.md`. Cached Open-Meteo hindcasts (short lead), SQV and WC3 pillows, cold days, whole storms = runs of consecutive confirmed storm-days; every number on held-out seasons. Five models (no AIFS), WY2023-WY2027, 379 cold site-days:
+
+| Blend | Day MAE | Storm MAE | Day CSI (≥ 0.5 in) | POD | FAR |
+|---|---|---|---|---|---|
+| Equal, raw | 0.52 | 0.63 | 0.62 | 0.69 | 0.13 |
+| 1/MAE weights, raw (today's Skill blend) | 0.51 | 0.63 | 0.63 | 0.69 | 0.12 |
+| Equal, bias-corrected | 0.45 | 0.51 | 0.72 | 0.84 | 0.16 |
+| 1/MAE weights, bias-corrected | 0.45 | 0.51 | 0.72 | 0.84 | 0.16 |
+
+- Bias correction (one multiplier per model and pillow, fitted on the other seasons) cuts storm-total error 19% and daily error 13%, and raises the hit rate from 0.69 to 0.84 for a small rise in false alarms. Weighting by skill adds nothing once the members are corrected, and very little before. The six-model sample (95 days, three seasons) agrees.
+- Multipliers (latest fit): ECMWF HRES 1.4-1.5, AIFS 1.3, HRRR/GFS 1.1-1.3, ICON 1.0-1.5, GEM 1.3 (SQV) and 2.8-3.3 (WC3), UKMO 1.8-2.0. ICON's varies most between seasons, so correcting it over-corrects some seasons.
+- A corrected blend needs multipliers for the resort tiers, not just the two pillows. Done with the elevation shift below (the Corrected blend).
+
+**Ways to handle the dry bias.**
+1. Multiplicative correction per model and site (above). Simple and robust; doesn't transfer to places without a pillow.
+2. Quantile mapping: map each model's distribution of daily amounts onto the pillow's, which corrects light and heavy days differently. Needs more storms per site.
+3. Regime-dependent correction: separate multipliers by flow direction (upslope south-west vs other), snow level or storm type (atmospheric river vs cold trough), where the orographic deficit differs.
+4. An elevation shift for precipitation (below), leaving a smaller residual for 1-3.
+
+**Ways to shift precipitation to a site's height.**
+- a. The model's own neighborhood: fit each day's precipitation against cell height and distance across the crest over the cells around the site, and evaluate at the site (the NBM method). `neighborhood_hindcast.py` fetches the cells and scores this against the single cell, an inverse-distance mean and the height-matched cell. A test pull showed the gradient exists in the models: HRRR/GFS 6.73 in at a 7,516 ft cell vs 7.37 in at 8,077 ft over the same five days.
+  - Result, five seasons (WY2023-WY2027, about 395 cold site-days per model at SQV and WC3; AIFS 95 from spring 2025). Report: `data/tuning/reports/neighborhood.md`. Lake Tahoe cells come back at 0 ft and are taken at the lake surface (6,225 ft). The two-season first look (64 site-days) overstated the gains.
+  - Without a multiplier, the elevation line removes most of the storm-total dry bias: ECMWF HRES -0.42 to +0.06 in, UKMO -0.70 to -0.16, ICON -0.30 to -0.09, HRRR/GFS -0.17 to -0.08, AIFS -0.48 to -0.36. GEM is the exception (-0.41 to -0.58): its slope through its own cells runs the wrong way at the pillows.
+  - Residual multipliers after the shift are small and close to height-independent: pooled over both pillows ECMWF HRES 1.04, HRRR/GFS 1.12, ICON 1.17, UKMO 1.24, AIFS 1.25, GEM 1.71. By pillow they are lower at SQV (0.95-1.20, GEM 1.61) than at WC3 (1.27-1.95), the lower site, so what is left is the site (Ward Creek is wetter than its height), not height.
+  - Equal blend of five members (no AIFS), held-out seasons, 379 cold site-days: storm MAE 0.63 in with each model's own cell, 0.54 with the elevation line alone, 0.53 with the line and a pooled multiplier, 0.50 with the own cell and a pooled multiplier. Daily MAE 0.52 / 0.48 / 0.45 / 0.45; days >= 0.5 in caught (POD) 0.69 / 0.75 / 0.83 / 0.82. Six members on 95 common days: 0.76 / 0.60 / 0.53 / 0.45.
+  - Decision (Nov 24, 2026): the elevation line is the first-level correction and one pooled residual multiplier per model goes on top. At the pillows a multiplier alone scores as well, but a multiplier alone is fitted to each pillow's height and doesn't carry to tiers 1,000-2,800 ft away; after the shift the multiplier is small and has no height trend, so it carries. The inverse-distance mean was not adopted (no gain over the line once corrected).
+  - Built: `collectors/precip_shift.py` (the method, shared by the hindcast and the live forecast), `neighborhood_hindcast.py fit --apply` (writes `precip_correction` and the `blend_corrected` entry into `config/sources.json`), the Corrected blend in the model selector, and corrected versions of the six single models (`<model>.corrected.json`, the Corrected precip switch, corrected totals in the model table; archived as `<model>_corrected` for live scoring). Held-out storm error per model, own cell → corrected: HRES 0.64 → 0.51 in, UKMO 0.81 → 0.57, GEM 0.72 → 0.58, AIFS 0.74 → 0.53, HRRR/GFS 0.63 → 0.59, ICON 0.57 → 0.59. The live fetch adds one 3x3 neighborhood request per model per resort (precipitation only, 168 h); Palisades and Alpine share every model's but HRRR/GFS's, so 7 requests and about 63 Open-Meteo calls per refresh.
+  - Limits: the fit is short-lead (Historical Forecast API) and applied at every lead; HRRR/GFS's neighborhood is HRRR's 3 km grid, which falls inside one or two GFS cells after 48 h, so the shift fades to nothing there and only the residual applies. Re-fit after each season: `python3 neighborhood_hindcast.py fetch --seasons <new WY>`, then `fit --apply`.
+  - Nov 25, 2026: GEM out of the Equal blend (raw blend storm MAE 0.634 with it, 0.622 without; corrected 0.530 either way, so it stays in the Corrected blend). RRFS (Open-Meteo `ncep_rrfs_conus`) added to every multi-model blend; it has no hindcast, so `member_models()` (the hindcast list) now comes from the model table's `hindcast` flag instead of the Equal blend, and refits keep RRFS at weight 1.0 / multiplier 1.0. Score it once the live per-model archive has a season of RRFS forecasts.
+- b. NBM ratio: NBM is 2.5 km and statistically calibrated; scale a coarse model by NBM(site) / NBM(model cell footprint) for the same period. Event-specific, but ties every model to NBM's structure.
+- c. PRISM ratio: scale by the ratio of PRISM 30-year normal precipitation (800 m) at the site and over the model cell. Static and climatological; needs the PRISM normals (free download).
+- d. Observed gradient from the pillow network (seven sites, 6,500-8,340 ft): too few sites and too much local exposure to fit alone, but a check on a-c.
 
 ## 10. Observed vs. forecast at hour 0
 

@@ -135,7 +135,7 @@
     $("skewt-sub").textContent = title;
     // init and valid time, prominently
     const RUN_NAMES = { ncep_hrrr_conus: "HRRR", ncep_gfs025: "GFS", ncep_gfs013: "GFS", ecmwf_ifs: "ECMWF IFS", ecmwf_ifs025: "ECMWF IFS 0.25°",
-      ecmwf_aifs025_single: "ECMWF AIFS", dwd_icon: "ICON", ukmo_global_deterministic_10km: "UKMO", cmc_gem_gdps: "GEM", cmc_gem_rdps: "GEM regional" };
+      ecmwf_aifs025_single: "ECMWF AIFS", dwd_icon: "ICON", ukmo_global_deterministic_10km: "UKMO", cmc_gem_gdps: "GEM", cmc_gem_rdps: "GEM regional", ncep_rrfs_conus: "RRFS" };
     const tEl = $("skewt-times");
     if (tEl) {
       const fmtLocal = d => d.toLocaleString([], { weekday: "short", month: "numeric", day: "numeric", hour: "numeric" });
@@ -630,12 +630,13 @@
     (o.model_comparison || o.available_models || []).forEach(m => {
       const sm = m.summary || m;
       const runs = m.members ? `latest run of each (${m.members.length} models)` : (m.runs || []).map(run).join(" / ");
+      const cs = m.corrected_summary;   // the same model with its precipitation corrected
       if (m.error || m.status === "error") { rows.push(`<tr><td><b>${esc(m.label)}</b></td><td>${esc(m.provider || "")}</td><td>${esc(m.grid || "")}</td><td colspan="7" class="muted">${esc(m.error || "unavailable")}</td></tr>`); return; }
       rows.push(`<tr${m.id === cur ? ' class="row-primary"' : ""}><td><b>${esc(m.label)}</b>${m.id === cur ? "<small>selected</small>" : ""}</td><td>${esc(m.provider)}</td><td>${esc(m.grid)}${m.cell_elevation_ft ? `<small>summit cell ${m.cell_elevation_ft.toLocaleString()} ft</small>` : ""}</td>
         <td>${esc(m.sounding_label || "")}${m.sounding_has_vertical_velocity || /^none/.test(m.sounding_label || "") ? "" : '<small>no vertical velocity: SLR weighted by layer depth</small>'}</td>
         <td>${runs || "–"}</td><td>${sm.hours_available ?? m.hours_available ?? "?"} h</td>
-        <td>${L(sm.liquid_48h)}</td><td>${L(sm.liquid_7d)}${sm.covers_7d === false ? "<sup>†</sup>" : ""}</td>
-        <td>${S(sm.snow_48h)}</td><td>${S(sm.snow_7d)}${sm.covers_7d === false ? "<sup>†</sup>" : ""}</td></tr>`);
+        <td>${L(sm.liquid_48h)}${cs ? `<small>corr. ${L(cs.liquid_48h)}</small>` : ""}</td><td>${L(sm.liquid_7d)}${sm.covers_7d === false ? "<sup>†</sup>" : ""}${cs ? `<small>corr. ${L(cs.liquid_7d)}</small>` : ""}</td>
+        <td>${S(sm.snow_48h)}${cs ? `<small>corr. ${S(cs.snow_48h)}</small>` : ""}</td><td>${S(sm.snow_7d)}${sm.covers_7d === false ? "<sup>†</sup>" : ""}${cs ? `<small>corr. ${S(cs.snow_7d)}</small>` : ""}</td></tr>`);
     });
     const nwsRow = (g, label, used) => g ? rows.push(`<tr><td><b>NWS ${esc(g.wfo || "")} gridded forecast</b><small>${label} · shown separately, not blended</small></td><td>NWS ${esc(g.wfo || "")} (forecaster-edited)</td>
       <td>2.5 km${g.grid_elevation_ft || g.elevation_ft ? ` · cell ${(g.grid_elevation_ft || g.elevation_ft).toLocaleString()} ft` : ""}</td><td>–</td>
@@ -653,6 +654,41 @@
     if (mfoot) {
       mfoot.hidden = !short.length;
       mfoot.textContent = short.length ? `† Run ends before 7 days (${short.map(m => `${m.label} ${(m.summary || m).hours_available ?? m.hours_available ?? "?"} h`).join(", ")}), so its 7-day total covers only the hours it has.` : "";
+    }
+
+    // precipitation correction (corrected blend only)
+    const corr = (o.blend || {}).correction || o.precip_correction, ccard = $("corr-card");
+    if (ccard) {
+      ccard.hidden = !corr;
+      if (corr) {
+        const f = corr.fitted || {}, lo = (f.loso_equal_blend || {}), raw = lo["single cell, raw"], cor = lo["elevation line x pooled mult."];
+        const isBlend = !!(o.blend || {}).correction, lm = f.loso_members || {};
+        $("corr-title").textContent = isBlend ? "Precipitation correction: Corrected blend" : `Precipitation correction: ${(Object.values(corr.members || {})[0] || {}).label || "model"}`;
+        const sgn = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2);
+        const hind = mid => {
+          const h = lm[mid];
+          if (!h || !h.own_cell || !h.corrected) return '<td class="muted">no hindcast yet</td>';
+          return `<td>${h.own_cell.storm_mae.toFixed(2)} → <b>${h.corrected.storm_mae.toFixed(2)} in</b><small>bias ${sgn(h.own_cell.storm_bias)} → ${sgn(h.corrected.storm_bias)} · ${h.storms} storms</small></td>`;
+        };
+        $("corr-sub").innerHTML = `Each model's precipitation at each tier is a distance-weighted line through its own 3×3 neighborhood of grid cells against cell height (plus distance across the crest), evaluated at the tier height but no more than 1,000 ft beyond the cells. It is then multiplied by one residual factor per model, fitted against the SQV and WC3 pillows over ${esc(f.seasons || "the hindcast")}. Snow follows from the corrected liquid through each model's own snow fraction and SLR. 7-day liquid, own cell → corrected.`;
+        const tierCell = ti => {
+          if (!ti) return "<td>–</td>";
+          const r = ti.liquid_7d_raw, c = ti.liquid_7d, ratio = num(r) && r > 0.01 && num(c) ? `×${(c / r).toFixed(2)}` : "";
+          const at = ti.fallback ? esc(ti.fallback) : (num(ti.evaluated_at_ft) ? `line at ${ti.evaluated_at_ft.toLocaleString()} ft${ti.evaluated_at_ft !== ti.tier_ft ? " (capped)" : ""}` : "");
+          return `<td>${L(r)} → <b>${L(c)}</b> <span class="muted">${ratio}</span><small>${at}</small></td>`;
+        };
+        const crow = Object.entries(corr.members || {}).map(([mid, m]) => {
+          if (m.error) return `<tr><td><b>${esc(m.label)}</b></td><td colspan="5" class="muted">${esc(m.error)}: left out of the corrected blend</td></tr>`;
+          const t0 = (m.tiers || {}).summit || (m.tiers || {}).base || {};
+          const cells = `${m.cells} cells${num(t0.cell_min_ft) ? `, ${t0.cell_min_ft.toLocaleString()}–${t0.cell_max_ft.toLocaleString()} ft` : ""}${t0.lake_cells ? ` (${t0.lake_cells} lake)` : ""}`;
+          return `<tr><td><b>${esc(m.label)}</b><small>${cells}</small></td><td>×${num(m.residual) ? m.residual.toFixed(2) : "–"}${m.residual_fitted === false ? "<small>not fitted</small>" : ""}</td>${["base", "mid", "summit"].map(k => tierCell((m.tiers || {})[k])).join("")}${hind(mid)}</tr>`;
+        });
+        const tft = k => { const ti = Object.values(corr.members || {}).map(m => (m.tiers || {})[k]).find(Boolean); return ti ? ` ${ti.tier_ft.toLocaleString()} ft` : ""; };
+        $("corr-table").innerHTML = `<thead><tr><th>Model</th><th>Residual</th><th>Base${tft("base")}</th><th>Mid${tft("mid")}</th><th>Summit${tft("summit")}</th><th>Hindcast storm error</th></tr></thead><tbody>${crow.join("")}</tbody>`;
+        $("corr-foot").textContent = raw && cor
+          ? `Hindcast storm error: each model alone at the pillows on held-out seasons, own cell → corrected (mean absolute error of whole-storm totals). Equal blend of ${(lo.members || []).length} members (${lo.cold_site_days} cold site-days): storm-total error ${raw.storm_mae.toFixed(2)} in with each model's own cell → ${cor.storm_mae.toFixed(2)} in corrected; daily error ${raw.day_mae.toFixed(2)} → ${cor.day_mae.toFixed(2)} in; days ≥ 0.5 in caught ${Math.round(raw.day_pod * 100)}% → ${Math.round(cor.day_pod * 100)}%. Fitted ${esc(f.created || "")} (neighborhood_hindcast.py fit). Cells over Lake Tahoe are taken at the lake surface, 6,225 ft.`
+          : "";
+      }
     }
 
     // SLR methods
@@ -784,7 +820,7 @@
     });
     $("points-sub").textContent = "Each tier is queried at its own coordinates. Open-Meteo models: the model's own grid-cell values (no Open-Meteo downscaling); the cell's height comes from its surface pressure on the model column, and temperature and dew point are moved to the tier height by the column's own change between the two heights, so inversions the model has are kept."
       + (cellTxt.length ? ` ${(o.model || {}).label || "This model"}, median of the first 24 h: ${cellTxt.join("; ")}.` : "")
-      + " NBM: a line fit through the surrounding NBM cells, evaluated at the tier height. Precipitation is not elevation-adjusted for Open-Meteo models; wind uses pressure-level data at the tier height (summit) or the 10 m model wind (base).";
+      + " NBM: a line fit through the surrounding NBM cells, evaluated at the tier height. Open-Meteo precipitation is the model cell's own, except in the Corrected blend, where each model's precipitation is shifted to the tier height through its neighboring cells (see Precipitation correction); wind uses pressure-level data at the tier height (summit) or the 10 m model wind (base).";
   }
 
   // ---------------------------------------------------------------- elevation bands

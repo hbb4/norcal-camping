@@ -48,7 +48,12 @@ import urllib.request
 import urllib.error
 import urllib.parse
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
+
+try:
+    from . import precip_shift as ps
+except ImportError:  # imported as a top-level module (collectors/ on sys.path)
+    import precip_shift as ps
 
 M_TO_FT = 3.28084
 PRESSURE_LEVELS = [1000, 975, 950, 925, 900, 850, 800, 750, 700, 650, 600, 550, 500, 450, 400, 350, 300, 250, 200]
@@ -58,7 +63,7 @@ FORECAST_HOURS = 168
 DEFAULT_MODEL = "nbm"
 # Static blends shown as their own entries in the model selector (config/sources.json "blends" overrides).
 # NBM is left out: it is already a blend that includes GFS and ECMWF.
-DEFAULT_BLENDS = [{"id": "blend", "label": "Equal blend", "members": {"ecmwf_hres": 1, "aifs": 1, "hrrr_gfs": 1, "icon": 1, "ukmo": 1, "gem": 1},
+DEFAULT_BLENDS = [{"id": "blend", "label": "Equal blend", "members": {"ecmwf_hres": 1, "aifs": 1, "hrrr_gfs": 1, "rrfs": 1, "icon": 1, "ukmo": 1},
                    "profile_from": "ecmwf_hres", "min_weight_share": 0.5}]
 BLEND_MEAN_KEYS = {   # key -> rounding
     "precip_in": 3, "snowfall_rate_in_hr": 2, "model_snowfall_in_hr": 2, "slr_kuchera": 1, "slr_experimental": 1, "snow_fraction": 2,
@@ -76,6 +81,9 @@ MODELS = [
      "sounding": "ecmwf_aifs025_single", "sounding_label": "own", "meta": ["ecmwf_aifs025_single"]},
     {"id": "hrrr_gfs", "om": "gfs_seamless", "label": "HRRR/GFS", "provider": "NOAA/NCEP", "grid": "3 km to ~47 h, then 0.25 deg",
      "sounding": "gfs_seamless", "sounding_label": "own", "meta": ["ncep_hrrr_conus", "ncep_gfs025"]},
+    # RRFS: operational Nov 2026, 3 km, 84 h runs every 6 h; too new for a hindcast, so the hindcast scripts skip it
+    {"id": "rrfs", "om": "ncep_rrfs_conus", "label": "RRFS", "provider": "NOAA/NCEP (Rapid Refresh Forecast System)", "grid": "3 km, to 84 h",
+     "sounding": "ncep_rrfs_conus", "sounding_label": "own", "meta": ["ncep_rrfs_conus"], "hindcast": False},
     {"id": "icon", "om": "icon_seamless", "label": "ICON", "provider": "DWD (Germany)", "grid": "13 km",
      "sounding": "icon_seamless", "sounding_label": "own (no vertical velocity)", "meta": ["dwd_icon"]},
     {"id": "ukmo", "om": "ukmo_seamless", "label": "UKMO", "provider": "Met Office (UK)", "grid": "10 km",
@@ -272,8 +280,12 @@ class OpenMeteoClient:
     META_URL = "https://api.open-meteo.com/data/{model}/static/meta.json"
     USER_AGENT = "SierraSnowDashboard/3.0"
 
-    def __init__(self, timeout_sec: int = 20, blends: Optional[List[Dict[str, Any]]] = None):
+    def __init__(self, timeout_sec: int = 20, blends: Optional[List[Dict[str, Any]]] = None,
+                 precip_correction: Optional[Dict[str, Any]] = None):
         self.blends = DEFAULT_BLENDS if blends is None else blends
+        # elevation shift + residual multiplier for blends marked "precip_correction" (config/sources.json)
+        self.precip_correction = precip_correction
+        self._nbr_cache: Dict[Any, Any] = {}
         self.timeout_sec = timeout_sec
         self._meta_cache: Dict[str, Any] = {}
 
@@ -309,6 +321,13 @@ class OpenMeteoClient:
                 except Exception:
                     ensembles[k] = None
 
+            # neighborhoods for the precipitation correction (only when a blend uses it)
+            nbr: Dict[str, Any] = {}
+            want_corr = bool(self.precip_correction)   # corrected single models, and blends marked "precip_correction"
+            if want_corr:
+                say("model neighborhoods (precipitation correction)")
+                nbr = self._fetch_neighborhoods(tiers, [m["om"] for m in MODELS if m["om"]])
+
             sensor_surface = None
             if sensor:
                 try:
@@ -317,7 +336,7 @@ class OpenMeteoClient:
                     sensor_surface = None
 
             now = datetime.now(timezone.utc).isoformat()
-            outputs, parsed_by_model = {}, {}
+            outputs, parsed_by_model, corrected_by_model, correction_info, corrected_outputs = {}, {}, {}, {}, {}
             for m in MODELS:
                 say(f"model {m['label']}")
                 if m["id"] == "nbm":
@@ -331,6 +350,20 @@ class OpenMeteoClient:
                     continue
                 parsed = {k: self._build_tier(parts[k], prof, labels[k], tiers[k]["elevation_m"], exposure[k], ensembles[k], w_ok) for k in tiers}
                 parsed_by_model[m["id"]] = parsed
+                if m["om"] in nbr:
+                    try:
+                        corr = self._corrected_tiers(m, parts, parsed, nbr[m["om"]], tiers, prof, labels, exposure, ensembles, w_ok)
+                    except Exception as e:  # a failed correction only drops this member from the corrected blend
+                        corr = (None, {"error": f"{type(e).__name__}: {e}"})
+                    if corr[0]:
+                        corrected_by_model[m["id"]] = corr[0]
+                        try:
+                            corrected_outputs[m["id"]] = self._corrected_output(m, corr[0], corr[1], prof, tiers, w_ok, now)
+                        except Exception:
+                            pass
+                    correction_info[m["id"]] = corr[1]
+                elif want_corr:
+                    correction_info[m["id"]] = {"error": "neighborhood fetch failed"}
                 out = self._assemble(m, parsed, prof, tiers, w_ok, now)
                 if sensor and sensor_surface and m["id"] == "hrrr_gfs":
                     try:
@@ -348,7 +381,10 @@ class OpenMeteoClient:
             # static blends (before the column details are dropped: the blend's profile panels use one of them)
             for bl in self.blends:
                 try:
-                    bo = self._blend_output(bl, outputs, parsed_by_model, profiles, has_w, tiers, labels, ensembles, now)
+                    src_parsed = corrected_by_model if bl.get("precip_correction") else parsed_by_model
+                    bo = self._blend_output(bl, outputs, src_parsed, profiles, has_w, tiers, labels, ensembles, now)
+                    if bo and bl.get("precip_correction") and bo.get("status") == "success":
+                        self._attach_correction(bo, correction_info, nbr)
                 except Exception as e:  # a failed blend never takes the members down
                     bo = {"status": "error", "model": {"id": bl["id"], "label": bl.get("label", "Blend"), "provider": "blend", "grid": "",
                                                         "runs": [], "hours_available": None}, "error_message": f"{type(e).__name__}: {e}"}
@@ -365,9 +401,14 @@ class OpenMeteoClient:
                     x.pop("_ground_m", None)
             self._attach_profile(outputs.get("nbm"), outputs.get("hrrr_gfs"))
 
-            comparison = [{**o["model"], **(o.get("summit_summary") or {}), **({"error": o.get("error_message")} if o.get("status") == "error" else {})}
-                          for o in outputs.values()]
-            for o in outputs.values():
+            def corr_summary(mid):
+                s = (corrected_outputs.get(mid) or {}).get("summit_summary")
+                return {"corrected_summary": {k: s.get(k) for k in ("liquid_48h", "liquid_7d", "snow_48h", "snow_7d", "covers_7d")}} if s else {}
+
+            comparison = [{**o["model"], **(o.get("summit_summary") or {}), **corr_summary(mid),
+                           **({"error": o.get("error_message")} if o.get("status") == "error" else {})}
+                          for mid, o in outputs.items()]
+            for o in list(outputs.values()) + list(corrected_outputs.values()):
                 if o.get("status") == "success":
                     o["model_comparison"] = comparison
                     o["query_points"] = {k: {"lat": t["lat"], "lon": t["lon"], "elevation_ft": round(t["elevation_m"] * M_TO_FT), "note": t.get("note", "")}
@@ -378,7 +419,7 @@ class OpenMeteoClient:
             if not default:
                 raise RuntimeError("no model returned data")
             return {"status": "success", "default_model": default["model"]["id"], "default": default, "models": outputs,
-                    "timestamp_utc": now}
+                    "corrected_models": corrected_outputs, "timestamp_utc": now}
         except Exception as e:
             return {
                 "status": "error",
@@ -488,6 +529,8 @@ class OpenMeteoClient:
             # Open-Meteo models: the full parsed tier; NBM (read natively from NOAA): its elevation-adjusted timeline
             if mid in parsed_by_model:
                 return parsed_by_model[mid][k]["_steps"]
+            if bl.get("precip_correction"):
+                return None   # corrected blends use only members with a correction
             return ((outputs.get(mid) or {}).get("elevation_timelines") or {}).get(k)
 
         w = {mid: wt for mid, wt in nominal.items() if (outputs.get(mid) or {}).get("status") == "success"
@@ -524,6 +567,139 @@ class OpenMeteoClient:
         out["source"] = f"Blend of {len(w)} Open-Meteo models"
         out["methodology"]["blend"] = out["blend"]["rule"]
         return out
+
+    # ------------------------------------------------------------------
+    # Precipitation correction: elevation shift from each model's neighborhood, then a residual multiplier
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _neighborhood_points(tiers: Dict[str, Any], step_deg: float) -> List[List[float]]:
+        """3x3 points one grid step apart around the middle of the resort's tiers (as in the hindcast)."""
+        lat0 = sum(t["lat"] for t in tiers.values()) / len(tiers)
+        lon0 = sum(t["lon"] for t in tiers.values()) / len(tiers)
+        dlon = step_deg / math.cos(math.radians(lat0))
+        return [[round(lat0 + i * step_deg, 4), round(lon0 + j * dlon, 4)] for i in (-1, 0, 1) for j in (-1, 0, 1)]
+
+    def _query_points(self, points: List[List[float]], om_id: str) -> List[Dict[str, Any]]:
+        """Hourly precipitation at several points for one model, each at its own grid cell (elevation=nan)."""
+        d = self._get(self.BASE_URL, {
+            "latitude": ",".join(f"{a:.4f}" for a, _ in points), "longitude": ",".join(f"{b:.4f}" for _, b in points),
+            "elevation": ",".join("nan" for _ in points), "hourly": "precipitation", "models": om_id,
+            "forecast_hours": str(FORECAST_HOURS), "past_hours": "0", "timezone": "GMT", "precipitation_unit": "inch",
+        }, timeout=self.timeout_sec * 2)
+        return d if isinstance(d, list) else [d]
+
+    def _fetch_neighborhoods(self, tiers: Dict[str, Any], om_ids: List[str]) -> Dict[str, Any]:
+        """{om_id: [cell {lat, lon, z, lake, series}]}, one entry per distinct cell; models that fail are left out."""
+        out = {}
+        for om_id in om_ids:
+            step = ps.GRID_STEP_DEG.get(om_id)
+            if not step:
+                continue
+            pts = self._neighborhood_points(tiers, step)
+            c_lat, c_lon = pts[4]
+            dlon = step / math.cos(math.radians(c_lat))
+            now = datetime.now(timezone.utc)
+            # a neighborhood fetched for another resort in this refresh is reused when this resort's middle is
+            # within half a grid step of its middle (Palisades and Alpine share every model but HRRR/GFS)
+            hit = next((e for e in self._nbr_cache.get(om_id, []) if (now - e[0]).total_seconds() < 900
+                        and abs(e[1] - c_lat) <= step / 2 and abs(e[2] - c_lon) <= dlon / 2), None)
+            if hit:
+                resp = hit[3]
+            else:
+                try:
+                    resp = self._query_points(pts, om_id)
+                except Exception:
+                    continue
+                self._nbr_cache.setdefault(om_id, []).append((now, c_lat, c_lon, resp))
+            cells = {}
+            for r in resp:
+                if r.get("latitude") is None:
+                    continue
+                key = (round(r["latitude"], 3), round(r["longitude"], 3))
+                if key in cells:
+                    continue
+                z, lake = ps.cell_height_ft(r.get("elevation"))
+                h = r.get("hourly") or {}
+                cells[key] = {"lat": r["latitude"], "lon": r["longitude"], "z": z, "lake": lake,
+                              "series": dict(zip(h.get("time", []), h.get("precipitation", [])))}
+            if cells:
+                out[om_id] = list(cells.values())
+        return out
+
+    def _correction_residual(self, mid: str) -> float:
+        pc = self.precip_correction or {}
+        lo, hi = pc.get("residual_bounds", [0.5, 2.0])
+        r = float((pc.get("residual") or {}).get(mid, 1.0))
+        return max(lo, min(hi, r))
+
+    @staticmethod
+    def corrected_precip(times: List[str], raw: List[Optional[float]], cells: List[Dict[str, Any]], lat: float, lon: float,
+                         z_ft: float, residual: float) -> Tuple[List[Optional[float]], Dict[str, Any]]:
+        """Hourly precipitation at a tier: elevation line from the neighborhood cells, times the residual.
+
+        Falls back to the tier's own cell (still times the residual) when the cells can't support a line."""
+        weights, info = ps.line_weights(cells, lat, lon, z_ft)
+        info["lake_cells"] = sum(1 for c in cells if c.get("lake"))
+        if weights:
+            shifted = ps.shift_hourly([[c["series"].get(t) for t in times] for c in cells], weights)
+        else:
+            shifted = [None] * len(times)
+            info["fallback"] = "own cell: " + info.get("reason", "no line")
+        out = []
+        for i in range(len(times)):
+            base = shifted[i] if shifted[i] is not None else (raw[i] if i < len(raw) else None)
+            out.append(None if base is None else round(base * residual, 4))
+        return out, info
+
+    def _corrected_tiers(self, m: Dict[str, Any], parts: Dict[str, Any], parsed: Dict[str, Any], cells: List[Dict[str, Any]],
+                         tiers: Dict[str, Any], prof: List[Dict[str, Any]], labels: Dict[str, str], exposure: Dict[str, float],
+                         ensembles: Dict[str, Any], w_ok: bool):
+        """One model's tiers rebuilt with corrected precipitation (snow follows from liquid x fraction x SLR)."""
+        res = self._correction_residual(m["id"])
+        fitted = m["id"] in ((self.precip_correction or {}).get("residual") or {})
+        out, info = {}, {"residual": round(res, 3), "residual_fitted": fitted, "cells": len(cells), "tiers": {}}
+        for k, t in tiers.items():
+            h = parts[k]["hourly"]
+            times, raw = h.get("time", []), h.get("precipitation") or []
+            z_ft = t["elevation_m"] * M_TO_FT
+            corr, ti = self.corrected_precip(times, raw, cells, t["lat"], t["lon"], z_ft, res)
+            snow = h.get("snowfall") or []
+            scaled_snow = [None if s is None else (s * (c / r) if (r or 0) > 0.001 and c is not None else s)
+                           for s, r, c in zip(snow, raw + [None] * (len(snow) - len(raw)), corr + [None] * (len(snow) - len(corr)))]
+            part = {"hourly": {**h, "precipitation": corr, "snowfall": scaled_snow}, "hourly_units": parts[k].get("hourly_units", {})}
+            out[k] = self._build_tier(part, prof, labels[k], t["elevation_m"], exposure[k], ensembles.get(k), w_ok)
+            p_raw, p_cor = parsed[k], out[k]
+            ti.update({"liquid_48h_raw": p_raw["liquid_48h_inches"], "liquid_48h": p_cor["liquid_48h_inches"],
+                       "liquid_7d_raw": p_raw["liquid_7d_inches"], "liquid_7d": p_cor["liquid_7d_inches"],
+                       "snow_48h_raw": p_raw["snow_48h_inches"], "snow_48h": p_cor["snow_48h_inches"],
+                       "snow_7d_raw": p_raw["snow_7d_total_inches"], "snow_7d": p_cor["snow_7d_total_inches"],
+                       "tier_ft": round(z_ft)})
+            info["tiers"][k] = ti
+        return out, info
+
+    def _corrected_output(self, m: Dict[str, Any], parsed_c: Dict[str, Any], info: Dict[str, Any], prof: List[Dict[str, Any]],
+                          tiers: Dict[str, Any], w_ok: bool, now: str) -> Dict[str, Any]:
+        """A single model's full output with its precipitation corrected (same id; shown by the page's toggle)."""
+        out = self._assemble({**m, "label": f"{m['label']} (corrected)"}, parsed_c, prof, tiers, w_ok, now)
+        pc = self.precip_correction or {}
+        out["model"]["corrected"] = True
+        out["primary_model"]["label"] = out["primary_model"]["label"].replace(" (corrected) (", " (") + ", precipitation corrected"
+        out["source"] = f"Open-Meteo: {m['label']}, precipitation corrected"
+        out["precip_correction"] = {"method": pc.get("method"), "fitted": pc.get("fitted"),
+                                    "members": {m["id"]: {"label": m["label"], **info}}, "uncorrected": []}
+        out["methodology"]["precip_correction"] = pc.get("method")
+        return out
+
+    def _attach_correction(self, bo: Dict[str, Any], correction_info: Dict[str, Any], nbr: Dict[str, Any]) -> None:
+        pc = self.precip_correction or {}
+        names = {x["id"]: x["label"] for x in MODELS}
+        used = [x["id"] for x in (bo.get("blend") or {}).get("members", [])]
+        bo["blend"]["correction"] = {
+            "method": pc.get("method"), "fitted": pc.get("fitted"),
+            "members": {mid: {"label": names.get(mid, mid), **correction_info.get(mid, {})} for mid in used},
+            "uncorrected": [names.get(mid, mid) for mid, inf in correction_info.items() if inf.get("error")],
+        }
+        bo["methodology"]["precip_correction"] = pc.get("method")
 
     @staticmethod
     def _attach_profile(nbm_out: Optional[Dict[str, Any]], src: Optional[Dict[str, Any]], src_label: str = "HRRR/GFS") -> None:

@@ -934,3 +934,178 @@ class TestBlendWeightsLongLead(unittest.TestCase):
         self.assertEqual(b["members"], {"icon": 1.2, "gem": 0.8})       # members without enough windows are left out
         self.assertEqual(b["label"], "Long-lead skill blend (beta)")
         self.assertEqual(b["fitted"]["site_days"], 40)
+
+
+class TestPrecipCorrection(unittest.TestCase):
+    """Shared elevation shift: linear weights, lake cells, running-total clip, live correction, corrected blend."""
+
+    @staticmethod
+    def _cells(lat0, lon0, field):
+        from collectors.nbm_downscale import _xy, _cross
+        xc0 = _cross(*_xy(lat0, lon0))
+        out = []
+        for di, dj, z in [(0, 0, 7500), (1, 0, 7800), (-1, 0, 7000), (0, 1, 6800), (0, -1, 8100), (1, 1, 7300), (-1, -1, 6400)]:
+            la, lo = lat0 + di * 0.03, lon0 + dj * 0.04
+            out.append({"lat": la, "lon": lo, "z": z, "v": field(z, _cross(*_xy(la, lo)) - xc0)})
+        return out
+
+    def test_weights_match_the_fit(self):
+        from collectors import precip_shift as ps
+        lat0, lon0 = 39.19, -120.27
+        cells = self._cells(lat0, lon0, lambda z, xc: 1.0 + 0.4 * (z - 8010) / 1000 + 0.05 * xc)
+        w, info = ps.line_weights(cells, lat0, lon0, 8010)
+        self.assertAlmostEqual(sum(w), 1.0, places=9)                                   # agreeing cells pass through unchanged
+        self.assertAlmostEqual(ps.estimate([c["v"] for c in cells], w), 1.0, places=6)  # an exactly linear field is recovered
+        self.assertTrue(info["cross_crest"])
+        w2, info2 = ps.line_weights(cells, lat0, lon0, 12000)                          # far above: capped 1,000 ft over the top cell
+        self.assertEqual(info2["evaluated_at_ft"], 9100)
+        self.assertAlmostEqual(ps.estimate([c["v"] for c in cells], w2), 1.0 + 0.4 * (9100 - 8010) / 1000, places=6)
+        flat = [{**c, "z": 7000 + i} for i, c in enumerate(cells)]
+        self.assertIsNone(ps.line_weights(flat, lat0, lon0, 8010)[0])
+        self.assertEqual(ps.cell_height_ft(0.0), (6225.0, True))                        # Lake Tahoe water cell
+        self.assertFalse(ps.cell_height_ft(2000)[1])
+        self.assertEqual(ps.cell_height_ft(None), (None, False))
+
+    def test_running_total_clip(self):
+        from collectors import precip_shift as ps
+        hi, lo = [0.0, 0.2, 0.2, 0.0], [0.3, 0.0, 0.1, 0.0]
+        out = ps.shift_hourly([hi, lo], [1.5, -0.5])
+        self.assertEqual(out[0], 0.0)                         # 1.5 x 0 - 0.5 x 0.3 < 0: clipped
+        self.assertTrue(all(x >= 0 for x in out))
+        self.assertAlmostEqual(sum(out), 1.5 * 0.4 - 0.5 * 0.4, places=9)
+        self.assertIsNone(ps.shift_hourly([[0.1, None], [0.1, 0.1]], [0.5, 0.5])[1])
+
+    def test_live_correction(self):
+        from collectors.open_meteo_client import OpenMeteoClient
+        times = [f"2026-11-24T{i:02d}:00" for i in range(6)]
+        lat0, lon0 = 39.19, -120.27
+        cells = self._cells(lat0, lon0, lambda z, xc: 0.1 * (1 + 0.4 * (z - 8010) / 1000))
+        for c in cells:
+            c["series"] = {t: c["v"] for t in times}
+        out, info = OpenMeteoClient.corrected_precip(times, [0.08] * 6, cells, lat0, lon0, 8010, 1.2)
+        self.assertAlmostEqual(sum(out), 6 * 0.1 * 1.2, places=3)                       # line at the tier, times the residual
+        flat = [{**c, "z": 7000} for c in cells]
+        out2, info2 = OpenMeteoClient.corrected_precip(times, [0.08] * 6, flat, lat0, lon0, 8010, 1.2)
+        self.assertIn("fallback", info2)
+        self.assertAlmostEqual(sum(out2), 6 * 0.08 * 1.2, places=3)                     # own cell, still times the residual
+        c = OpenMeteoClient(blends=[], precip_correction={"residual": {"gem": 3.4, "icon": 1.1}, "residual_bounds": [0.5, 2.0]})
+        self.assertEqual((c._correction_residual("gem"), c._correction_residual("icon"), c._correction_residual("ukmo")), (2.0, 1.1, 1.0))
+        calls = []
+
+        def fake(points, om_id):
+            calls.append(om_id)
+            return [{"latitude": la, "longitude": lo, "elevation": 0.0 if k == 0 else 2000 + 40 * k,
+                     "hourly": {"time": times, "precipitation": [0.1] * 6}} for k, (la, lo) in enumerate(points)]
+        c._query_points = fake
+        pal = {"base": {"lat": 39.197, "lon": -120.2356}, "mid": {"lat": 39.198, "lon": -120.2791}, "summit": {"lat": 39.1982, "lon": -120.2873}}
+        alp = {"base": {"lat": 39.1645, "lon": -120.2386}, "mid": {"lat": 39.157, "lon": -120.24}, "summit": {"lat": 39.144, "lon": -120.248}}
+        n1 = c._fetch_neighborhoods(pal, ["ecmwf_ifs", "gfs_seamless"])
+        c._fetch_neighborhoods(alp, ["ecmwf_ifs", "gfs_seamless"])
+        self.assertEqual(calls, ["ecmwf_ifs", "gfs_seamless", "gfs_seamless"])      # the 9 km model's cells are reused for Alpine
+        self.assertEqual(len(n1["ecmwf_ifs"]), 9)
+        self.assertTrue(n1["ecmwf_ifs"][0]["lake"] and n1["ecmwf_ifs"][0]["z"] == 6225.0)
+
+    def test_corrected_single_output(self):
+        from collectors.open_meteo_client import OpenMeteoClient
+
+        class Stub(OpenMeteoClient):
+            def _assemble(self, m, parsed, *a):
+                return {"status": "success", "model": {"id": m["id"], "label": m["label"]},
+                        "primary_model": {"label": f"{m['label']} ({m['grid']})"}, "methodology": {}}
+
+        c = Stub(blends=[], precip_correction={"method": "line + residual", "fitted": {"seasons": "WY2023-WY2027"}, "residual": {"icon": 1.17}})
+        out = c._corrected_output({"id": "icon", "label": "ICON", "grid": "13 km"}, {}, {"residual": 1.17, "tiers": {}}, [], {}, True, "now")
+        self.assertEqual((out["model"]["id"], out["model"]["label"], out["model"]["corrected"]), ("icon", "ICON (corrected)", True))  # same id: the toggle swaps files
+        self.assertEqual(out["primary_model"]["label"], "ICON (13 km), precipitation corrected")
+        self.assertEqual(out["precip_correction"]["members"]["icon"]["residual"], 1.17)
+
+    def test_corrected_blend_members(self):
+        from collectors.open_meteo_client import OpenMeteoClient
+
+        class Stub(OpenMeteoClient):   # skip the summaries; this checks which members a blend takes
+            def _summarize_tier(self, steps, *a):
+                return {"steps": steps}
+
+            def _assemble(self, m, parsed, *a):
+                return {"status": "success", "model": dict(m), "primary_model": {}, "methodology": {}, "parsed": parsed}
+
+        tiers = {k: {"lat": 39.19, "lon": -120.27, "elevation_m": 2400} for k in ("base", "mid", "summit")}
+        steps = TestBlend._member(4, 1.0, 0.1, 25.0, 270)
+        corrected = {mid: {k: {"_steps": steps} for k in tiers} for mid in ("ecmwf_hres", "icon")}
+        outputs = {mid: {"status": "success", "model": {"runs": []}} for mid in ("ecmwf_hres", "icon", "nbm")}
+        outputs["nbm"]["elevation_timelines"] = {k: steps for k in tiers}
+        bl = {"id": "bc", "label": "Corrected blend", "members": {"ecmwf_hres": 1, "icon": 1, "nbm": 1}, "precip_correction": True, "min_weight_share": 0.5}
+        labels = {"base": "Base", "mid": "Mid", "summit": "Summit"}
+        bo = Stub(blends=[])._blend_output(bl, outputs, corrected, {}, {}, tiers, labels, {}, "now")
+        self.assertEqual([x["id"] for x in bo["blend"]["members"]], ["ecmwf_hres", "icon"])   # NBM has no correction: left out
+        self.assertEqual(bo["blend"]["missing"], ["NBM"])
+        bo2 = Stub(blends=[])._blend_output({**bl, "precip_correction": False}, outputs, corrected, {}, {}, tiers, labels, {}, "now")
+        self.assertEqual(len(bo2["blend"]["members"]), 3)                                    # a plain blend still takes NBM
+
+
+class TestModelList(unittest.TestCase):
+    """RRFS is a model and blend member but has no hindcast; the hindcast list doesn't follow the Equal blend."""
+
+    def test_hindcast_models_and_refit(self):
+        import tempfile
+        from unittest import mock
+        import blend_weights as bw
+        from collectors.open_meteo_client import MODELS
+        from collectors import precip_shift as ps
+        rr = next(m for m in MODELS if m["id"] == "rrfs")
+        self.assertEqual(rr["om"], "ncep_rrfs_conus")
+        self.assertIn("ncep_rrfs_conus", ps.GRID_STEP_DEG)                 # it gets the elevation shift
+        hm = bw.member_models()
+        self.assertNotIn("rrfs", hm)                                       # no hindcast
+        self.assertIn("gem", hm)                                           # still scored though out of the Equal blend
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Path(tmp) / "config"; cfg.mkdir()
+            (cfg / "sources.json").write_text(json.dumps({"blends": [{"id": "blend_skill", "label": "Skill", "members": {"icon": 1.1, "rrfs": 1.0, "gem": 0.9}}]}))
+            with mock.patch.object(bw, "BASE_DIR", Path(tmp)):
+                bw.apply_weights("blend_skill", {"icon": {"weight": 1.2, "mae": 0.4}, "gem": {"weight": 0.8, "mae": 0.6}},
+                                 {"lead": "short lead", "site_days": 10, "period": "test", "created": "2026-11-25T00:00:00"})
+            b = json.loads((cfg / "sources.json").read_text())["blends"][0]
+            self.assertEqual(b["members"], {"icon": 1.2, "gem": 0.8, "rrfs": 1.0})   # RRFS kept at the average weight
+            self.assertIn("rrfs unfitted", b["weights_note"])
+
+
+class TestSkillReport(unittest.TestCase):
+    """Storm grouping, out-of-sample bias correction, categorical scores, neighborhood estimates."""
+
+    def test_storms_and_correction(self):
+        from datetime import date
+        import skill_report as sr
+        st = sr.storms_from([{"date": "2025-02-12", "confirmed": True}, {"date": "2025-02-13", "confirmed": True},
+                             {"date": "2025-02-20", "confirmed": True}, {"date": "2025-02-21", "confirmed": False}])
+        self.assertEqual([len(s) for s in st], [2, 1])
+        recs = []
+        for wy in (2024, 2025, 2026):
+            for k in range(20):
+                obs = 0.2 + 0.05 * (k % 7)
+                recs.append({"site": "SQV", "day": date(wy - 1, 12, 1 + k), "wy": wy, "obs": obs,
+                             "fc": {"dry": obs * 0.6, "good": obs * 1.02}})
+        res = sr.evaluate(recs, [], ["dry", "good"])
+        self.assertLess(res["members_corrected"]["dry"]["day_mae"], 0.01)               # a constant 0.6x bias is removed
+        self.assertGreater(res["members_raw"]["dry"]["day_mae"], 0.1)
+        self.assertAlmostEqual(res["blends"]["equal corrected"]["day_bias"], 0.0, places=2)
+        cat = sr.categorical([(0.6, 0.7), (0.2, 0.8), (0.9, 0.1), (0.1, 0.1)], 0.5)
+        self.assertEqual((cat["hits"], cat["misses"], cat["false_alarms"]), (1, 1, 1))
+        self.assertAlmostEqual(cat["csi"], 1 / 3)
+
+    def test_neighborhood_estimates(self):
+        from datetime import datetime, timedelta, timezone
+        import neighborhood_hindcast as nh
+        from collectors.nbm_downscale import _xy, _cross
+        lat0, lon0 = nh.bw.HINDCAST_SITES["SQV"]
+        t0 = datetime(2026, 2, 15, 12, tzinfo=timezone.utc)
+        cells = {}
+        xc0 = _cross(*_xy(lat0, lon0))
+        for i, (di, dj, z) in enumerate([(0, 0, 7500), (1, 0, 7800), (-1, 0, 7000), (0, 1, 6800), (0, -1, 8100), (1, 1, 7300)]):
+            la, lo = lat0 + di * 0.03, lon0 + dj * 0.04
+            p = 1.0 + 0.4 * (z - 8010) / 1000 + 0.05 * (_cross(*_xy(la, lo)) - xc0)     # known field: +0.4 in per 1,000 ft
+            cells[(la, lo)] = {"lat": la, "lon": lo, "elev_ft": z, "center": i == 0,
+                               "series": {(t0 + timedelta(hours=k)).strftime("%Y-%m-%dT%H:%M"): p / 24 for k in range(1, 25)}}
+        est = nh.estimates_for_day(cells, "SQV", t0)
+        self.assertAlmostEqual(est["elev-line"], 1.0, places=2)                    # the field's value at the pillow (8,010 ft)
+        self.assertAlmostEqual(est["elev-match"], 1.0 + 0.4 * 0.09 + 0.05 * (_cross(*_xy(lat0, lon0 - 0.04)) - xc0), places=2)
+        self.assertLess(est["center"], est["elev-line"])                            # the lower center cell is drier

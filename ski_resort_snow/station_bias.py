@@ -2,7 +2,7 @@
 """How far off is the model at the resort stations? (TUNING_PLAN.md, temperature)
 
     python3 station_bias.py                 all logged pairs
-    python3 station_bias.py --model ecmwf_hres   one forecast model (nbm, ecmwf_hres, aifs, hrrr_gfs, icon,
+    python3 station_bias.py --model ecmwf_hres   one forecast model (nbm, ecmwf_hres, aifs, hrrr_gfs, rrfs, icon,
                                                  ukmo, gem; runs from Nov 24, 2026 on log every model)
 
 Every pipeline run logs the resort's base/mid/summit station readings next to the

@@ -191,21 +191,26 @@ async function ensureModel(resort) {
   let want = Prefs.get("model") || defId;
   if (avail.length && !avail.includes(want)) want = defId;
   resort._modelError = null;
-  if (want === defId) {
+  // corrected precipitation (toggle): the single models' <model>.corrected.json, when the refresh wrote one
+  const card = (def.available_models || []).find(m => m.id === want) || {};
+  const corr = !!Prefs.get("precipCorr") && !!card.corrected_available;
+  resort._corrected = corr;
+  if (want === defId && !corr) {
     resort.sources.open_meteo = def; resort.consensus_forecast = resort._consDefault; resort._modelId = defId;
     return;
   }
-  const key = `${resort.id}|${want}|${snowData.metadata.generated_at_utc}`;
+  const file = corr ? `${want}.corrected` : want;
+  const key = `${resort.id}|${file}|${snowData.metadata.generated_at_utc}`;
   if (!ModelCache[key]) {
     try {
-      const r = await fetch(`data/models/${resort.id}/${want}.json`, { cache: "no-store" });
+      const r = await fetch(`data/models/${resort.id}/${file}.json`, { cache: "no-store" });
       if (r.ok) ModelCache[key] = await r.json();
     } catch (e) { /* static file mode */ }
   }
   const m = ModelCache[key];
   if (!m) {
     resort._modelError = "Other models need the server (python3 server.py); showing the default model.";
-    resort.sources.open_meteo = def; resort.consensus_forecast = resort._consDefault; resort._modelId = defId;
+    resort.sources.open_meteo = def; resort.consensus_forecast = resort._consDefault; resort._modelId = defId; resort._corrected = false;
     return;
   }
   m.available_models = def.available_models;
@@ -221,14 +226,29 @@ function renderModelBar(resort) {
   const def = resort._omDefault || resort.sources.open_meteo || {};
   const list = def.available_models || [];
   const cur = resort._modelId;
+  const corrOn = !!Prefs.get("precipCorr");
   const runOf = m => {
     const r = (m.runs || []).find(x => x.run_init_utc);
     return r ? `${r.run_init_utc.slice(5, 10).replace("-", "/")} ${r.run_init_utc.slice(11, 13)}Z` : "run n/a";
   };
   box.innerHTML = list.map(m => `<button class="model-chip${m.id === cur ? " active" : ""}" role="tab" data-model="${m.id}" ${m.status !== "success" ? "disabled" : ""}
       title="${m.provider} · ${m.grid} · sounding: ${m.sounding_label}${m.sounding_has_vertical_velocity ? "" : " (no vertical velocity)"} · ${m.hours_available ?? "?"} h">
-      <b>${m.label}</b><small>${m.members ? `${m.members.length} models` : runOf(m)}${m.hours_available && m.hours_available < 160 ? ` · ${Math.round(m.hours_available / 24 * 10) / 10} d` : ""}</small></button>`).join("");
+      <b>${m.label}</b><small>${m.members ? `${m.members.length} models` : runOf(m)}${m.hours_available && m.hours_available < 160 ? ` · ${Math.round(m.hours_available / 24 * 10) / 10} d` : ""}${corrOn && m.corrected_available ? " · corr." : ""}</small></button>`).join("");
   box.querySelectorAll(".model-chip").forEach(b => b.addEventListener("click", () => { Prefs.set("model", b.dataset.model); renderDashboard(); }));
+  // corrected-precipitation toggle: applies to the six single models (NBM is already elevation-adjusted;
+  // the blends have their own Corrected blend entry)
+  const tg = document.getElementById("corr-toggle");
+  if (tg) {
+    const curCard = list.find(m => m.id === cur) || {};
+    const applies = !!curCard.corrected_available;
+    tg.hidden = !list.some(m => m.corrected_available);
+    tg.setAttribute("aria-pressed", String(corrOn));
+    tg.classList.toggle("on", corrOn);
+    tg.classList.toggle("na", corrOn && !applies);
+    document.getElementById("corr-toggle-state").textContent = !corrOn ? "off" : (applies ? "on" : "single models only");
+    tg.title = "Precipitation shifted to each tier's height through the model's neighboring grid cells, then times one multiplier per model fitted against the SQV and WC3 pillows. Applies to the six single models; NBM is already elevation-adjusted, and the Corrected blend is the corrected Equal blend.";
+    tg.onclick = () => { Prefs.set("precipCorr", !corrOn); renderDashboard(); };
+  }
   const om = resort.sources.open_meteo || {};
   const note = document.getElementById("model-note");
   const gp = om.nbm_grid_points;

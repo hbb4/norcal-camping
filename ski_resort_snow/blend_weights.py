@@ -160,11 +160,11 @@ SEASONS = [(2023, "2022-11-01", "2023-04-30"), (2024, "2023-11-01", "2024-04-30"
 
 
 def member_models():
+    """The Open-Meteo single models that have a hindcast: {id: Open-Meteo id}. Independent of which blends
+    use them (a model left out of the Equal blend is still scored); RRFS is too new for a hindcast."""
     sys.path.insert(0, str(BASE_DIR))
     from collectors.open_meteo_client import MODELS
-    cfg = json.loads((BASE_DIR / "config" / "sources.json").read_text()).get("blends") or []
-    members = next((b["members"] for b in cfg if b["id"] == "blend"), None) or {}
-    return {m["id"]: m["om"] for m in MODELS if m["id"] in members and m["om"]}
+    return {m["id"]: m["om"] for m in MODELS if m["om"] and m.get("hindcast", True)}
 
 
 def fetch_hindcast(om_id, site, lat, lon, start, end, lead_day=None):
@@ -239,8 +239,13 @@ def apply_weights(blend_id, stats, info):
     if b is None:
         b = {"id": blend_id, "label": APPLY_LABELS.get(blend_id, blend_id), "profile_from": "ecmwf_hres", "min_weight_share": 0.5}
         blends.append(b)
-    b["members"] = w
-    b["weights_note"] = f"weighted by {info['lead']} hindcast skill ({info['site_days']} site-days)"
+    # models with no hindcast (RRFS) stay in at the average weight rather than dropping out on a refit
+    from collectors.open_meteo_client import MODELS
+    unfitted = {m["id"] for m in MODELS if m["om"] and not m.get("hindcast", True)}
+    keep = {m: 1.0 for m in (b.get("members") or {}) if m in unfitted}
+    b["members"] = {**w, **keep}
+    b["weights_note"] = f"weighted by {info['lead']} hindcast skill ({info['site_days']} site-days)" + (
+        f"; {', '.join(sorted(keep))} unfitted at 1.0" if keep else "")
     b["description"] = (f"Beta. The six single models weighted by skill: weight = 1/MAE of each model's 12Z-12Z liquid against the SQV and WC3 pillows' "
                         f"snow-water gain on cold, wet days, scaled to average 1 ({info['lead']}; {info['period']}; {info['site_days']} site-days; "
                         f"blend_weights.py). Refit as the samples grow.")

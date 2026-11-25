@@ -68,10 +68,11 @@ class SnowAggregator:
         self.roads_cfg = self._load_json(self.config_dir / "roads.json")
 
         try:
-            blends = json.loads((Path(config_dir) / "sources.json").read_text()).get("blends")
+            src_cfg = json.loads((Path(config_dir) / "sources.json").read_text())
         except Exception:
-            blends = None
-        self.open_meteo = OpenMeteoClient(blends=blends)
+            src_cfg = {}
+        # blends, and the precipitation correction the "precip_correction" blends use (neighborhood_hindcast.py fit)
+        self.open_meteo = OpenMeteoClient(blends=src_cfg.get("blends"), precip_correction=src_cfg.get("precip_correction"))
         self.nws = NWSClient()
         self.cdec = CDECSnotelClient()
         self.resort_scraper = ResortScraper()
@@ -245,8 +246,10 @@ class SnowAggregator:
                     pass
             say(f"{name}: resort report", "done" if report["status"] == "success" else report["status"])
 
-            # Every model to its own file (loaded on demand by the page), each with its own consensus
-            model_archive[rid] = models
+            # Every model to its own file (loaded on demand by the page), each with its own consensus;
+            # the single models' precipitation-corrected versions beside them as <model>.corrected.json
+            corrected = om_all.get("corrected_models", {}) if models else {}
+            model_archive[rid] = {**models, **{f"{mid}_corrected": mo for mid, mo in corrected.items()}}
             model_dir = self.data_dir / "models" / rid
             model_dir.mkdir(parents=True, exist_ok=True)
             available = []
@@ -255,7 +258,14 @@ class SnowAggregator:
                 if mo.get("status") == "success":
                     mo["consensus_forecast"] = self._calculate_consensus(resort, mo, nws)
                     (model_dir / f"{mid}.json").write_text(json.dumps(mo))
-                available.append({**card, "status": mo.get("status"), "summary": mo.get("summit_summary"), "error": mo.get("error_message")})
+                entry = {**card, "status": mo.get("status"), "summary": mo.get("summit_summary"), "error": mo.get("error_message")}
+                co = corrected.get(mid)
+                if mo.get("status") == "success" and co and co.get("status") == "success":
+                    co["consensus_forecast"] = self._calculate_consensus(resort, co, nws)
+                    (model_dir / f"{mid}.corrected.json").write_text(json.dumps(co))
+                    entry["corrected_available"] = True
+                    entry["corrected_summary"] = co.get("summit_summary")
+                available.append(entry)
             if models:
                 om["available_models"] = available
                 om["scales"] = self._scales(models)

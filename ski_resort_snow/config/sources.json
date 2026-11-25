@@ -113,31 +113,50 @@
     {
       "id": "blend",
       "label": "Equal blend",
-      "description": "Equal-weight mean of the six single models (NBM is left out: it is already a blend). Members missing at an hour are dropped from that hour; the blend stops when under half the member weight remains. Profile panels use the ECMWF IFS column.",
+      "description": "Equal-weight mean of six single models: ECMWF HRES, ECMWF AIFS, HRRR/GFS, RRFS, ICON and UKMO. GEM is left out: on held-out seasons at the SQV and WC3 pillows the blend without it is slightly better (storm-total error 0.62 vs 0.63 in over 379 cold site-days; 0.71 vs 0.77 in on the 95 days with AIFS). NBM is left out because it is already a blend. RRFS (NOAA's 3 km Rapid Refresh Forecast System, operational since November 2026, 84 h runs) is a member at weight 1; it is too new for a hindcast, so it has no skill score or bias correction yet, and it drops out after 84 h. Members missing at an hour are dropped from that hour; the blend stops when under half the member weight remains. Profile panels use the ECMWF IFS column.",
       "members": {
         "ecmwf_hres": 1,
         "aifs": 1,
         "hrrr_gfs": 1,
+        "rrfs": 1,
         "icon": 1,
-        "ukmo": 1,
-        "gem": 1
+        "ukmo": 1
       },
       "profile_from": "ecmwf_hres",
       "min_weight_share": 0.5
     },
     {
+      "id": "blend_corrected",
+      "label": "Corrected blend",
+      "members": {
+        "ecmwf_hres": 1,
+        "aifs": 1,
+        "hrrr_gfs": 1,
+        "rrfs": 1,
+        "icon": 1,
+        "ukmo": 1,
+        "gem": 1
+      },
+      "precip_correction": true,
+      "profile_from": "ecmwf_hres",
+      "min_weight_share": 0.5,
+      "description": "Equal-weight mean of 7 single models with their precipitation corrected. Each model's precipitation at each tier comes from a distance-weighted line through its own 3x3 neighborhood of grid cells against cell height (and distance across the crest), evaluated at the tier's height but at most 1,000 ft above the highest cell, then times one residual multiplier per model (ECMWF HRES 1.04, ECMWF AIFS 1.25, HRRR/GFS 1.12, ICON 1.17, UKMO 1.24, GEM 1.71) fitted against the SQV and WC3 pillows over WY2023-WY2027 (neighborhood_hindcast.py fit). Snow follows from the corrected liquid through each model's own snow fraction and SLR; temperature, wind and the profile panels are the same as the Equal blend. RRFS: no hindcast yet, so the elevation shift only (multiplier 1.0).",
+      "weights_note": "precipitation elevation-shifted and bias-corrected"
+    },
+    {
       "id": "blend_skill",
       "label": "Skill blend (beta)",
-      "description": "Beta: weights fitted from a short-lead hindcast only (see fitted); they will be refit from the live per-model archive and longer-lead hindcasts before the beta label comes off. The six single models weighted by skill: weight = 1/MAE of each model's 12Z-12Z liquid against the SQV and WC3 pillows' snow-water gain on cold, wet days, scaled to average 1 (Open-Meteo Historical Forecast hindcast, 2025-03-01 to 2026-11-24, 62 site-days; blend_weights.py --hindcast). The five-model fit over WY2023 on ranks the members the same way. The hindcast uses short-lead runs, so the weights reflect day-1 skill.",
+      "description": "Beta: weights fitted from a short-lead hindcast only (see fitted); they will be refit from the live per-model archive and longer-lead hindcasts before the beta label comes off. The six single models weighted by skill: weight = 1/MAE of each model's 12Z-12Z liquid against the SQV and WC3 pillows' snow-water gain on cold, wet days, scaled to average 1 (Open-Meteo Historical Forecast hindcast, 2025-03-01 to 2026-11-24, 62 site-days; blend_weights.py --hindcast). The five-model fit over WY2023 on ranks the members the same way. The hindcast uses short-lead runs, so the weights reflect day-1 skill. RRFS is included at weight 1.0 (the average) until it has a hindcast to fit.",
       "members": {
         "ecmwf_hres": 0.98,
         "aifs": 1.12,
         "hrrr_gfs": 1.09,
+        "rrfs": 1.0,
         "icon": 1.17,
         "ukmo": 0.81,
         "gem": 0.82
       },
-      "weights_note": "weighted by hindcast skill (62 site-days)",
+      "weights_note": "weighted by hindcast skill (62 site-days); RRFS unfitted at 1.0",
       "profile_from": "ecmwf_hres",
       "min_weight_share": 0.5,
       "fitted": {
@@ -157,10 +176,11 @@
     {
       "id": "blend_short",
       "label": "Short-range blend",
-      "description": "NBM and HRRR/GFS as the major members, the other five models as minor ones. Weights: NBM 3 throughout; HRRR/GFS 4 through 18 h, falling linearly to 1 by 48 h (where HRRR hands over to GFS); ECMWF HRES, AIFS, ICON, UKMO and GEM 1 each. In the first 18 h NBM is 25% and HRRR/GFS 33% of the total; after 48 h NBM is 33%. NBM's hourly fields are the same NOAA product the NBH text bulletin is printed from. NBM already blends HRRR, GFS, ECMWF and others, so those models count twice here.",
+      "description": "NBM and HRRR/GFS as the major members, the other models as minor ones. Weights: NBM 3 throughout; HRRR/GFS 4 through 18 h, falling linearly to 1 by 48 h (where HRRR hands over to GFS); ECMWF HRES, AIFS, RRFS, ICON, UKMO and GEM 1 each. In the first 18 h NBM is 25% and HRRR/GFS 33% of the total; after 48 h NBM is 33%. NBM's hourly fields are the same NOAA product the NBH text bulletin is printed from. NBM already blends HRRR, GFS, ECMWF and others, so those models count twice here. RRFS (NOAA's 3 km Rapid Refresh Forecast System, operational since November 2026, 84 h runs) is a minor member; it is too new for a hindcast, so it has no skill score or bias correction yet, and it drops out after 84 h.",
       "members": {
         "nbm": 3,
         "hrrr_gfs": 1,
+        "rrfs": 1,
         "ecmwf_hres": 1,
         "aifs": 1,
         "icon": 1,
@@ -198,5 +218,198 @@
       "profile_from": "ecmwf_hres",
       "min_weight_share": 0.5
     }
-  ]
+  ],
+  "precip_correction": {
+    "method": "elevation line from each model's 3x3 neighborhood of grid cells (distance-weighted fit against cell height, plus distance across the crest), evaluated at the tier height (at most 1,000 ft beyond the cells), then one residual multiplier per model",
+    "residual": {
+      "ecmwf_hres": 1.04,
+      "aifs": 1.25,
+      "hrrr_gfs": 1.12,
+      "icon": 1.17,
+      "ukmo": 1.24,
+      "gem": 1.71
+    },
+    "residual_bounds": [
+      0.5,
+      2.0
+    ],
+    "fitted": {
+      "created": "2026-11-25",
+      "script": "neighborhood_hindcast.py fit",
+      "seasons": "WY2023-WY2027",
+      "pillows": [
+        "SQV",
+        "WC3"
+      ],
+      "cold_site_days": {
+        "ecmwf_hres": 395,
+        "aifs": 95,
+        "hrrr_gfs": 395,
+        "icon": 380,
+        "ukmo": 395,
+        "gem": 379
+      },
+      "residual_by_pillow": {
+        "ecmwf_hres": {
+          "SQV": 0.946,
+          "WC3": 1.307
+        },
+        "aifs": {
+          "SQV": 1.204,
+          "WC3": 1.358
+        },
+        "hrrr_gfs": {
+          "SQV": 1.038,
+          "WC3": 1.336
+        },
+        "icon": {
+          "SQV": 1.12,
+          "WC3": 1.27
+        },
+        "ukmo": {
+          "SQV": 1.074,
+          "WC3": 1.813
+        },
+        "gem": {
+          "SQV": 1.612,
+          "WC3": 1.953
+        }
+      },
+      "loso_equal_blend": {
+        "members": [
+          "ecmwf_hres",
+          "hrrr_gfs",
+          "icon",
+          "ukmo",
+          "gem"
+        ],
+        "cold_site_days": 379,
+        "single cell, raw": {
+          "day_mae": 0.516,
+          "day_bias": -0.306,
+          "storm_mae": 0.634,
+          "storm_bias": -0.391,
+          "day_csi": 0.62,
+          "day_pod": 0.69,
+          "day_far": 0.13
+        },
+        "elevation line, raw": {
+          "day_mae": 0.482,
+          "day_bias": -0.172,
+          "storm_mae": 0.543,
+          "storm_bias": -0.158,
+          "day_csi": 0.65,
+          "day_pod": 0.75,
+          "day_far": 0.18
+        },
+        "elevation line x pooled mult.": {
+          "day_mae": 0.455,
+          "day_bias": -0.005,
+          "storm_mae": 0.53,
+          "storm_bias": 0.118,
+          "day_csi": 0.71,
+          "day_pod": 0.83,
+          "day_far": 0.17
+        }
+      },
+      "loso_members": {
+        "ecmwf_hres": {
+          "cold_site_days": 395,
+          "storms": 54,
+          "own_cell": {
+            "day_mae": 0.507,
+            "day_bias": -0.295,
+            "storm_mae": 0.635,
+            "storm_bias": -0.415
+          },
+          "corrected": {
+            "day_mae": 0.474,
+            "day_bias": -0.0,
+            "storm_mae": 0.51,
+            "storm_bias": 0.119
+          }
+        },
+        "aifs": {
+          "cold_site_days": 95,
+          "storms": 11,
+          "own_cell": {
+            "day_mae": 0.439,
+            "day_bias": -0.275,
+            "storm_mae": 0.743,
+            "storm_bias": -0.483
+          },
+          "corrected": {
+            "day_mae": 0.401,
+            "day_bias": -0.035,
+            "storm_mae": 0.531,
+            "storm_bias": -0.032
+          }
+        },
+        "hrrr_gfs": {
+          "cold_site_days": 395,
+          "storms": 54,
+          "own_cell": {
+            "day_mae": 0.483,
+            "day_bias": -0.143,
+            "storm_mae": 0.634,
+            "storm_bias": -0.171
+          },
+          "corrected": {
+            "day_mae": 0.483,
+            "day_bias": -0.004,
+            "storm_mae": 0.588,
+            "storm_bias": 0.082
+          }
+        },
+        "icon": {
+          "cold_site_days": 380,
+          "storms": 51,
+          "own_cell": {
+            "day_mae": 0.48,
+            "day_bias": -0.244,
+            "storm_mae": 0.57,
+            "storm_bias": -0.3
+          },
+          "corrected": {
+            "day_mae": 0.472,
+            "day_bias": -0.008,
+            "storm_mae": 0.586,
+            "storm_bias": 0.139
+          }
+        },
+        "ukmo": {
+          "cold_site_days": 395,
+          "storms": 54,
+          "own_cell": {
+            "day_mae": 0.601,
+            "day_bias": -0.47,
+            "storm_mae": 0.811,
+            "storm_bias": -0.699
+          },
+          "corrected": {
+            "day_mae": 0.533,
+            "day_bias": -0.006,
+            "storm_mae": 0.566,
+            "storm_bias": 0.144
+          }
+        },
+        "gem": {
+          "cold_site_days": 379,
+          "storms": 51,
+          "own_cell": {
+            "day_mae": 0.599,
+            "day_bias": -0.349,
+            "storm_mae": 0.721,
+            "storm_bias": -0.413
+          },
+          "corrected": {
+            "day_mae": 0.503,
+            "day_bias": -0.001,
+            "storm_mae": 0.576,
+            "storm_bias": 0.06
+          }
+        }
+      }
+    }
+  }
 }
